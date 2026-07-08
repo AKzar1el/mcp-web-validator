@@ -55,13 +55,10 @@ export async function validateCssContent(cssContent: string): Promise<CSSMessage
     params.append("warning", "0"); // Hide warnings to focus on errors
     params.append("profile", "css3svg");
 
-    const response = await fetch(url, {
-      method: "POST",
+    const response = await fetch(`${url}?${params.toString()}`, {
       headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
         "User-Agent": "Mozilla/5.0 (MCP Web Validator)",
       },
-      body: params.toString(),
     });
 
     if (!response.ok) {

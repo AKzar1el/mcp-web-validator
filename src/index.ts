@@ -9,6 +9,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { validateHtmlContent, validateCssContent } from "./w3c-validator.js";
 import { auditSeoMetadata, validateSchemaMarkup, checkBrokenLinks } from "./seo-auditor.js";
+import { captureScreenshots } from "./screenshot.js";
 
 // Initialize MCP Server
 const server = new Server(
@@ -137,6 +138,37 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["htmlFilePath"],
         },
       },
+      {
+        name: "capture_screenshots",
+        description: "Renders a local HTML file or remote URL using Puppeteer and captures screenshots at different viewport sizes (desktop, tablet, mobile).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            targetPath: {
+              type: "string",
+              description: "Path to the local HTML file or remote URL (e.g. http:// or https://) to screenshot.",
+            },
+            outputDir: {
+              type: "string",
+              description: "Optional absolute or relative directory path where screenshots will be saved. Defaults to '.mcp-validator/screenshots'.",
+            },
+            viewports: {
+              type: "array",
+              description: "Optional list of custom viewports to capture. Each viewport object must have name, width, and height.",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string", description: "Name of the viewport (e.g., mobile-portrait)." },
+                  width: { type: "number", description: "Width in pixels." },
+                  height: { type: "number", description: "Height in pixels." }
+                },
+                required: ["name", "width", "height"]
+              }
+            }
+          },
+          required: ["targetPath"]
+        }
+      }
     ],
   };
 });
@@ -436,6 +468,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: "text",
               text: report.join("\n"),
+            },
+          ],
+        };
+      }
+
+      case "capture_screenshots": {
+        const targetPath = String(args?.targetPath);
+        const outputDir = args?.outputDir ? String(args.outputDir) : ".mcp-validator/screenshots";
+        const viewports = args?.viewports as any[] | undefined;
+
+        const resolvedOutputDir = path.resolve(outputDir);
+        const results = await captureScreenshots(targetPath, resolvedOutputDir, viewports);
+
+        const responseText = [
+          `# 📸 Viewport Screenshot Generation Complete`,
+          `Captured **${results.length}** viewport rendering(s):`,
+          ``,
+          `| Viewport | Dimensions | Output Path |`,
+          `| :--- | :---: | :--- |`,
+          ...results.map(r => `| **${r.viewportName}** | ${r.width}x${r.height} px | [${path.basename(r.outputPath)}](file:///${r.outputPath.replace(/\\/g, "/")}) |`),
+          ``,
+          `> [!NOTE]`,
+          `> Screenshots have been saved successfully to [${outputDir}](file:///${resolvedOutputDir.replace(/\\/g, "/")})`
+        ].join("\n");
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: responseText,
             },
           ],
         };

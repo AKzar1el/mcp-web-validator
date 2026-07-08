@@ -16,6 +16,7 @@ AI models write a lot of markup, but they cannot verify if it's syntactically va
 - **Technical SEO Check**: Audits title/description lengths, viewport responsiveness, heading hierarchies, Open Graph metadata, and image alt attributes.
 - **Broken Link Checker**: Scans HTML documents for broken internal or external URLs.
 - **Schema Validator**: Parses and validates embedded JSON-LD structured schemas.
+- **Visual Viewport Audits**: Uses a headless Puppeteer browser locally to capture responsive layout screenshots (desktop, tablet, mobile) for design auditing.
 
 ---
 
@@ -42,6 +43,9 @@ AI models write a lot of markup, but they cannot verify if it's syntactically va
 7. `generate_validation_report`
    - **Arguments**: `htmlFilePath: string`, `cssFilePath?: string`, `baseUrl?: string`
    - **Description**: Automatically runs all checks (HTML/CSS syntax, SEO audit, JSON-LD, broken links) and generates a unified Markdown report card styled with PageSpeed-inspired scoring.
+8. `capture_screenshots`
+   - **Arguments**: `targetPath: string` (Path to local HTML file or HTTP(S) URL), `outputDir?: string`, `viewports?: Array<{ name: string, width: number, height: number }>`
+   - **Description**: Renders the target in a local headless browser and saves screenshots across desktop, tablet, and mobile views.
 
 ---
 

@@ -6,3 +6,5 @@ yarn-error.log*
 .env
 .DS_Store
 *.tsbuildinfo
+.mcp-validator/
+screenshots-test/

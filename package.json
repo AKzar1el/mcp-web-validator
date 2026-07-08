@@ -32,7 +32,8 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.1",
-    "cheerio": "^1.0.0"
+    "cheerio": "^1.0.0",
+    "puppeteer": "^25.3.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

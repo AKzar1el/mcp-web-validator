@@ -1,5 +1,6 @@
 import { validateHtmlContent, validateCssContent } from "./dist/w3c-validator.js";
 import { auditSeoMetadata, validateSchemaMarkup, checkBrokenLinks } from "./dist/seo-auditor.js";
+import { captureScreenshots } from "./dist/screenshot.js";
 import * as fs from "fs/promises";
 import * as path from "path";
 
@@ -9,7 +10,7 @@ const target = args[1];
 
 async function run() {
   if (!command || !target) {
-    console.log("Usage: node test_tool.js <html|css|seo|links|schema> <file_path_or_url>");
+    console.log("Usage: node test_tool.js <html|css|seo|links|schema|report|screenshot> <file_path_or_url>");
     process.exit(0);
   }
 
@@ -155,6 +156,14 @@ async function run() {
         }
 
         console.log(report.join("\n"));
+        break;
+      }
+      case "screenshot": {
+        const outputDir = path.resolve("./screenshots-test");
+        console.log(`Starting viewport screenshots generation for "${target}" to folder "${outputDir}"...`);
+        const results = await captureScreenshots(target, outputDir);
+        console.log("Screenshot Capture Complete! Results:");
+        console.log(JSON.stringify(results, null, 2));
         break;
       }
       default:

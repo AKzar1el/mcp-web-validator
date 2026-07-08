@@ -1,0 +1,28 @@
+name: "Web Validator & SEO Audit"
+description: "W3C HTML/CSS Validator, schema/JSON-LD checker, and Technical SEO Audit MCP Server."
+homepage: "https://github.com/AKzar1el/mcp-web-validator"
+iconUrl: "https://raw.githubusercontent.com/AKzar1el/mcp-web-validator/main/icon.jpg"
+categories:
+  - "SEO"
+  - "Validation"
+  - "Developer Tools"
+tags:
+  - "seo"
+  - "html-validator"
+  - "css-validator"
+  - "w3c"
+  - "technical-seo"
+  - "accessibility"
+
+startCommand:
+  type: stdio
+
+configSchema:
+  type: object
+  properties: {}
+
+commandFunction: |-
+  (config) => ({
+    command: 'node',
+    args: ['./dist/index.js']
+  })

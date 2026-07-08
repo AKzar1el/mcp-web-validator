@@ -29,7 +29,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
-        name: "validate_local_html",
+        name: "html.validate_local",
         description: "Validates a local HTML file against the official W3C Nu HTML Checker API. Catches syntax, tags, and compliance errors.",
         inputSchema: {
           type: "object",
@@ -69,7 +69,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       {
-        name: "validate_url",
+        name: "html.validate_url",
         description: "Validates the markup of a live public URL using the W3C HTML validation engine.",
         inputSchema: {
           type: "object",
@@ -109,7 +109,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       {
-        name: "validate_local_css",
+        name: "css.validate_local",
         description: "Validates a local CSS file against the W3C Jigsaw CSS Validator API. Finds styling syntax errors.",
         inputSchema: {
           type: "object",
@@ -147,7 +147,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       {
-        name: "audit_seo_metadata",
+        name: "seo.audit_metadata",
         description: "Runs a fast offline audit of HTML metadata, heading structure, viewport responsive tags, image alt tags, and Open Graph cards.",
         inputSchema: {
           type: "object",
@@ -186,7 +186,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       {
-        name: "check_broken_links",
+        name: "links.check_broken",
         description: "Extracts all links (a href tags) in the HTML content and tests their HTTP status codes to detect broken internal or external URLs.",
         inputSchema: {
           type: "object",
@@ -229,7 +229,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       {
-        name: "validate_schema_markup",
+        name: "schema.validate_markup",
         description: "Finds and validates the JSON-LD schema blocks within the HTML, catching syntax issues.",
         inputSchema: {
           type: "object",
@@ -267,7 +267,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       {
-        name: "generate_validation_report",
+        name: "report.generate_validation",
         description: "Runs all validation checks (HTML, CSS, SEO, Schema, Links) on local files and aggregates them into a beautifully formatted Markdown report with summary tables.",
         inputSchema: {
           type: "object",
@@ -311,7 +311,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         }
       },
       {
-        name: "capture_screenshots",
+        name: "screenshot.capture",
         description: "Renders a local HTML file or remote URL using Puppeteer and captures screenshots at different viewport sizes (desktop, tablet, mobile).",
         inputSchema: {
           type: "object",
@@ -373,7 +373,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     switch (name) {
-      case "validate_local_html": {
+      case "html.validate_local": {
         const filePath = String(args?.filePath);
         const resolvedPath = path.resolve(filePath);
         
@@ -401,7 +401,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
-      case "validate_url": {
+      case "html.validate_url": {
         const url = String(args?.url);
         try {
           const response = await fetch(url);
@@ -439,7 +439,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
-      case "validate_local_css": {
+      case "css.validate_local": {
         const filePath = String(args?.filePath);
         const resolvedPath = path.resolve(filePath);
         
@@ -467,7 +467,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
-      case "audit_seo_metadata": {
+      case "seo.audit_metadata": {
         const htmlContent = String(args?.htmlContent);
         const issues = auditSeoMetadata(htmlContent);
         return {
@@ -480,7 +480,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "check_broken_links": {
+      case "links.check_broken": {
         const htmlContent = String(args?.htmlContent);
         const baseUrl = args?.baseUrl ? String(args.baseUrl) : undefined;
         const linkStatuses = await checkBrokenLinks(htmlContent, baseUrl);
@@ -494,7 +494,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "validate_schema_markup": {
+      case "schema.validate_markup": {
         const htmlContent = String(args?.htmlContent);
         const issues = validateSchemaMarkup(htmlContent);
         return {
@@ -507,7 +507,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "generate_validation_report": {
+      case "report.generate_validation": {
         const htmlFilePath = String(args?.htmlFilePath);
         const cssFilePath = args?.cssFilePath ? String(args.cssFilePath) : undefined;
         const baseUrl = args?.baseUrl ? String(args.baseUrl) : undefined;
@@ -667,7 +667,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case "capture_screenshots": {
+      case "screenshot.capture": {
         const targetPath = String(args?.targetPath);
         const outputDir = args?.outputDir ? String(args.outputDir) : ".mcp-validator/screenshots";
         const viewports = args?.viewports as any[] | undefined;

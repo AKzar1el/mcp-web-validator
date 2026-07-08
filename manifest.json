@@ -25,35 +25,144 @@
   "tools": [
     {
       "name": "validate_local_html",
-      "description": "Validates local HTML syntax and structure using the official W3C Nu HTML Checker."
+      "description": "Validates a local HTML file against the official W3C Nu HTML Checker API. Catches syntax, tags, and compliance errors.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "filePath": {
+            "type": "string",
+            "description": "Absolute or relative path to the local HTML file."
+          }
+        },
+        "required": ["filePath"]
+      }
     },
     {
       "name": "validate_url",
-      "description": "Validates live website HTML syntax and structure by URL using the official W3C Nu HTML Checker."
+      "description": "Validates the markup of a live public URL using the W3C HTML validation engine.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The live URL to validate (must start with http:// or https://)."
+          }
+        },
+        "required": ["url"]
+      }
     },
     {
       "name": "validate_local_css",
-      "description": "Checks local CSS syntax and W3C Jigsaw compliance."
+      "description": "Validates a local CSS file against the W3C Jigsaw CSS Validator API. Finds styling syntax errors.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "filePath": {
+            "type": "string",
+            "description": "Absolute or relative path to the local CSS file."
+          }
+        },
+        "required": ["filePath"]
+      }
     },
     {
       "name": "audit_seo_metadata",
-      "description": "Runs local technical SEO audits for titles, descriptions, headings, images, and Open Graph tags."
+      "description": "Runs a fast offline audit of HTML metadata, heading structure, viewport responsive tags, image alt tags, and Open Graph cards.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "htmlContent": {
+            "type": "string",
+            "description": "The raw HTML string content to analyze."
+          }
+        },
+        "required": ["htmlContent"]
+      }
     },
     {
       "name": "check_broken_links",
-      "description": "Scans HTML files to detect broken internal or external hyperlinks and return status codes."
+      "description": "Extracts all links (a href tags) in the HTML content and tests their HTTP status codes to detect broken internal or external URLs.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "htmlContent": {
+            "type": "string",
+            "description": "The raw HTML string content to inspect."
+          },
+          "baseUrl": {
+            "type": "string",
+            "description": "Optional base URL to resolve relative paths (e.g., https://example.com)."
+          }
+        },
+        "required": ["htmlContent"]
+      }
     },
     {
       "name": "validate_schema_markup",
-      "description": "Identifies and validates JSON-LD structured schema blocks for syntax and standards."
+      "description": "Finds and validates the JSON-LD schema blocks within the HTML, catching syntax issues.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "htmlContent": {
+            "type": "string",
+            "description": "The raw HTML containing <script type=\"application/ld+json\"> blocks."
+          }
+        },
+        "required": ["htmlContent"]
+      }
     },
     {
       "name": "generate_validation_report",
-      "description": "Runs all validators and builds a unified PageSpeed-inspired markdown report card."
+      "description": "Runs all validation checks (HTML, CSS, SEO, Schema, Links) on local files and aggregates them into a beautifully formatted Markdown report with summary tables.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "htmlFilePath": {
+            "type": "string",
+            "description": "Absolute or relative path to the local HTML file to validate."
+          },
+          "cssFilePath": {
+            "type": "string",
+            "description": "Optional absolute or relative path to the local CSS file to validate."
+          },
+          "baseUrl": {
+            "type": "string",
+            "description": "Optional base URL to resolve relative link paths."
+          }
+        },
+        "required": ["htmlFilePath"]
+      }
     },
     {
       "name": "capture_screenshots",
-      "description": "Launches local headless Puppeteer to capture layout screenshots at multiple responsive viewports."
+      "description": "Renders a local HTML file or remote URL using Puppeteer and captures screenshots at different viewport sizes (desktop, tablet, mobile).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "targetPath": {
+            "type": "string",
+            "description": "Path to the local HTML file or remote URL (e.g. http:// or https://) to screenshot."
+          },
+          "outputDir": {
+            "type": "string",
+            "description": "Optional absolute or relative directory path where screenshots will be saved. Defaults to '.mcp-validator/screenshots'."
+          },
+          "viewports": {
+            "type": "array",
+            "description": "Optional list of custom viewports to capture. Each viewport object must have name, width, and height.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string", "description": "Name of the viewport (e.g., mobile-portrait)." },
+                "width": { "type": "number", "description": "Width in pixels." },
+                "height": { "type": "number", "description": "Height in pixels." }
+              },
+              "required": ["name", "width", "height"]
+            }
+          }
+        },
+        "required": ["targetPath"]
+      }
     }
   ]
 }

@@ -1,0 +1,37 @@
+{
+  "name": "mcp-web-validator",
+  "version": "1.0.0",
+  "description": "W3C HTML/CSS Validator and Technical SEO Audit MCP Server for AI coding assistants.",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-web-validator": "dist/index.js"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "w3c",
+    "validator",
+    "html-validator",
+    "seo",
+    "seo-audit",
+    "accessibility"
+  ],
+  "author": "AKzar1el",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.1",
+    "cheerio": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3"
+  }
+}

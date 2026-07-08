@@ -61,9 +61,38 @@ async function run() {
         const schemaErrCount = schemaIssues.filter(i => i.severity === "error").length;
         const brokenLinkCount = linkStatuses.filter(l => !l.ok).length;
 
+        // Calculate Scores (PageSpeed style: Base 100)
+        let htmlScore = 100 - (htmlErrCount * 15) - (htmlWarnCount * 2);
+        let seoScore = 100 - (seoErrCount * 15) - (seoWarnCount * 4) - (schemaErrCount * 15);
+        let linkScore = linkStatuses.length > 0 ? (100 - (brokenLinkCount * 25)) : 100;
+
+        // Clamp to [0, 100]
+        htmlScore = Math.max(0, Math.min(100, htmlScore));
+        seoScore = Math.max(0, Math.min(100, seoScore));
+        linkScore = Math.max(0, Math.min(100, linkScore));
+
+        const getCircle = (score) => {
+          if (score >= 90) return "🟢";
+          if (score >= 50) return "🟠";
+          return "🔴";
+        };
+
+        const overallScore = Math.round((htmlScore + seoScore + linkScore) / 3);
+
         const report = [
           `# 📋 Web Validation & SEO Audit Report`,
           `*Generated for: \`${path.basename(target)}\`*`,
+          ``,
+          `## ⚡ Page Health Scores (PageSpeed Inspired)`,
+          `### Overall Score: ${getCircle(overallScore)} **${overallScore}** / 100`,
+          ``,
+          `| Score Card | Status | Score |`,
+          `| :--- | :---: | :---: |`,
+          `| **W3C HTML Validation** | ${getCircle(htmlScore)} ${htmlScore >= 90 ? "Excellent" : (htmlScore >= 50 ? "Needs Work" : "Poor")} | **${htmlScore}** / 100 |`,
+          `| **SEO & Accessibility** | ${getCircle(seoScore)} ${seoScore >= 90 ? "Optimized" : (seoScore >= 50 ? "Warnings" : "Poor")} | **${seoScore}** / 100 |`,
+          `| **Links Integrity** | ${linkStatuses.length > 0 ? `${getCircle(linkScore)} ${linkScore >= 90 ? "All Good" : "Broken Links"}` : "ℹ️ No Links"} | ${linkStatuses.length > 0 ? `**${linkScore}** / 100` : "N/A"} |`,
+          ``,
+          `---`,
           ``,
           `## 📊 Summary Overview`,
           `| Audit Category | Status | Details |`,

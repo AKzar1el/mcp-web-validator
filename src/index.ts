@@ -42,19 +42,26 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["filePath"],
         },
         outputSchema: {
-          type: "array",
-          description: "List of HTML validation error and warning objects returned from W3C.",
-          items: {
-            type: "object",
-            properties: {
-              type: { "type": "string", "description": "The category of message: 'error', 'info', or 'non-document-error'." },
-              message: { "type": "string", "description": "The specific validation or parsing error message." },
-              extract: { "type": "string", "description": "The HTML snippet around the validation location." },
-              lastLine: { "type": "number", "description": "Line number where the issue occurred." },
-              lastColumn: { "type": "number", "description": "Column number where the issue occurred." }
-            },
-            required: ["type", "message"]
-          }
+          type: "object",
+          description: "Validation result containing W3C HTML parser validation messages.",
+          properties: {
+            errors: {
+              type: "array",
+              description: "List of HTML validation error and warning objects returned from W3C.",
+              items: {
+                type: "object",
+                properties: {
+                  type: { "type": "string", "description": "The category of message: 'error', 'info', or 'non-document-error'." },
+                  message: { "type": "string", "description": "The specific validation or parsing error message." },
+                  extract: { "type": "string", "description": "The HTML snippet around the validation location." },
+                  lastLine: { "type": "number", "description": "Line number where the issue occurred." },
+                  lastColumn: { "type": "number", "description": "Column number where the issue occurred." }
+                },
+                required: ["type", "message"]
+              }
+            }
+          },
+          required: ["errors"]
         },
         annotations: {
           readOnlyHint: true,
@@ -75,19 +82,26 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["url"],
         },
         outputSchema: {
-          type: "array",
-          description: "List of HTML validation error and warning objects returned from W3C.",
-          items: {
-            type: "object",
-            properties: {
-              type: { "type": "string", "description": "The category of message: 'error', 'info', or 'non-document-error'." },
-              message: { "type": "string", "description": "The specific validation or parsing error message." },
-              extract: { "type": "string", "description": "The HTML snippet around the validation location." },
-              lastLine: { "type": "number", "description": "Line number where the issue occurred." },
-              lastColumn: { "type": "number", "description": "Column number where the issue occurred." }
-            },
-            required: ["type", "message"]
-          }
+          type: "object",
+          description: "Validation result containing W3C HTML parser validation messages.",
+          properties: {
+            errors: {
+              type: "array",
+              description: "List of HTML validation error and warning objects returned from W3C.",
+              items: {
+                type: "object",
+                properties: {
+                  type: { "type": "string", "description": "The category of message: 'error', 'info', or 'non-document-error'." },
+                  message: { "type": "string", "description": "The specific validation or parsing error message." },
+                  extract: { "type": "string", "description": "The HTML snippet around the validation location." },
+                  lastLine: { "type": "number", "description": "Line number where the issue occurred." },
+                  lastColumn: { "type": "number", "description": "Column number where the issue occurred." }
+                },
+                required: ["type", "message"]
+              }
+            }
+          },
+          required: ["errors"]
         },
         annotations: {
           readOnlyHint: true,
@@ -108,17 +122,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["filePath"],
         },
         outputSchema: {
-          type: "array",
-          description: "List of CSS validation errors from W3C Jigsaw API.",
-          items: {
-            type: "object",
-            properties: {
-              line: { "type": "number", "description": "Line number of the CSS error." },
-              context: { "type": "string", "description": "The CSS selector or context where the error occurred." },
-              message: { "type": "string", "description": "The specific CSS validation warning or error message." }
-            },
-            required: ["line", "message"]
-          }
+          type: "object",
+          description: "CSS validation results.",
+          properties: {
+            errors: {
+              type: "array",
+              description: "List of CSS validation errors from W3C Jigsaw API.",
+              items: {
+                type: "object",
+                properties: {
+                  line: { "type": "number", "description": "Line number of the CSS error." },
+                  context: { "type": "string", "description": "The CSS selector or context where the error occurred." },
+                  message: { "type": "string", "description": "The specific CSS validation warning or error message." }
+                },
+                required: ["line", "message"]
+              }
+            }
+          },
+          required: ["errors"]
         },
         annotations: {
           readOnlyHint: true,
@@ -139,18 +160,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["htmlContent"],
         },
         outputSchema: {
-          type: "array",
-          description: "List of audited Technical SEO issues, warnings, and error indicators.",
-          items: {
-            type: "object",
-            properties: {
-              category: { "type": "string", "description": "SEO audit category (e.g. metadata, structure, accessibility)." },
-              severity: { "type": "string", "description": "Severity of the issue: 'error' or 'warning'." },
-              message: { "type": "string", "description": "Detailed explanation of the SEO issue." },
-              element: { "type": "string", "description": "Relevant HTML snippet or element if applicable." }
-            },
-            required: ["category", "severity", "message"]
-          }
+          type: "object",
+          description: "Audited Technical SEO results.",
+          properties: {
+            issues: {
+              type: "array",
+              description: "List of audited Technical SEO issues, warnings, and error indicators.",
+              items: {
+                type: "object",
+                properties: {
+                  category: { "type": "string", "description": "SEO audit category (e.g. metadata, structure, accessibility)." },
+                  severity: { "type": "string", "description": "Severity of the issue: 'error' or 'warning'." },
+                  message: { "type": "string", "description": "Detailed explanation of the SEO issue." },
+                  element: { "type": "string", "description": "Relevant HTML snippet or element if applicable." }
+                },
+                required: ["category", "severity", "message"]
+              }
+            }
+          },
+          required: ["issues"]
         },
         annotations: {
           readOnlyHint: true,
@@ -175,18 +203,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["htmlContent"],
         },
         outputSchema: {
-          type: "array",
-          description: "Status details of all checked links on the page.",
-          items: {
-            type: "object",
-            properties: {
-              url: { "type": "string", "description": "The destination URL that was tested." },
-              status: { "type": "number", "description": "HTTP status code response (e.g., 200, 404)." },
-              ok: { "type": "boolean", "description": "Whether the link is reachable and returned a successful status code." },
-              message: { "type": "string", "description": "Reachable status details or error description." }
-            },
-            required: ["url", "status", "ok"]
-          }
+          type: "object",
+          description: "Reachability report of page links.",
+          properties: {
+            links: {
+              type: "array",
+              description: "Status details of all checked links on the page.",
+              items: {
+                type: "object",
+                properties: {
+                  url: { "type": "string", "description": "The destination URL that was tested." },
+                  status: { "type": "number", "description": "HTTP status code response (e.g., 200, 404)." },
+                  ok: { "type": "boolean", "description": "Whether the link is reachable and returned a successful status code." },
+                  message: { "type": "string", "description": "Reachable status details or error description." }
+                },
+                required: ["url", "status", "ok"]
+              }
+            }
+          },
+          required: ["links"]
         },
         annotations: {
           readOnlyHint: true,
@@ -207,17 +242,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["htmlContent"],
         },
         outputSchema: {
-          type: "array",
-          description: "List of parsed JSON-LD validation results.",
-          items: {
-            type: "object",
-            properties: {
-              category: { "type": "string", "description": "Always 'Schema Markup'." },
-              severity: { "type": "string", "description": "Severity level: 'error' or 'warning'." },
-              message: { "type": "string", "description": "Validation message explaining JSON parsing errors or schema problems." }
-            },
-            required: ["category", "severity", "message"]
-          }
+          type: "object",
+          description: "Parsed JSON-LD validation report.",
+          properties: {
+            issues: {
+              type: "array",
+              description: "List of parsed JSON-LD validation results.",
+              items: {
+                type: "object",
+                properties: {
+                  category: { "type": "string", "description": "Always 'Schema Markup'." },
+                  severity: { "type": "string", "description": "Severity level: 'error' or 'warning'." },
+                  message: { "type": "string", "description": "Validation message explaining JSON parsing errors or schema problems." }
+                },
+                required: ["category", "severity", "message"]
+              }
+            }
+          },
+          required: ["issues"]
         },
         annotations: {
           readOnlyHint: true,

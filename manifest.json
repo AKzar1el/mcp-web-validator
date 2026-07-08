@@ -1,8 +1,23 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.AKzar1el/mcp-web-validator",
-  "title": "Web Validator & SEO Audit",
-  "description": "W3C HTML/CSS Validator, schema/JSON-LD checker, and Technical SEO Audit MCP Server.",
+  "manifest_version": "0.2",
+  "name": "mcp-web-validator",
+  "display_name": "Web Validator & SEO Audit",
+  "version": "1.0.0",
+  "description": "W3C HTML/CSS Validator and Technical SEO Audit MCP Server for AI coding assistants.",
+  "author": {
+    "name": "AKzar1el",
+    "url": "https://github.com/AKzar1el"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AKzar1el/mcp-web-validator"
+  },
+  "homepage": "https://github.com/AKzar1el/mcp-web-validator",
+  "license": "MIT",
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js"
+  },
   "tools": [
     {
       "name": "validate_local_html",
@@ -36,17 +51,5 @@
       "name": "capture_screenshots",
       "description": "Launches local headless Puppeteer to capture layout screenshots at multiple responsive viewports."
     }
-  ],
-  "version": "1.0.0",
-  "repository": {
-    "url": "https://github.com/AKzar1el/mcp-web-validator",
-    "source": "github"
-  },
-  "websiteUrl": "https://github.com/AKzar1el/mcp-web-validator#readme",
-  "_meta": {
-    "io.modelcontextprotocol.registry/publisher-provided": {
-      "license": "MIT",
-      "tags": ["seo", "html-validator", "css-validator", "w3c", "technical-seo", "accessibility"]
-    }
-  }
+  ]
 }

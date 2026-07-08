@@ -3,10 +3,6 @@
 [![npm version](https://img.shields.io/npm/v/mcp-web-validator.svg)](https://www.npmjs.com/package/mcp-web-validator)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-<p align="center">
-  <img src="assets/demo_mockup.jpg" alt="MCP Web Validator Mockup" width="800">
-</p>
-
 A **Model Context Protocol (MCP) server** that empowers AI coding assistants (like Claude, Cursor, ChatGPT, etc.) to validate HTML/CSS markup against the official W3C specification engine and perform technical SEO/accessibility audits directly inside local workspaces.
 
 ---

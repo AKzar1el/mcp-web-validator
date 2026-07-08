@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.AKzar1el/mcp-web-validator",
+  "title": "Web Validator & SEO Audit",
+  "description": "W3C HTML/CSS Validator, schema/JSON-LD checker, and Technical SEO Audit MCP Server.",
+  "version": "1.0.0",
+  "repository": {
+    "url": "https://github.com/AKzar1el/mcp-web-validator",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/AKzar1el/mcp-web-validator#readme",
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "license": "MIT",
+      "tags": ["seo", "html-validator", "css-validator", "w3c", "technical-seo", "accessibility"]
+    }
+  }
+}

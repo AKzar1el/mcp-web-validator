@@ -39,6 +39,9 @@ AI models write a lot of markup, but they cannot verify if it's syntactically va
 6. `validate_schema_markup`
    - **Arguments**: `htmlContent: string`
    - **Description**: Validates JSON-LD schema syntax.
+7. `generate_validation_report`
+   - **Arguments**: `htmlFilePath: string`, `cssFilePath?: string`, `baseUrl?: string`
+   - **Description**: Automatically runs all checks (HTML/CSS syntax, SEO audit, JSON-LD, broken links) and generates a unified Markdown report card styled with PageSpeed-inspired scoring.
 
 ---
 

@@ -114,6 +114,28 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["htmlContent"],
         },
       },
+      {
+        name: "generate_validation_report",
+        description: "Runs all validation checks (HTML, CSS, SEO, Schema, Links) on local files and aggregates them into a beautifully formatted Markdown report with summary tables.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            htmlFilePath: {
+              type: "string",
+              description: "Absolute or relative path to the local HTML file to validate.",
+            },
+            cssFilePath: {
+              type: "string",
+              description: "Optional absolute or relative path to the local CSS file to validate.",
+            },
+            baseUrl: {
+              type: "string",
+              description: "Optional base URL to resolve relative link paths.",
+            },
+          },
+          required: ["htmlFilePath"],
+        },
+      },
     ],
   };
 });
@@ -253,6 +275,134 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: "text",
               text: JSON.stringify(issues, null, 2),
+            },
+          ],
+        };
+      }
+
+      case "generate_validation_report": {
+        const htmlFilePath = String(args?.htmlFilePath);
+        const cssFilePath = args?.cssFilePath ? String(args.cssFilePath) : undefined;
+        const baseUrl = args?.baseUrl ? String(args.baseUrl) : undefined;
+
+        const resolvedHtmlPath = path.resolve(htmlFilePath);
+        const htmlContent = await fs.readFile(resolvedHtmlPath, "utf-8");
+
+        // Runs checks
+        const htmlErrors = await validateHtmlContent(htmlContent);
+        const seoIssues = auditSeoMetadata(htmlContent);
+        const schemaIssues = validateSchemaMarkup(htmlContent);
+        const linkStatuses = await checkBrokenLinks(htmlContent, baseUrl);
+
+        let cssErrors: any[] = [];
+        if (cssFilePath) {
+          try {
+            const resolvedCssPath = path.resolve(cssFilePath);
+            const cssContent = await fs.readFile(resolvedCssPath, "utf-8");
+            cssErrors = await validateCssContent(cssContent);
+          } catch (e: any) {
+            cssErrors = [{ line: 0, type: "error", message: `Failed to read CSS: ${e.message}` }];
+          }
+        }
+
+        // Generate Report Markdown
+        const htmlErrCount = htmlErrors.filter(e => e.type === "error").length;
+        const htmlWarnCount = htmlErrors.filter(e => e.type !== "error").length;
+        const cssErrCount = cssErrors.length;
+        const seoErrCount = seoIssues.filter(i => i.severity === "error").length;
+        const seoWarnCount = seoIssues.filter(i => i.severity !== "error").length;
+        const schemaErrCount = schemaIssues.filter(i => i.severity === "error").length;
+        const brokenLinkCount = linkStatuses.filter(l => !l.ok).length;
+
+        const report = [
+          `# 📋 Web Validation & SEO Audit Report`,
+          `*Generated for: \`${path.basename(htmlFilePath)}\`*`,
+          ``,
+          `## 📊 Summary Overview`,
+          `| Audit Category | Status | Details |`,
+          `| :--- | :---: | :--- |`,
+          `| **W3C HTML Validation** | ${htmlErrCount > 0 ? "❌ Failed" : "✅ Passed"} | ${htmlErrCount} Errors, ${htmlWarnCount} Warnings |`,
+          `| **W3C CSS Validation** | ${cssFilePath ? (cssErrCount > 0 ? "❌ Failed" : "✅ Passed") : "ℹ️ Not Audited"} | ${cssErrCount} Errors |`,
+          `| **Technical SEO & Accessibility** | ${seoErrCount > 0 ? "❌ Critical Issues" : (seoWarnCount > 0 ? "⚠️ Warnings" : "✅ Optimized")} | ${seoErrCount} Errors, ${seoWarnCount} Warnings |`,
+          `| **JSON-LD Schema Verification** | ${schemaErrCount > 0 ? "❌ Invalid" : "✅ Valid"} | ${schemaErrCount} Syntax Errors |`,
+          `| **Broken Link Check** | ${brokenLinkCount > 0 ? "❌ Broken Links Found" : "✅ All Links OK"} | ${brokenLinkCount} Dead Links, ${linkStatuses.length} Total Links Checked |`,
+          ``,
+          `---`,
+          ``,
+          `## 🔴 HTML Syntax & Compliance Issues (${htmlErrors.length})`,
+        ];
+
+        if (htmlErrors.length === 0) {
+          report.push("*No HTML syntax or markup validation errors found! Excellent job.*");
+        } else {
+          report.push("| Line | Col | Severity | Message | Extract |");
+          report.push("| :---: | :---: | :--- | :--- | :--- |");
+          for (const err of htmlErrors) {
+            const extract = err.extract ? `\`${err.extract.replace(/\n/g, " ").trim()}\`` : "N/A";
+            report.push(`| ${err.lastLine || "N/A"} | ${err.lastColumn || "N/A"} | ${err.type === "error" ? "🔴 Error" : "⚠️ Warning"} | ${err.message} | ${extract} |`);
+          }
+        }
+
+        if (cssFilePath) {
+          report.push(
+            ``,
+            `---`,
+            ``,
+            `## 🎨 CSS Styling Issues (${cssErrors.length})`
+          );
+          if (cssErrors.length === 0) {
+            report.push("*No CSS syntax errors found! Stylesheet is fully compliant.*");
+          } else {
+            report.push("| Line | Context | Message |");
+            report.push("| :---: | :--- | :--- |");
+            for (const err of cssErrors) {
+              report.push(`| ${err.line} | \`${err.context || "N/A"}\` | ${err.message} |`);
+            }
+          }
+        }
+
+        report.push(
+          ``,
+          `---`,
+          ``,
+          `## 🔍 Technical SEO & Accessibility Issues (${seoIssues.length + schemaIssues.length})`
+        );
+
+        const allSeo = [...seoIssues, ...schemaIssues];
+        if (allSeo.length === 0) {
+          report.push("*No technical SEO or schema issues found! Page is search-engine ready.*");
+        } else {
+          report.push("| Category | Severity | Message | Element Snippet |");
+          report.push("| :--- | :--- | :--- | :--- |");
+          for (const issue of allSeo) {
+            const severityLabel = issue.severity === "error" ? "🔴 Error" : (issue.severity === "warning" ? "⚠️ Warning" : "ℹ️ Info");
+            const snippet = issue.element ? `\`${issue.element.trim()}\`` : "N/A";
+            report.push(`| ${issue.category} | ${severityLabel} | ${issue.message} | ${snippet} |`);
+          }
+        }
+
+        report.push(
+          ``,
+          `---`,
+          ``,
+          `## 🔗 Link Health Check (${linkStatuses.length} links checked)`
+        );
+
+        if (linkStatuses.length === 0) {
+          report.push("*No hyperlinks found in the document.*");
+        } else {
+          report.push("| Link URL | Status Code | Health | Details |");
+          report.push("| :--- | :---: | :---: | :--- |");
+          for (const link of linkStatuses) {
+            report.push(`| [${link.url}](${link.url}) | ${link.status} | ${link.ok ? "✅ Healthy" : "❌ Broken"} | ${link.message || "Accessible"} |`);
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: report.join("\n"),
             },
           ],
         };

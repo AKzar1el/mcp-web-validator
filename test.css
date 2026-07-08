@@ -1,0 +1,11 @@
+.container {
+  display: flex;
+  margin-top: 20px;
+  color: #ff0000;
+  invalid-property-name: test-value; /* Deliberate error */
+}
+
+body {
+  background-color: blue;
+  margin: 0;
+}

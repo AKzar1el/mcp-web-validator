@@ -3,9 +3,41 @@
 [![npm version](https://img.shields.io/npm/v/mcp-web-validator.svg)](https://www.npmjs.com/package/mcp-web-validator)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
+<p align="center">
+  <img src="assets/demo_mockup.jpg" alt="MCP Web Validator Mockup" width="800">
+</p>
+
 A **Model Context Protocol (MCP) server** that empowers AI coding assistants (like Claude, Cursor, ChatGPT, etc.) to validate HTML/CSS markup against the official W3C specification engine and perform technical SEO/accessibility audits directly inside local workspaces.
 
-AI models write a lot of markup, but they cannot verify if it's syntactically valid or optimized for indexing. **`mcp-web-validator`** acts as an automated, offline/online debugger.
+---
+
+## 💬 How It Works (Visual Flow)
+
+Imagine asking your AI coding assistant:
+
+> **User:** *"I just finished building my homepage. Can you validate it, check for SEO issues, and take responsive screenshots to see if it looks correct?"*
+
+Here is the exact flow of how the assistant uses `mcp-web-validator` to audit the code and present results:
+
+### 1️⃣ Step 1: Technical & SEO Score Card
+The assistant automatically runs `generate_validation_report` which aggregates standard specs and outputs a unified PageSpeed-style scorecard directly in your chat:
+
+# 📋 Web Validation & SEO Audit Report — 🟢 **92**/100
+*Generated for: `index.html`*
+
+#### ⚡ Page Health Scores (PageSpeed Inspired)
+| Score Card | Status | Score |
+| :--- | :---: | :---: |
+| **W3C HTML Validation** | 🟠 Needs Work | **88** / 100 |
+| **SEO & Accessibility** | 🟠 Warnings | **88** / 100 |
+| **Links Integrity** | 🟢 All Good | **100** / 100 |
+
+### 2️⃣ Step 2: Responsive Viewport Screenshot Audits
+The assistant launches local Puppeteer using `capture_screenshots` to render the page across multiple devices:
+
+| Desktop (1440x900) | Tablet (768x1024) | Mobile (375x812) |
+| :---: | :---: | :---: |
+| 🖥️ `desktop.png` | 📟 `tablet.png` | 📱 `mobile.png` |
 
 ---
 

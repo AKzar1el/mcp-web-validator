@@ -314,11 +314,44 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const schemaErrCount = schemaIssues.filter(i => i.severity === "error").length;
         const brokenLinkCount = linkStatuses.filter(l => !l.ok).length;
 
+        // Calculate Scores (PageSpeed style: Base 100)
+        let htmlScore = 100 - (htmlErrCount * 15) - (htmlWarnCount * 2);
+        let cssScore = cssFilePath ? (100 - (cssErrCount * 20)) : 100;
+        let seoScore = 100 - (seoErrCount * 15) - (seoWarnCount * 4) - (schemaErrCount * 15);
+        let linkScore = linkStatuses.length > 0 ? (100 - (brokenLinkCount * 25)) : 100;
+
+        // Clamp to [0, 100]
+        htmlScore = Math.max(0, Math.min(100, htmlScore));
+        cssScore = Math.max(0, Math.min(100, cssScore));
+        seoScore = Math.max(0, Math.min(100, seoScore));
+        linkScore = Math.max(0, Math.min(100, linkScore));
+
+        const getCircle = (score: number): string => {
+          if (score >= 90) return "🟢";
+          if (score >= 50) return "🟠";
+          return "🔴";
+        };
+
+        const totalAuditCount = cssFilePath ? 4 : 3;
+        const totalScoreSum = htmlScore + seoScore + linkScore + (cssFilePath ? cssScore : 0);
+        const overallScore = Math.round(totalScoreSum / totalAuditCount);
+
         const report = [
-          `# 📋 Web Validation & SEO Audit Report`,
+          `# 📋 Web Validation & SEO Audit Report — ${getCircle(overallScore)} **${overallScore}**/100`,
           `*Generated for: \`${path.basename(htmlFilePath)}\`*`,
           ``,
-          `## 📊 Summary Overview`,
+          `## ⚡ Page Health Scores (PageSpeed Inspired)`,
+          ``,
+          `| Score Card | Status | Score |`,
+          `| :--- | :---: | :---: |`,
+          `| **W3C HTML Validation** | ${getCircle(htmlScore)} ${htmlScore >= 90 ? "Excellent" : (htmlScore >= 50 ? "Needs Work" : "Poor")} | **${htmlScore}** / 100 |`,
+          `| **W3C CSS Validation** | ${cssFilePath ? `${getCircle(cssScore)} ${cssScore >= 90 ? "Excellent" : (cssScore >= 50 ? "Needs Work" : "Poor")}` : "ℹ️ Not Audited"} | ${cssFilePath ? `**${cssScore}** / 100` : "N/A"} |`,
+          `| **SEO & Accessibility** | ${getCircle(seoScore)} ${seoScore >= 90 ? "Optimized" : (seoScore >= 50 ? "Warnings" : "Poor")} | **${seoScore}** / 100 |`,
+          `| **Links Integrity** | ${linkStatuses.length > 0 ? `${getCircle(linkScore)} ${linkScore >= 90 ? "All Good" : "Broken Links"}` : "ℹ️ No Links"} | ${linkStatuses.length > 0 ? `**${linkScore}** / 100` : "N/A"} |`,
+          ``,
+          `---`,
+          ``,
+          `## 📊 Audit Details Overview`,
           `| Audit Category | Status | Details |`,
           `| :--- | :---: | :--- |`,
           `| **W3C HTML Validation** | ${htmlErrCount > 0 ? "❌ Failed" : "✅ Passed"} | ${htmlErrCount} Errors, ${htmlWarnCount} Warnings |`,
@@ -326,7 +359,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           `| **Technical SEO & Accessibility** | ${seoErrCount > 0 ? "❌ Critical Issues" : (seoWarnCount > 0 ? "⚠️ Warnings" : "✅ Optimized")} | ${seoErrCount} Errors, ${seoWarnCount} Warnings |`,
           `| **JSON-LD Schema Verification** | ${schemaErrCount > 0 ? "❌ Invalid" : "✅ Valid"} | ${schemaErrCount} Syntax Errors |`,
           `| **Broken Link Check** | ${brokenLinkCount > 0 ? "❌ Broken Links Found" : "✅ All Links OK"} | ${brokenLinkCount} Dead Links, ${linkStatuses.length} Total Links Checked |`,
-          ``,
           `---`,
           ``,
           `## 🔴 HTML Syntax & Compliance Issues (${htmlErrors.length})`,

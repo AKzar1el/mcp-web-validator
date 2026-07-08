@@ -80,11 +80,10 @@ async function run() {
         const overallScore = Math.round((htmlScore + seoScore + linkScore) / 3);
 
         const report = [
-          `# 📋 Web Validation & SEO Audit Report`,
+          `# 📋 Web Validation & SEO Audit Report — ${getCircle(overallScore)} **${overallScore}**/100`,
           `*Generated for: \`${path.basename(target)}\`*`,
           ``,
           `## ⚡ Page Health Scores (PageSpeed Inspired)`,
-          `### Overall Score: ${getCircle(overallScore)} **${overallScore}** / 100`,
           ``,
           `| Score Card | Status | Score |`,
           `| :--- | :---: | :---: |`,

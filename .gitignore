@@ -8,3 +8,4 @@ yarn-error.log*
 *.tsbuildinfo
 .mcp-validator/
 screenshots-test/
+chatgpt-plugin/.wrangler/

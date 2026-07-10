@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "mcp-web-validator-chatgpt",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-07-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    {
+      "pattern": "mcp.digestseo.com",
+      "custom_domain": true
+    }
+  ],
+  "workers_dev": false
+}

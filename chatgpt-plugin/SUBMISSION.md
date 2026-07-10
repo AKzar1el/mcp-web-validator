@@ -4,7 +4,7 @@ This directory contains the public, remote ChatGPT App version of `mcp-web-valid
 
 ## Public tool scope
 
-The public app exposes only read-only tools that accept supplied HTML or CSS. It does not access local files, create files, run Puppeteer, or retain user inputs. HTML validation sends supplied markup to the W3C Nu HTML Checker; CSS syntax parsing, SEO analysis, and JSON-LD checks run locally. Link checking sends `HEAD`/fallback `GET` requests to capped, public URLs from supplied markup. Redirects are not followed.
+The public app accepts supplied HTML or CSS. It does not access local files, create files, run Puppeteer, or retain user inputs. HTML validation sends supplied markup to the W3C Nu HTML Checker; CSS syntax parsing, SEO analysis, and JSON-LD checks run locally. Link checking sends `HEAD`/fallback `GET` requests to capped, public URLs from supplied markup. Redirects are not followed. No tool modifies user data.
 
 ## Pre-submission deployment
 
@@ -33,7 +33,10 @@ Create genuine screenshots in ChatGPT Developer Mode after deploying the Worker.
 Suggested reviewer prompts:
 
 1. `Validate this HTML and explain the problems: <html><head><title>Hi</title></head><body><img src="logo.png"></body></html>`
-2. `Audit the SEO metadata in this HTML and give me the highest-priority fixes: <html>...</html>`
-3. `Check the public links in this HTML. I own this test page and authorize the checks: <a href="https://example.com">Example</a>`
+2. `Validate this CSS and explain the error: body {`
+3. `Audit the SEO metadata in this HTML and give me the highest-priority fixes: <html>...</html>`
+4. `Check the JSON-LD in this HTML: <script type="application/ld+json">{</script>`
+5. `Check the public links in this HTML. I own this test page and authorize the checks: <a href="https://example.com">Example</a>`
+6. `Generate a validation report for this HTML: <html><head><title>Hi</title></head><body></body></html>`
 
-In the submission form, explain that all tools are read-only. HTML validation and link checking are marked `openWorldHint: true` because they send user-authorized requests to external services; CSS syntax, SEO, and JSON-LD tools are marked `openWorldHint: false`.
+In the submission form, explain that CSS syntax, SEO, and JSON-LD checks are local and marked `readOnlyHint: true`, `openWorldHint: false`. HTML validation, public link checks, and validation reports may send user-authorized inputs to external services, so they are marked `readOnlyHint: false`, `openWorldHint: true`, and `destructiveHint: false`.

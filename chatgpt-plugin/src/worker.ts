@@ -44,7 +44,9 @@ const linkStatusSchema = z.object({
 const htmlInput = z.string().min(1).max(HTML_MAX_LENGTH);
 const cssInput = z.string().min(1).max(CSS_MAX_LENGTH);
 const externalReadOnlyAnnotations = {
-  readOnlyHint: true,
+  // These tools send the supplied markup or URLs to services outside ChatGPT.
+  // They never modify user data, but ChatGPT should ask for approval first.
+  readOnlyHint: false,
   openWorldHint: true,
   destructiveHint: false,
 } as const;
@@ -71,7 +73,7 @@ function createServer() {
     { name: "web-validator-by-digestseo", version: "0.1.0" },
     {
       instructions:
-        "Use this app only for markup the user owns or is authorized to share. All tools are read-only. HTML validation sends supplied markup to the W3C Nu HTML Checker; CSS syntax, SEO, and JSON-LD checks run locally. Link checking contacts public links in supplied markup, never follows redirects, and must only be used for URLs the user is authorized to inspect. Do not submit credentials, health data, payment data, or other sensitive personal data.",
+        "Use this app only for markup the user owns or is authorized to share. No tool modifies user data. HTML validation sends supplied markup to the W3C Nu HTML Checker; CSS syntax, SEO, and JSON-LD checks run locally. Link checking contacts public links in supplied markup, never follows redirects, and must only be used for URLs the user is authorized to inspect. Do not submit credentials, health data, payment data, or other sensitive personal data.",
     },
   );
 
@@ -84,6 +86,7 @@ function createServer() {
         _meta: {
           ui: {
             prefersBorder: true,
+            domain: "https://web-validator-mcp.digestseo.com",
             csp: {
               connectDomains: [],
               resourceDomains: [],

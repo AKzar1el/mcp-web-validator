@@ -6,7 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "routes": [
     {
-      "pattern": "mcp.digestseo.com",
+      "pattern": "web-validator-mcp.digestseo.com",
       "custom_domain": true
     }
   ],

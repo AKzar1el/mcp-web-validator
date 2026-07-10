@@ -9,7 +9,7 @@ Product home: [digestseo.com/validator-mcp](https://digestseo.com/validator-mcp/
 · Support: [digestseo.com/support](https://digestseo.com/support/)
 
 The public, read-only ChatGPT app is hosted at
-`https://mcp.digestseo.com/mcp`. It accepts HTML, CSS, and authorized public
+`https://web-validator-mcp.digestseo.com/mcp`. It accepts HTML, CSS, and authorized public
 URLs you explicitly supply; the local MCP described below remains the option
 for workspace files and responsive screenshots.
 

@@ -16,7 +16,7 @@ npm run deploy:dry-run
 npm run deploy
 ```
 
-Use the deployed `https://mcp.digestseo.com/mcp` endpoint in the OpenAI plugin submission portal. The server has no user authentication, so no reviewer test credentials are required.
+Use the deployed `https://web-validator-mcp.digestseo.com/mcp` endpoint in the OpenAI plugin submission portal. The server has no user authentication, so no reviewer test credentials are required.
 
 ## Directory metadata
 

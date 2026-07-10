@@ -4,7 +4,7 @@ This directory contains the public, remote ChatGPT App version of `mcp-web-valid
 
 ## Public tool scope
 
-The public app exposes only read-only tools that accept supplied HTML or CSS. It does not access local files, create files, run Puppeteer, or retain user inputs. HTML and CSS validation send the supplied content to W3C validator endpoints; CSS is capped at 12,000 characters because the public Jigsaw endpoint receives it in a query string. Link checking sends `HEAD`/fallback `GET` requests to capped, public URLs from supplied markup. Redirects are not followed.
+The public app exposes only read-only tools that accept supplied HTML or CSS. It does not access local files, create files, run Puppeteer, or retain user inputs. HTML validation sends supplied markup to the W3C Nu HTML Checker; CSS syntax parsing, SEO analysis, and JSON-LD checks run locally. Link checking sends `HEAD`/fallback `GET` requests to capped, public URLs from supplied markup. Redirects are not followed.
 
 ## Pre-submission deployment
 
@@ -24,7 +24,7 @@ Use the deployed `https://web-validator-mcp.digestseo.com/mcp` endpoint in the O
 - Publisher/company URL: `https://digestseo.com/validator-mcp/`
 - Privacy policy: `https://digestseo.com/privacy/`
 - Support: `https://digestseo.com/support/`
-- Description: `Validate supplied HTML and CSS against W3C services, audit on-page SEO metadata and JSON-LD, and check authorized public links.`
+- Description: `Validate supplied HTML with the W3C Nu HTML Checker, parse CSS locally for syntax errors, audit on-page SEO metadata and JSON-LD, and check authorized public links.`
 
 ## Required review material
 
@@ -36,4 +36,4 @@ Suggested reviewer prompts:
 2. `Audit the SEO metadata in this HTML and give me the highest-priority fixes: <html>...</html>`
 3. `Check the public links in this HTML. I own this test page and authorize the checks: <a href="https://example.com">Example</a>`
 
-In the submission form, explain that all tools are read-only; the W3C and link-check tools are marked `openWorldHint: true` because they send user-authorized requests to external services, while local HTML analysis tools are marked `openWorldHint: false`.
+In the submission form, explain that all tools are read-only. HTML validation and link checking are marked `openWorldHint: true` because they send user-authorized requests to external services; CSS syntax, SEO, and JSON-LD tools are marked `openWorldHint: false`.

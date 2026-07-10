@@ -13,9 +13,7 @@ import { WIDGET_HTML, WIDGET_URI } from "./widget";
 export interface Env {}
 
 const HTML_MAX_LENGTH = 200_000;
-// Jigsaw's public text-validation API accepts the stylesheet as a query parameter.
-// Keep the encoded URL comfortably below common intermediary limits.
-const CSS_MAX_LENGTH = 12_000;
+const CSS_MAX_LENGTH = 200_000;
 
 const validationMessageSchema = z.object({
   type: z.enum(["error", "warning", "info"]),
@@ -45,9 +43,14 @@ const linkStatusSchema = z.object({
 
 const htmlInput = z.string().min(1).max(HTML_MAX_LENGTH);
 const cssInput = z.string().min(1).max(CSS_MAX_LENGTH);
-const annotations = {
+const externalReadOnlyAnnotations = {
   readOnlyHint: true,
   openWorldHint: true,
+  destructiveHint: false,
+} as const;
+const localReadOnlyAnnotations = {
+  readOnlyHint: true,
+  openWorldHint: false,
   destructiveHint: false,
 } as const;
 
@@ -68,7 +71,7 @@ function createServer() {
     { name: "web-validator-by-digestseo", version: "0.1.0" },
     {
       instructions:
-        "Use this app only for markup the user owns or is authorized to share. All tools are read-only. HTML and CSS validation send the supplied content to W3C validator endpoints. Link checking contacts public links in supplied markup, never follows redirects, and must only be used for URLs the user is authorized to inspect. Do not submit credentials, health data, payment data, or other sensitive personal data.",
+        "Use this app only for markup the user owns or is authorized to share. All tools are read-only. HTML validation sends supplied markup to the W3C Nu HTML Checker; CSS syntax, SEO, and JSON-LD checks run locally. Link checking contacts public links in supplied markup, never follows redirects, and must only be used for URLs the user is authorized to inspect. Do not submit credentials, health data, payment data, or other sensitive personal data.",
     },
   );
 
@@ -100,7 +103,7 @@ function createServer() {
         "Sends supplied HTML markup to the W3C Nu HTML Checker and returns validation messages. Use only markup you are authorized to share.",
       inputSchema: { html: htmlInput },
       outputSchema: { errors: z.array(validationMessageSchema), error: z.string().optional() },
-      annotations,
+      annotations: externalReadOnlyAnnotations,
       _meta: withWidget({ invoking: "Validating HTML…", invoked: "HTML validation complete." }),
     },
     async ({ html }) => {
@@ -116,8 +119,8 @@ function createServer() {
         cause instanceof Error ? cause.message : "Unknown upstream error",
       );
       const error = "HTML validation is temporarily unavailable. Please try again shortly.";
-        return { structuredContent: { errors: [], error }, content: contentForResult(error), isError: true };
-      }
+      return { structuredContent: { errors: [], error }, content: contentForResult(error), isError: true };
+    }
     },
   );
 
@@ -127,10 +130,10 @@ function createServer() {
     {
       title: "Validate CSS",
       description:
-        "Sends supplied CSS to the W3C Jigsaw CSS Validator and returns syntax messages. Use only stylesheets you are authorized to share.",
+        "Parses supplied CSS locally and returns syntax messages without contacting an external service.",
       inputSchema: { css: cssInput },
       outputSchema: { errors: z.array(cssMessageSchema), error: z.string().optional() },
-      annotations,
+      annotations: localReadOnlyAnnotations,
       _meta: withWidget({ invoking: "Validating CSS…", invoked: "CSS validation complete." }),
     },
     async ({ css }) => {
@@ -141,13 +144,10 @@ function createServer() {
           content: contentForResult(`CSS validation found ${errors.length} message(s).`),
         };
     } catch (cause) {
-      console.error(
-        "W3C CSS validation failed:",
-        cause instanceof Error ? cause.message : "Unknown upstream error",
-      );
+      console.error("Local CSS validation failed:", cause instanceof Error ? cause.message : "Unknown error");
       const error = "CSS validation is temporarily unavailable. Please try again shortly.";
-        return { structuredContent: { errors: [], error }, content: contentForResult(error), isError: true };
-      }
+      return { structuredContent: { errors: [], error }, content: contentForResult(error), isError: true };
+    }
     },
   );
 
@@ -205,7 +205,7 @@ function createServer() {
         max_links: z.number().int().min(1).max(25).default(15),
       },
       outputSchema: { links: z.array(linkStatusSchema), error: z.string().optional() },
-      annotations,
+      annotations: externalReadOnlyAnnotations,
       _meta: withWidget({ invoking: "Checking public links…", invoked: "Link check complete." }),
     },
     async ({ html, base_url, max_links }) => {
@@ -229,7 +229,7 @@ function createServer() {
     {
       title: "Generate validation report",
       description:
-        "Combines W3C HTML/CSS validation with local SEO and JSON-LD checks for supplied markup. Optionally checks public links when the user has authorized those requests.",
+        "Combines W3C Nu HTML validation with local CSS, SEO, and JSON-LD checks for supplied markup. Optionally checks public links when the user has authorized those requests.",
       inputSchema: {
         html: htmlInput,
         css: z.string().max(CSS_MAX_LENGTH).optional(),
@@ -246,7 +246,7 @@ function createServer() {
         broken_links: z.number(),
         error: z.string().optional(),
       },
-      annotations,
+      annotations: externalReadOnlyAnnotations,
       _meta: withWidget({ invoking: "Generating validation report…", invoked: "Validation report complete." }),
     },
     async ({ html, css, check_links, base_url, max_links }) => {

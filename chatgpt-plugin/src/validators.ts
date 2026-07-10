@@ -1,3 +1,5 @@
+import postcss, { CssSyntaxError } from "postcss";
+
 export interface ValidationMessage {
   type: "error" | "warning" | "info";
   message: string;
@@ -12,8 +14,7 @@ export interface CssValidationMessage {
 }
 
 const VALIDATOR_TIMEOUT_MS = 15_000;
-const MIN_CSS_VALIDATION_INTERVAL_MS = 1_000;
-let nextCssValidationAt = 0;
+const VALIDATOR_USER_AGENT = "DigestSEO-Web-Validator/0.1 (+https://digestseo.com/validator-mcp/)";
 
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
@@ -25,16 +26,6 @@ async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit): Pr
   }
 }
 
-async function waitForCssValidationSlot(): Promise<void> {
-  const now = Date.now();
-  const scheduledAt = Math.max(now, nextCssValidationAt);
-  nextCssValidationAt = scheduledAt + MIN_CSS_VALIDATION_INTERVAL_MS;
-  const delay = scheduledAt - now;
-  if (delay > 0) {
-    await new Promise<void>((resolve) => setTimeout(resolve, delay));
-  }
-}
-
 /** Sends supplied markup to the W3C Nu HTML Checker and returns capped diagnostics. */
 export async function validateHtml(html: string): Promise<ValidationMessage[]> {
   // The Nu endpoint accepts server-side validation requests over Cloudflare's
@@ -43,7 +34,7 @@ export async function validateHtml(html: string): Promise<ValidationMessage[]> {
     method: "POST",
     headers: {
       "content-type": "text/html; charset=utf-8",
-      "user-agent": "DigestSEO-Web-Validator/0.1 (+https://digestseo.com/validator-mcp/)",
+      "user-agent": VALIDATOR_USER_AGENT,
     },
     body: html,
   });
@@ -65,32 +56,19 @@ export async function validateHtml(html: string): Promise<ValidationMessage[]> {
   }));
 }
 
-/** Sends supplied CSS to the W3C Jigsaw validator and returns capped diagnostics. */
-export async function validateCss(css: string): Promise<CssValidationMessage[]> {
-  const query = new URLSearchParams({
-    text: css,
-    output: "json",
-    warning: "0",
-    profile: "css3svg",
-  });
-  // The public Jigsaw API requests a pause between batch documents. This is an
-  // in-isolate guard; platform-level abuse controls remain the host's job.
-  await waitForCssValidationSlot();
-  // The public Jigsaw API documents its text mode as a query-string request.
-  const response = await fetchWithTimeout(
-    `https://jigsaw.w3.org/css-validator/validator?${query.toString()}`,
-    { method: "GET" },
-  );
-  if (!response.ok) throw new Error(`The W3C CSS validator returned HTTP ${response.status}.`);
-
-  const data = (await response.json()) as {
-    cssvalidation?: {
-      errors?: Array<{ line?: number; message?: string; context?: string }>;
-    };
-  };
-  return (data.cssvalidation?.errors ?? []).slice(0, 200).map((item) => ({
-    line: item.line ?? 0,
-    message: item.message?.trim() || "Validator returned an unspecified message.",
-    context: item.context?.trim() || undefined,
-  }));
+/** Parses supplied CSS locally and returns syntax diagnostics without a network request. */
+export function validateCss(css: string): CssValidationMessage[] {
+  try {
+    postcss.parse(css);
+    return [];
+  } catch (cause) {
+    if (cause instanceof CssSyntaxError) {
+      return [{
+        line: cause.line ?? 0,
+        message: cause.reason || "CSS syntax error.",
+        context: "Local CSS syntax parser",
+      }];
+    }
+    throw cause;
+  }
 }

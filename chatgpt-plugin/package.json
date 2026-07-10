@@ -15,6 +15,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "agents": "^0.17.3",
     "cheerio": "^1.0.0",
+    "postcss": "^8.5.16",
     "zod": "^4.4.3"
   },
   "devDependencies": {

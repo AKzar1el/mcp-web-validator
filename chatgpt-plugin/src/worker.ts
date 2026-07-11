@@ -14,6 +14,10 @@ export interface Env {}
 
 const HTML_MAX_LENGTH = 200_000;
 const CSS_MAX_LENGTH = 200_000;
+const GLAMA_CONNECTOR_METADATA = {
+  $schema: "https://glama.ai/mcp/schemas/connector.json",
+  maintainers: [{ email: "tomi.seregi99@gmail.com" }],
+};
 
 const validationMessageSchema = z.object({
   type: z.enum(["error", "warning", "info"]),
@@ -303,6 +307,9 @@ export default {
     }
     if (url.pathname === "/health") {
       return Response.json({ status: "ok" });
+    }
+    if (url.pathname === "/.well-known/glama.json") {
+      return Response.json(GLAMA_CONNECTOR_METADATA);
     }
     if (url.pathname !== "/mcp") {
       return new Response("Not found\n", { status: 404 });

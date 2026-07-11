@@ -8,7 +8,7 @@ Security fixes are applied to the current npm release of `mcp-web-validator` and
 
 Do not open a public GitHub issue for a suspected vulnerability.
 
-Email `tomi.seregi99@gmail.com` with the subject `Security report: mcp-web-validator`. This is the current private reporting channel; do not include secrets or unrelated personal data.
+Use [GitHub private vulnerability reporting](https://github.com/AKzar1el/mcp-web-validator/security/advisories/new). If that form is unavailable, email `tomi.seregi99@gmail.com` with the subject `Security report: mcp-web-validator`. Do not include secrets or unrelated personal data.
 
 Include, where possible:
 

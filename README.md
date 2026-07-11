@@ -5,6 +5,14 @@
 
 Part of the **[DigestSEO](https://digestseo.com/)** suite of open-source SEO tools.
 
+Product home: [digestseo.com/validator-mcp](https://digestseo.com/validator-mcp/)
+· Support: [digestseo.com/support](https://digestseo.com/support/)
+
+The public, read-only ChatGPT app is hosted at
+`https://web-validator-mcp.digestseo.com/mcp`. It accepts HTML, CSS, and authorized public
+URLs you explicitly supply; the local MCP described below remains the option
+for workspace files and responsive screenshots.
+
 A **Model Context Protocol (MCP) server** that empowers AI coding assistants (like Claude, Cursor, ChatGPT, etc.) to validate HTML/CSS markup against the official W3C specification engine and perform technical SEO/accessibility audits directly inside local workspaces.
 
 ---

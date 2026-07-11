@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import ipaddr from "ipaddr.js";
 
 export type AuditSeverity = "error" | "warning" | "info";
 
@@ -15,26 +16,48 @@ export interface LinkStatus {
   message?: string;
 }
 
+export interface AuditResult {
+  issues: AuditIssue[];
+  total: number;
+  truncated: boolean;
+}
+
 const MAX_LINKS = 25;
+const MAX_AUDIT_ISSUES = 100;
 const REQUEST_TIMEOUT_MS = 5_000;
+const LINK_CHECK_USER_AGENT = "DigestSEO-Web-Validator/0.2.0 (+https://digestseo.com/validator-mcp/)";
+
+function createAuditCollector() {
+  const issues: AuditIssue[] = [];
+  let total = 0;
+  return {
+    add(issue: AuditIssue) {
+      total += 1;
+      if (issues.length < MAX_AUDIT_ISSUES) issues.push(issue);
+    },
+    result(): AuditResult {
+      return { issues, total, truncated: total > issues.length };
+    },
+  };
+}
 
 /**
  * Checks on-page metadata and accessibility signals without fetching or storing
  * any external content.
  */
-export function auditSeoMetadata(html: string): AuditIssue[] {
+export function auditSeoMetadata(html: string): AuditResult {
   const $ = cheerio.load(html);
-  const issues: AuditIssue[] = [];
+  const collector = createAuditCollector();
 
   const title = $("title").first().text().trim();
   if (!title) {
-    issues.push({
+    collector.add({
       severity: "error",
       category: "SEO",
       message: "Missing or empty <title> tag.",
     });
   } else if (title.length < 30 || title.length > 60) {
-    issues.push({
+    collector.add({
       severity: "warning",
       category: "SEO",
       message: `Title length is ${title.length} characters; aim for roughly 30–60 characters.`,
@@ -43,13 +66,13 @@ export function auditSeoMetadata(html: string): AuditIssue[] {
 
   const description = $('meta[name="description"]').first().attr("content")?.trim() ?? "";
   if (!description) {
-    issues.push({
+    collector.add({
       severity: "error",
       category: "SEO",
       message: "Missing or empty meta description.",
     });
   } else if (description.length < 120 || description.length > 160) {
-    issues.push({
+    collector.add({
       severity: "warning",
       category: "SEO",
       message: `Meta description length is ${description.length} characters; aim for roughly 120–160 characters.`,
@@ -57,7 +80,7 @@ export function auditSeoMetadata(html: string): AuditIssue[] {
   }
 
   if ($('link[rel="canonical"]').length === 0) {
-    issues.push({
+    collector.add({
       severity: "warning",
       category: "SEO",
       message: "Missing canonical link tag.",
@@ -65,7 +88,7 @@ export function auditSeoMetadata(html: string): AuditIssue[] {
   }
 
   if ($('meta[name="viewport"]').length === 0) {
-    issues.push({
+    collector.add({
       severity: "error",
       category: "SEO",
       message: "Missing viewport meta tag.",
@@ -74,13 +97,13 @@ export function auditSeoMetadata(html: string): AuditIssue[] {
 
   const h1Count = $("h1").length;
   if (h1Count === 0) {
-    issues.push({
+    collector.add({
       severity: "error",
       category: "SEO",
       message: "Missing an H1 heading.",
     });
   } else if (h1Count > 1) {
-    issues.push({
+    collector.add({
       severity: "warning",
       category: "SEO",
       message: `Found ${h1Count} H1 headings; use one primary H1 unless there is a clear structural reason not to.`,
@@ -90,13 +113,13 @@ export function auditSeoMetadata(html: string): AuditIssue[] {
   $("img").each((_, element) => {
     const alt = $(element).attr("alt");
     if (alt === undefined) {
-      issues.push({
+      collector.add({
         severity: "error",
         category: "Accessibility",
         message: "An image is missing its alt attribute.",
       });
     } else if (alt.trim() === "") {
-      issues.push({
+      collector.add({
         severity: "info",
         category: "Accessibility",
         message: "An image has an empty alt attribute; confirm that it is decorative.",
@@ -105,25 +128,25 @@ export function auditSeoMetadata(html: string): AuditIssue[] {
   });
 
   if ($('meta[property="og:title"]').length === 0 || $('meta[property="og:image"]').length === 0) {
-    issues.push({
+    collector.add({
       severity: "info",
       category: "SEO",
       message: "Open Graph title or image metadata is missing.",
     });
   }
 
-  return issues;
+  return collector.result();
 }
 
 /** Parses JSON-LD blocks locally and reports syntax problems only. */
-export function validateSchemaMarkup(html: string): AuditIssue[] {
+export function validateSchemaMarkup(html: string): AuditResult {
   const $ = cheerio.load(html);
-  const issues: AuditIssue[] = [];
+  const collector = createAuditCollector();
 
   $('script[type="application/ld+json"]').each((index, element) => {
     const value = $(element).html()?.trim() ?? "";
     if (!value) {
-      issues.push({
+      collector.add({
         severity: "warning",
         category: "Schema",
         message: `JSON-LD block #${index + 1} is empty.`,
@@ -134,7 +157,7 @@ export function validateSchemaMarkup(html: string): AuditIssue[] {
     try {
       JSON.parse(value);
     } catch {
-      issues.push({
+      collector.add({
         severity: "error",
         category: "Schema",
         message: `JSON-LD block #${index + 1} is not valid JSON.`,
@@ -142,45 +165,29 @@ export function validateSchemaMarkup(html: string): AuditIssue[] {
     }
   });
 
-  return issues;
+  return collector.result();
 }
 
 function isPrivateOrReservedHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host.endsWith(".localhost") || host === "metadata.google.internal") {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    host === "home.arpa" ||
+    host.endsWith(".home.arpa")
+  ) {
     return true;
   }
 
-  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (ipv4) {
-    const octets = ipv4.slice(1).map(Number);
-    if (octets.some((octet) => octet > 255)) return true;
-    const [first, second] = octets;
-    return (
-      first === 0 ||
-      first === 10 ||
-      first === 127 ||
-      (first === 100 && second >= 64 && second <= 127) ||
-      (first === 169 && second === 254) ||
-      (first === 172 && second >= 16 && second <= 31) ||
-      (first === 192 && second === 168) ||
-      (first === 192 && second === 0) ||
-      (first === 198 && (second === 18 || second === 19)) ||
-      first >= 224
-    );
-  }
-
-  return (
-    host === "::1" ||
-    host === "::" ||
-    host.startsWith("fc") ||
-    host.startsWith("fd") ||
-    host.startsWith("fe80:") ||
-    host.startsWith("::ffff:")
-  );
+  if (!ipaddr.isValid(host)) return false;
+  const parsed = ipaddr.parse(host);
+  const address = parsed instanceof ipaddr.IPv6 && parsed.isIPv4MappedAddress() ? parsed.toIPv4Address() : parsed;
+  return address.range() !== "unicast";
 }
 
-function toPublicHttpUrl(value: string, baseUrl?: string): URL | undefined {
+export function toPublicHttpUrl(value: string, baseUrl?: string): URL | undefined {
   try {
     const url = new URL(value, baseUrl);
     if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
@@ -200,6 +207,10 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
     try {
       const response = await fetch(url, {
         method,
+        headers: {
+          accept: "*/*",
+          "user-agent": LINK_CHECK_USER_AGENT,
+        },
         redirect: "manual",
         signal: controller.signal,
       });
@@ -212,7 +223,7 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
 
   try {
     let response = await execute("HEAD");
-    if (response.status === 405 || response.status === 501) {
+    if (response.status === 403 || response.status === 405 || response.status === 501) {
       response = await execute("GET");
     }
     return {

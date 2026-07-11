@@ -1,25 +1,32 @@
 {
   "name": "web-validator-chatgpt-plugin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Public ChatGPT Apps SDK deployment for Web Validator by DigestSEO.",
   "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "deploy:dry-run": "wrangler deploy --dry-run",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^1.7.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "agents": "^0.17.3",
     "cheerio": "^1.0.0",
+    "ipaddr.js": "^2.2.0",
     "postcss": "^8.5.16",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.18.4",
     "typescript": "^5.9.3",
+    "vitest": "^4.0.18",
     "wrangler": "^4.110.0"
   }
 }

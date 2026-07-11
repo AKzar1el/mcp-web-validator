@@ -3,7 +3,7 @@
   "name": "io.github.AKzar1el/mcp-web-validator",
   "title": "Web Validator by DigestSEO",
   "description": "Validate HTML and CSS, audit SEO and JSON-LD, and check user-authorized public links.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "repository": {
     "url": "https://github.com/AKzar1el/mcp-web-validator",
     "source": "github"
@@ -14,6 +14,16 @@
       "src": "https://raw.githubusercontent.com/AKzar1el/mcp-web-validator/main/icon.jpg",
       "mimeType": "image/jpeg",
       "sizes": ["1024x1024"]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "mcp-web-validator",
+      "version": "1.0.1",
+      "transport": {
+        "type": "stdio"
+      }
     }
   ],
   "remotes": [

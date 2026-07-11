@@ -1,6 +1,6 @@
 {
   "name": "mcp-web-validator",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "W3C HTML/CSS Validator and Technical SEO Audit MCP Server for AI coding assistants.",
   "main": "dist/index.js",
   "bin": {
@@ -19,11 +19,17 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "prepublishOnly": "npm run build"
+    "test": "npm run build && node --test test/*.test.js",
+    "sync:manifests": "node scripts/sync-manifests.mjs",
+    "check:manifests": "node scripts/sync-manifests.mjs --check",
+    "check": "npm test && npm run check:manifests",
+    "prepublishOnly": "npm run check"
   },
   "files": [
     "dist",
     "README.md",
+    "SECURITY.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "keywords": [
@@ -38,14 +44,19 @@
   ],
   "author": "AKzar1el",
   "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "mcpName": "io.github.AKzar1el/mcp-web-validator",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "cheerio": "^1.0.0",
-    "puppeteer": "^25.3.0"
+    "puppeteer": "^25.3.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
-    "tsx": "^4.7.1",
-    "typescript": "^5.3.3"
+    "@types/node": "^22.12.0",
+    "tsx": "^4.23.0",
+    "typescript": "^5.9.3"
   }
 }

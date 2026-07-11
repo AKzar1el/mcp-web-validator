@@ -1,9 +1,9 @@
 {
   "manifest_version": "0.2",
   "name": "mcp-web-validator",
-  "display_name": "Web Validator & SEO Audit",
-  "version": "1.0.0",
-  "description": "W3C HTML/CSS Validator and Technical SEO Audit MCP Server for AI coding assistants.",
+  "display_name": "Web Validator by DigestSEO",
+  "version": "1.0.1",
+  "description": "Validate HTML/CSS, audit SEO and JSON-LD, check links, and capture responsive screenshots.",
   "author": {
     "name": "AKzar1el",
     "url": "https://github.com/AKzar1el"
@@ -12,7 +12,7 @@
     "type": "git",
     "url": "https://github.com/AKzar1el/mcp-web-validator"
   },
-  "homepage": "https://github.com/AKzar1el/mcp-web-validator",
+  "homepage": "https://digestseo.com/validator-mcp/",
   "license": "MIT",
   "server": {
     "type": "node",
@@ -26,450 +26,903 @@
   },
   "tools": [
     {
-      "name": "html.validate_local",
-      "description": "Validates a local HTML file against the official W3C Nu HTML Checker API. Catches syntax, tags, and compliance errors.",
+      "name": "html_validate_local",
+      "title": "Validate local HTML",
+      "description": "Reads a bounded local HTML file and sends its markup to the W3C Nu HTML Checker. Use only files the user is authorized to share.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "filePath": {
             "type": "string",
-            "description": "Absolute or relative path to the local HTML file."
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "Absolute or workspace-relative path to an HTML file."
           }
         },
         "required": [
           "filePath"
-        ]
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
         "type": "object",
-        "description": "Validation result containing W3C HTML parser validation messages.",
         "properties": {
           "errors": {
             "type": "array",
-            "description": "List of HTML validation error and warning objects returned from W3C.",
             "items": {
               "type": "object",
               "properties": {
                 "type": {
-                  "type": "string",
-                  "description": "The category of message: 'error', 'info', or 'non-document-error'."
+                  "type": "string"
                 },
                 "message": {
-                  "type": "string",
-                  "description": "The specific validation or parsing error message."
-                },
-                "extract": {
-                  "type": "string",
-                  "description": "The HTML snippet around the validation location."
+                  "type": "string"
                 },
                 "lastLine": {
-                  "type": "number",
-                  "description": "Line number where the issue occurred."
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
                 },
                 "lastColumn": {
-                  "type": "number",
-                  "description": "Column number where the issue occurred."
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "firstLine": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "firstColumn": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "extract": {
+                  "type": "string"
                 }
               },
               "required": [
                 "type",
                 "message"
-              ]
+              ],
+              "additionalProperties": false
             }
+          },
+          "error": {
+            "type": "string"
           }
         },
         "required": [
           "errors"
-        ]
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
-        "readOnlyHint": true,
-        "openWorldHint": false
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
       }
     },
     {
-      "name": "html.validate_url",
-      "description": "Validates the markup of a live public URL using the W3C HTML validation engine.",
+      "name": "html_validate_url",
+      "title": "Validate a public URL",
+      "description": "Fetches a bounded public HTTP(S) page, then sends its markup to the W3C Nu HTML Checker. Private, reserved, credentialed, and nonstandard-port destinations are rejected.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string",
-            "description": "The live URL to validate (must start with http:// or https://)."
+            "format": "uri",
+            "description": "Public HTTP(S) URL on port 80 or 443."
           }
         },
         "required": [
           "url"
-        ]
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
         "type": "object",
-        "description": "Validation result containing W3C HTML parser validation messages.",
         "properties": {
           "errors": {
             "type": "array",
-            "description": "List of HTML validation error and warning objects returned from W3C.",
             "items": {
               "type": "object",
               "properties": {
                 "type": {
-                  "type": "string",
-                  "description": "The category of message: 'error', 'info', or 'non-document-error'."
+                  "type": "string"
                 },
                 "message": {
-                  "type": "string",
-                  "description": "The specific validation or parsing error message."
-                },
-                "extract": {
-                  "type": "string",
-                  "description": "The HTML snippet around the validation location."
+                  "type": "string"
                 },
                 "lastLine": {
-                  "type": "number",
-                  "description": "Line number where the issue occurred."
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
                 },
                 "lastColumn": {
-                  "type": "number",
-                  "description": "Column number where the issue occurred."
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "firstLine": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "firstColumn": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "extract": {
+                  "type": "string"
                 }
               },
               "required": [
                 "type",
                 "message"
-              ]
+              ],
+              "additionalProperties": false
             }
+          },
+          "fetchedUrl": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
           }
         },
         "required": [
           "errors"
-        ]
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
-        "readOnlyHint": true,
-        "openWorldHint": false
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
       }
     },
     {
-      "name": "css.validate_local",
-      "description": "Validates a local CSS file against the W3C Jigsaw CSS Validator API. Finds styling syntax errors.",
+      "name": "css_validate_local",
+      "title": "Validate local CSS",
+      "description": "Reads a bounded local CSS file and sends it to the W3C Jigsaw CSS Validator. Use only files the user is authorized to share.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "filePath": {
             "type": "string",
-            "description": "Absolute or relative path to the local CSS file."
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "Absolute or workspace-relative path to a CSS file."
           }
         },
         "required": [
           "filePath"
-        ]
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
         "type": "object",
-        "description": "CSS validation results.",
         "properties": {
           "errors": {
             "type": "array",
-            "description": "List of CSS validation errors from W3C Jigsaw API.",
             "items": {
               "type": "object",
               "properties": {
                 "line": {
-                  "type": "number",
-                  "description": "Line number of the CSS error."
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
                 },
-                "context": {
-                  "type": "string",
-                  "description": "The CSS selector or context where the error occurred."
+                "type": {
+                  "type": "string"
                 },
                 "message": {
-                  "type": "string",
-                  "description": "The specific CSS validation warning or error message."
+                  "type": "string"
+                },
+                "context": {
+                  "type": "string"
                 }
               },
               "required": [
                 "line",
+                "type",
                 "message"
-              ]
+              ],
+              "additionalProperties": false
             }
+          },
+          "error": {
+            "type": "string"
           }
         },
         "required": [
           "errors"
-        ]
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
-        "readOnlyHint": true,
-        "openWorldHint": false
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
       }
     },
     {
-      "name": "seo.audit_metadata",
-      "description": "Runs a fast offline audit of HTML metadata, heading structure, viewport responsive tags, image alt tags, and Open Graph cards.",
+      "name": "seo_audit_metadata",
+      "title": "Audit SEO metadata",
+      "description": "Analyzes supplied HTML locally for metadata, heading structure, viewport configuration, image alternatives, and Open Graph fields.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "htmlContent": {
             "type": "string",
-            "description": "The raw HTML string content to analyze."
+            "minLength": 1,
+            "maxLength": 2000000,
+            "description": "Raw HTML markup to inspect locally."
           }
         },
         "required": [
           "htmlContent"
-        ]
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
         "type": "object",
-        "description": "Audited Technical SEO results.",
         "properties": {
           "issues": {
             "type": "array",
-            "description": "List of audited Technical SEO issues, warnings, and error indicators.",
             "items": {
               "type": "object",
               "properties": {
-                "category": {
-                  "type": "string",
-                  "description": "SEO audit category (e.g. metadata, structure, accessibility)."
-                },
                 "severity": {
                   "type": "string",
-                  "description": "Severity of the issue: 'error' or 'warning'."
+                  "enum": [
+                    "error",
+                    "warning",
+                    "info"
+                  ]
+                },
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "SEO",
+                    "Schema",
+                    "BrokenLinks",
+                    "Accessibility"
+                  ]
                 },
                 "message": {
-                  "type": "string",
-                  "description": "Detailed explanation of the SEO issue."
+                  "type": "string"
                 },
                 "element": {
-                  "type": "string",
-                  "description": "Relevant HTML snippet or element if applicable."
+                  "type": "string"
                 }
               },
               "required": [
-                "category",
                 "severity",
+                "category",
                 "message"
-              ]
+              ],
+              "additionalProperties": false
             }
+          },
+          "totalIssues": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
           }
         },
         "required": [
-          "issues"
-        ]
+          "issues",
+          "totalIssues",
+          "truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
         "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
       }
     },
     {
-      "name": "links.check_broken",
-      "description": "Extracts all links (a href tags) in the HTML content and tests their HTTP status codes to detect broken internal or external URLs.",
+      "name": "links_check_broken",
+      "title": "Check public links",
+      "description": "Resolves and checks up to 25 public HTTP(S) links in supplied HTML. Redirects are reported but not followed, and response bodies are discarded.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "htmlContent": {
             "type": "string",
-            "description": "The raw HTML string content to inspect."
+            "minLength": 1,
+            "maxLength": 2000000,
+            "description": "Raw HTML markup containing links to check."
           },
           "baseUrl": {
+            "description": "Optional public HTTP(S) base URL used to resolve relative links.",
             "type": "string",
-            "description": "Optional base URL to resolve relative paths (e.g., https://example.com)."
+            "format": "uri"
+          },
+          "maxLinks": {
+            "default": 25,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 25
           }
         },
         "required": [
           "htmlContent"
-        ]
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
         "type": "object",
-        "description": "Reachability report of page links.",
         "properties": {
           "links": {
             "type": "array",
-            "description": "Status details of all checked links on the page.",
             "items": {
               "type": "object",
               "properties": {
                 "url": {
-                  "type": "string",
-                  "description": "The destination URL that was tested."
+                  "type": "string"
                 },
                 "status": {
-                  "type": "number",
-                  "description": "HTTP status code response (e.g., 200, 404)."
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "blocked",
+                        "failed"
+                      ]
+                    }
+                  ]
                 },
                 "ok": {
-                  "type": "boolean",
-                  "description": "Whether the link is reachable and returned a successful status code."
+                  "type": "boolean"
                 },
                 "message": {
-                  "type": "string",
-                  "description": "Reachable status details or error description."
+                  "type": "string"
                 }
               },
               "required": [
                 "url",
                 "status",
                 "ok"
-              ]
+              ],
+              "additionalProperties": false
             }
+          },
+          "error": {
+            "type": "string"
           }
         },
         "required": [
           "links"
-        ]
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
-        "readOnlyHint": true,
-        "openWorldHint": false
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
       }
     },
     {
-      "name": "schema.validate_markup",
-      "description": "Finds and validates the JSON-LD schema blocks within the HTML, catching syntax issues.",
+      "name": "schema_validate_markup",
+      "title": "Validate JSON-LD syntax",
+      "description": "Parses JSON-LD blocks in supplied HTML locally and reports empty blocks or JSON syntax errors. It does not validate vocabulary semantics.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "htmlContent": {
             "type": "string",
-            "description": "The raw HTML string containing <script type=\"application/ld+json\"> blocks."
+            "minLength": 1,
+            "maxLength": 2000000,
+            "description": "Raw HTML containing JSON-LD script blocks."
           }
         },
         "required": [
           "htmlContent"
-        ]
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
         "type": "object",
-        "description": "Parsed JSON-LD validation report.",
         "properties": {
           "issues": {
             "type": "array",
-            "description": "List of parsed JSON-LD validation results.",
             "items": {
               "type": "object",
               "properties": {
-                "category": {
-                  "type": "string",
-                  "description": "Always 'Schema Markup'."
-                },
                 "severity": {
                   "type": "string",
-                  "description": "Severity level: 'error' or 'warning'."
+                  "enum": [
+                    "error",
+                    "warning",
+                    "info"
+                  ]
+                },
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "SEO",
+                    "Schema",
+                    "BrokenLinks",
+                    "Accessibility"
+                  ]
                 },
                 "message": {
-                  "type": "string",
-                  "description": "Validation message explaining JSON parsing errors or schema problems."
+                  "type": "string"
+                },
+                "element": {
+                  "type": "string"
                 }
               },
               "required": [
-                "category",
                 "severity",
+                "category",
                 "message"
-              ]
+              ],
+              "additionalProperties": false
             }
+          },
+          "totalIssues": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
           }
         },
         "required": [
-          "issues"
-        ]
+          "issues",
+          "totalIssues",
+          "truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
         "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
       }
     },
     {
-      "name": "report.generate_validation",
-      "description": "Runs all validation checks (HTML, CSS, SEO, Schema, Links) on local files and aggregates them into a beautifully formatted Markdown report with summary tables.",
+      "name": "report_generate_validation",
+      "title": "Generate a validation report",
+      "description": "Combines W3C HTML/CSS validation, local SEO/accessibility checks, JSON-LD syntax checks, and a bounded public-link check into a Markdown and structured report.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "htmlFilePath": {
             "type": "string",
-            "description": "Absolute or relative path to the local HTML file to validate."
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "Absolute or workspace-relative HTML file path."
           },
           "cssFilePath": {
+            "description": "Optional absolute or workspace-relative CSS file path.",
             "type": "string",
-            "description": "Optional absolute or relative path to the local CSS file to validate."
+            "minLength": 1,
+            "maxLength": 4096
           },
           "baseUrl": {
+            "description": "Optional public HTTP(S) base URL used to resolve relative links.",
             "type": "string",
-            "description": "Optional base URL to resolve relative link paths."
+            "format": "uri"
           }
         },
         "required": [
           "htmlFilePath"
-        ]
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
         "type": "object",
-        "description": "Aggregated Markdown validation and SEO report details.",
         "properties": {
-          "content": {
+          "report": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "overallScore": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "htmlScore": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "cssScore": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "seoScore": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "linkScore": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "htmlErrors": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "htmlWarnings": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "cssErrors": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "seoErrors": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "seoWarnings": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "schemaErrors": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "linksChecked": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "brokenLinks": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "overallScore",
+              "htmlScore",
+              "cssScore",
+              "seoScore",
+              "linkScore",
+              "htmlErrors",
+              "htmlWarnings",
+              "cssErrors",
+              "seoErrors",
+              "seoWarnings",
+              "schemaErrors",
+              "linksChecked",
+              "brokenLinks"
+            ],
+            "additionalProperties": false
+          },
+          "htmlMessages": {
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
                 "type": {
-                  "type": "string",
-                  "enum": [
-                    "text"
-                  ]
+                  "type": "string"
                 },
-                "text": {
-                  "type": "string",
-                  "description": "Formatted Markdown report."
+                "message": {
+                  "type": "string"
+                },
+                "lastLine": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "lastColumn": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "firstLine": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "firstColumn": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "extract": {
+                  "type": "string"
                 }
               },
               "required": [
                 "type",
-                "text"
-              ]
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "cssMessages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "line": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "type": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "context": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "line",
+                "type",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "seoIssues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "error",
+                    "warning",
+                    "info"
+                  ]
+                },
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "SEO",
+                    "Schema",
+                    "BrokenLinks",
+                    "Accessibility"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "element": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "severity",
+                "category",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "schemaIssues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "error",
+                    "warning",
+                    "info"
+                  ]
+                },
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "SEO",
+                    "Schema",
+                    "BrokenLinks",
+                    "Accessibility"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "element": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "severity",
+                "category",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string"
+                },
+                "status": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "blocked",
+                        "failed"
+                      ]
+                    }
+                  ]
+                },
+                "ok": {
+                  "type": "boolean"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url",
+                "status",
+                "ok"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           }
         },
         "required": [
-          "content"
-        ]
+          "report",
+          "summary",
+          "htmlMessages",
+          "cssMessages",
+          "seoIssues",
+          "schemaIssues",
+          "links"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
-        "readOnlyHint": true,
-        "openWorldHint": false
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
       }
     },
     {
-      "name": "screenshot.capture",
-      "description": "Renders a local HTML file or remote URL using Puppeteer and captures screenshots at different viewport sizes (desktop, tablet, mobile).",
+      "name": "screenshot_capture",
+      "title": "Capture responsive screenshots",
+      "description": "Renders a local HTML file or HTTP(S) URL in a sandboxed local Chromium browser and writes PNG screenshots to the requested directory. Existing matching files may be replaced.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "targetPath": {
             "type": "string",
-            "description": "Path to the local HTML file or remote URL (e.g. http:// or https://) to screenshot."
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "Local HTML path or HTTP(S) URL to render."
           },
           "outputDir": {
+            "default": ".mcp-validator/screenshots",
+            "description": "Directory where PNG screenshots will be written.",
             "type": "string",
-            "description": "Optional absolute or relative directory path where screenshots will be saved. Defaults to '.mcp-validator/screenshots'."
+            "minLength": 1,
+            "maxLength": 4096
           },
           "viewports": {
+            "minItems": 1,
+            "maxItems": 8,
             "type": "array",
-            "description": "Optional list of custom viewports to capture. Each viewport object must have name, width, and height.",
             "items": {
               "type": "object",
               "properties": {
                 "name": {
                   "type": "string",
-                  "description": "Name of the viewport (e.g., mobile-portrait)."
+                  "pattern": "^[A-Za-z0-9_-]{1,50}$"
                 },
                 "width": {
-                  "type": "number",
-                  "description": "Width in pixels."
+                  "type": "integer",
+                  "minimum": 200,
+                  "maximum": 3840
                 },
                 "height": {
-                  "type": "number",
-                  "description": "Height in pixels."
+                  "type": "integer",
+                  "minimum": 200,
+                  "maximum": 4320
                 }
               },
               "required": [
@@ -482,42 +935,65 @@
         },
         "required": [
           "targetPath"
-        ]
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
         "type": "object",
-        "description": "Status report of screenshot file paths and coordinates generated.",
         "properties": {
-          "content": {
+          "screenshots": {
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
-                "type": {
-                  "type": "string",
-                  "enum": [
-                    "text"
-                  ]
+                "viewportName": {
+                  "type": "string"
                 },
-                "text": {
-                  "type": "string",
-                  "description": "Markdown list of screenshots created and their directories."
+                "width": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "height": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "outputPath": {
+                  "type": "string"
                 }
               },
               "required": [
-                "type",
-                "text"
-              ]
+                "viewportName",
+                "width",
+                "height",
+                "outputPath"
+              ],
+              "additionalProperties": false
             }
+          },
+          "outputDirectory": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
           }
         },
         "required": [
-          "content"
-        ]
+          "screenshots",
+          "outputDirectory"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
         "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
       }
     }
   ],

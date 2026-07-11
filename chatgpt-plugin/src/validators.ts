@@ -14,7 +14,7 @@ export interface CssValidationMessage {
 }
 
 const VALIDATOR_TIMEOUT_MS = 15_000;
-const VALIDATOR_USER_AGENT = "DigestSEO-Web-Validator/0.1 (+https://digestseo.com/validator-mcp/)";
+const VALIDATOR_USER_AGENT = "DigestSEO-Web-Validator/0.2.0 (+https://digestseo.com/validator-mcp/)";
 
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
@@ -43,13 +43,19 @@ export async function validateHtml(html: string): Promise<ValidationMessage[]> {
   const data = (await response.json()) as {
     messages?: Array<{
       type?: string;
+      subType?: string;
       message?: string;
       lastLine?: number;
       lastColumn?: number;
     }>;
   };
   return (data.messages ?? []).slice(0, 200).map((item) => ({
-    type: item.type === "error" ? "error" : item.type === "info" ? "info" : "warning",
+    type:
+      item.type === "error" || item.type === "non-document-error"
+        ? "error"
+        : item.type === "warning" || item.subType === "warning"
+          ? "warning"
+          : "info",
     message: item.message ?? "Validator returned an unspecified message.",
     line: item.lastLine,
     column: item.lastColumn,

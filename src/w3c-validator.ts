@@ -111,9 +111,9 @@ export async function validateCssContent(cssContent: string): Promise<CSSMessage
 
     const text = await readResponseText(response, MAX_VALIDATOR_RESPONSE_BYTES);
 
-    // W3C Jigsaw API sometimes returns invalid JSON or empty responses if there are network issues
+    // An empty upstream response is indeterminate and must never be presented as a clean result.
     if (!text || text.trim() === "") {
-      return [];
+      throw new Error("W3C CSS validator returned an empty response");
     }
 
     const data = JSON.parse(text) as {

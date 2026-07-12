@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-12
+
+### Added
+
+- Added concise, tool-specific result summaries with prioritized fixes and clear next steps.
+- Added a shared hosted result overview with truthful status, severity, truncation, schema-block, link-health, and partial-report metadata.
+- Added the responsive v3 ChatGPT results widget with accessible severity groups, clean and partial states, dark-mode support, and expandable findings.
+
+### Changed
+
+- Replaced duplicated raw JSON in local MCP narration with polished Markdown while preserving every structured result field.
+- Upgraded the hosted Worker contract to version 0.3.0 and cache-busted its UI resource.
+
+### Fixed
+
+- Fixed CSS errors being presented as informational results in the hosted widget.
+- Fixed healthy links appearing as problems, missing truncation notices, and partial reports hiding completed checks.
+- Distinguished pages with no JSON-LD from pages whose JSON-LD parsed successfully.
+
 ## [1.0.1] - 2026-07-11
 
 ### Added

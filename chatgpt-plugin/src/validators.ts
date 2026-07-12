@@ -13,8 +13,16 @@ export interface CssValidationMessage {
   context?: string;
 }
 
+export interface HtmlValidationResult {
+  messages: ValidationMessage[];
+  total: number;
+  truncated: boolean;
+  counts: Record<ValidationMessage["type"], number>;
+}
+
 const VALIDATOR_TIMEOUT_MS = 15_000;
-const VALIDATOR_USER_AGENT = "DigestSEO-Web-Validator/0.2.0 (+https://digestseo.com/validator-mcp/)";
+const MAX_VALIDATION_MESSAGES = 200;
+const VALIDATOR_USER_AGENT = "DigestSEO-Web-Validator/0.3.0 (+https://digestseo.com/validator-mcp/)";
 
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
@@ -26,8 +34,8 @@ async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit): Pr
   }
 }
 
-/** Sends supplied markup to the W3C Nu HTML Checker and returns capped diagnostics. */
-export async function validateHtml(html: string): Promise<ValidationMessage[]> {
+/** Sends supplied markup to the Nu HTML Checker and retains cap metadata. */
+export async function validateHtmlDetailed(html: string): Promise<HtmlValidationResult> {
   // The Nu endpoint accepts server-side validation requests over Cloudflare's
   // production transport while returning the same standard Nu JSON format.
   const response = await fetchWithTimeout("https://html5.validator.nu/?out=json", {
@@ -40,26 +48,63 @@ export async function validateHtml(html: string): Promise<ValidationMessage[]> {
   });
   if (!response.ok) throw new Error(`The W3C HTML validator returned HTTP ${response.status}.`);
 
-  const data = (await response.json()) as {
-    messages?: Array<{
-      type?: string;
-      subType?: string;
-      message?: string;
-      lastLine?: number;
-      lastColumn?: number;
-    }>;
-  };
-  return (data.messages ?? []).slice(0, 200).map((item) => ({
-    type:
+  const data: unknown = await response.json();
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("The Nu HTML Checker returned an invalid JSON payload.");
+  }
+
+  const rawMessages = (data as { messages?: unknown }).messages ?? [];
+  if (!Array.isArray(rawMessages)) {
+    throw new Error("The Nu HTML Checker returned an invalid messages payload.");
+  }
+
+  const messages: ValidationMessage[] = [];
+  const counts: HtmlValidationResult["counts"] = { error: 0, warning: 0, info: 0 };
+  for (const rawItem of rawMessages) {
+    if (!rawItem || typeof rawItem !== "object" || Array.isArray(rawItem)) {
+      throw new Error("The Nu HTML Checker returned a malformed validation message.");
+    }
+    const item = rawItem as {
+      type?: unknown;
+      subType?: unknown;
+      message?: unknown;
+      lastLine?: unknown;
+      lastColumn?: unknown;
+    };
+    const type: ValidationMessage["type"] =
       item.type === "error" || item.type === "non-document-error"
         ? "error"
         : item.type === "warning" || item.subType === "warning"
           ? "warning"
-          : "info",
-    message: item.message ?? "Validator returned an unspecified message.",
-    line: item.lastLine,
-    column: item.lastColumn,
-  }));
+          : "info";
+    counts[type] += 1;
+    if (messages.length >= MAX_VALIDATION_MESSAGES) continue;
+
+    messages.push({
+      type,
+      message: typeof item.message === "string" && item.message.trim()
+        ? item.message
+        : "Validator returned an unspecified message.",
+      line: typeof item.lastLine === "number" && Number.isFinite(item.lastLine)
+        ? item.lastLine
+        : undefined,
+      column: typeof item.lastColumn === "number" && Number.isFinite(item.lastColumn)
+        ? item.lastColumn
+        : undefined,
+    });
+  }
+
+  return {
+    messages,
+    total: rawMessages.length,
+    truncated: rawMessages.length > MAX_VALIDATION_MESSAGES,
+    counts,
+  };
+}
+
+/** Backwards-compatible convenience API returning capped diagnostics only. */
+export async function validateHtml(html: string): Promise<ValidationMessage[]> {
+  return (await validateHtmlDetailed(html)).messages;
 }
 
 /** Parses supplied CSS locally and returns syntax diagnostics without a network request. */

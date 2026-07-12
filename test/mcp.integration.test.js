@@ -7,6 +7,13 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const repositoryRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 
+function textContent(result) {
+  return (result.content ?? [])
+    .filter((item) => item.type === "text")
+    .map((item) => item.text)
+    .join("\n");
+}
+
 test("stdio MCP exposes valid contracts and structured offline results", { timeout: 15_000 }, async () => {
   const transport = new StdioClientTransport({
     command: process.execPath,
@@ -47,6 +54,15 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.equal(seo.isError, undefined);
     assert.ok(Array.isArray(seo.structuredContent?.issues));
     assert.equal(typeof seo.structuredContent?.totalIssues, "number");
+    const seoText = textContent(seo);
+    assert.match(seoText, /^### SEO audit: attention needed/m);
+    assert.match(seoText, /\*\*Fix first\*\*/);
+    assert.match(seoText, /\*\*Next step:\*\*/);
+    assert.ok(
+      seoText.split("\n").filter((line) => line.startsWith("- **")).length <= 3,
+      "SEO narration must show at most three prioritized findings",
+    );
+    assert.doesNotMatch(seoText, /"(?:issues|totalIssues|truncated)"\s*:/);
 
     const schema = await client.callTool({
       name: "schema_validate_markup",
@@ -56,6 +72,35 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       },
     });
     assert.deepEqual(schema.structuredContent?.issues, []);
+    const schemaText = textContent(schema);
+    assert.match(schemaText, /^### JSON-LD syntax: clean/m);
+    assert.match(schemaText, /1 JSON-LD block parsed without syntax errors/);
+    assert.match(schemaText, /syntax only/i);
+    assert.match(schemaText, /\*\*Next step:\*\*/);
+    assert.doesNotMatch(schemaText, /"(?:issues|totalIssues|truncated)"\s*:/);
+
+    const absentSchema = await client.callTool({
+      name: "schema_validate_markup",
+      arguments: { htmlContent: "<!doctype html><html><body><h1>No schema</h1></body></html>" },
+    });
+    assert.deepEqual(absentSchema.structuredContent?.issues, []);
+    assert.match(textContent(absentSchema), /^### JSON-LD syntax: not present/m);
+    assert.match(textContent(absentSchema), /No JSON-LD script blocks were found/);
+
+    const schemaBlockCount = 205;
+    const truncatedSchema = await client.callTool({
+      name: "schema_validate_markup",
+      arguments: {
+        htmlContent: Array.from(
+          { length: schemaBlockCount },
+          () => '<script type="application/ld+json">{</script>',
+        ).join(""),
+      },
+    });
+    assert.equal(truncatedSchema.structuredContent?.issues.length, 200);
+    assert.equal(truncatedSchema.structuredContent?.totalIssues, schemaBlockCount);
+    assert.equal(truncatedSchema.structuredContent?.truncated, true);
+    assert.match(textContent(truncatedSchema), /Showing the first 200 of 205 findings/);
 
     const screenshot = tools.find((tool) => tool.name === "screenshot_capture");
     assert.equal(screenshot?.annotations?.readOnlyHint, false);

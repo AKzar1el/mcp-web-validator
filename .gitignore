@@ -17,5 +17,6 @@ yarn-error.log*
 .mcp-validator/
 screenshots-test/
 screenshots/
+output/
 chatgpt-plugin/.wrangler/
 chatgpt-plugin/dist/

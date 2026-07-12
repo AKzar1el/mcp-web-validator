@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { auditSeoMetadata, checkBrokenLinks, toPublicHttpUrl, validateSchemaMarkup } from "./audits";
-import { validateHtml } from "./validators";
+import { validateHtml, validateHtmlDetailed } from "./validators";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -27,6 +27,27 @@ describe("validateHtml", () => {
       { type: "warning", message: "Add lang", line: 1, column: undefined },
       { type: "info", message: "Informational", line: undefined, column: undefined },
     ]);
+  });
+
+  it("reports the total when Nu diagnostics exceed the returned cap", async () => {
+    const messages = Array.from({ length: 205 }, (_, index) => ({
+      type: "error",
+      message: `Error ${index + 1}`,
+    }));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ messages })));
+
+    const result = await validateHtmlDetailed("<html></html>");
+
+    expect(result.messages).toHaveLength(200);
+    expect(result.total).toBe(205);
+    expect(result.truncated).toBe(true);
+    expect(result.counts).toEqual({ error: 205, warning: 0, info: 0 });
+  });
+
+  it("rejects a malformed Nu messages payload", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ messages: { type: "error" } })));
+
+    await expect(validateHtmlDetailed("<html></html>")).rejects.toThrow("invalid messages payload");
   });
 });
 
@@ -68,6 +89,7 @@ describe("bounded audits", () => {
     expect(result.issues).toHaveLength(100);
     expect(result.total).toBe(120);
     expect(result.truncated).toBe(true);
+    expect(result.blocksChecked).toBe(120);
   });
 });
 

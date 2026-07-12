@@ -28,23 +28,53 @@ export interface LinkStatus {
   message?: string;
 }
 
+export interface AuditDetails {
+  issues: SEOIssue[];
+  totalIssues: number;
+  truncated: boolean;
+}
+
 function addIssue(issues: SEOIssue[], issue: SEOIssue): void {
   if (issues.length < MAX_AUDIT_ISSUES) {
     issues.push(issue);
   }
 }
 
+function createIssueCollector(): {
+  issues: SEOIssue[];
+  add: (issue: SEOIssue) => void;
+  details: () => AuditDetails;
+} {
+  const issues: SEOIssue[] = [];
+  let totalIssues = 0;
+  return {
+    issues,
+    add(issue) {
+      totalIssues += 1;
+      addIssue(issues, issue);
+    },
+    details() {
+      return {
+        issues,
+        totalIssues,
+        truncated: totalIssues > issues.length,
+      };
+    },
+  };
+}
+
 /**
  * Audits technical SEO and accessibility basics on HTML content using Cheerio
  */
-export function auditSeoMetadata(htmlContent: string): SEOIssue[] {
+export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   const $ = cheerio.load(htmlContent);
-  const issues: SEOIssue[] = [];
+  const collector = createIssueCollector();
+  const { add } = collector;
 
   // --- Title Tag Audits ---
   const titleTag = $("title");
   if (titleTag.length === 0) {
-    addIssue(issues, {
+    add({
       severity: "error",
       category: "SEO",
       message: "Missing <title> tag. This is critical for search indexing and click-through rates.",
@@ -52,20 +82,20 @@ export function auditSeoMetadata(htmlContent: string): SEOIssue[] {
   } else {
     const titleText = titleTag.text().trim();
     if (titleText.length === 0) {
-      addIssue(issues, {
+      add({
         severity: "error",
         category: "SEO",
         message: "The <title> tag is empty.",
       });
     } else if (titleText.length < 30) {
-      addIssue(issues, {
+      add({
         severity: "warning",
         category: "SEO",
         message: `Title length (${titleText.length} chars) is too short. Try to make it at least 30-50 characters.`,
         element: `<title>${titleText}</title>`,
       });
     } else if (titleText.length > 60) {
-      addIssue(issues, {
+      add({
         severity: "warning",
         category: "SEO",
         message: `Title length (${titleText.length} chars) is too long. Search engines will truncate it. Keep it under 60 characters.`,
@@ -77,7 +107,7 @@ export function auditSeoMetadata(htmlContent: string): SEOIssue[] {
   // --- Meta Description Audits ---
   const metaDescription = $('meta[name="description"]');
   if (metaDescription.length === 0) {
-    addIssue(issues, {
+    add({
       severity: "error",
       category: "SEO",
       message: "Missing <meta name=\"description\">. Search engines will automatically generate snippets, which may lower CTR.",
@@ -85,20 +115,20 @@ export function auditSeoMetadata(htmlContent: string): SEOIssue[] {
   } else {
     const descText = metaDescription.attr("content")?.trim() || "";
     if (descText.length === 0) {
-      addIssue(issues, {
+      add({
         severity: "error",
         category: "SEO",
         message: "Meta description content attribute is empty.",
       });
     } else if (descText.length < 120) {
-      addIssue(issues, {
+      add({
         severity: "warning",
         category: "SEO",
         message: `Meta description is too short (${descText.length} chars). Aim for 120-160 characters to optimize your search snippet.`,
         element: `<meta name="description" content="${descText}">`,
       });
     } else if (descText.length > 160) {
-      addIssue(issues, {
+      add({
         severity: "warning",
         category: "SEO",
         message: `Meta description is too long (${descText.length} chars). Search engines will truncate it. Keep it under 160 characters.`,
@@ -110,7 +140,7 @@ export function auditSeoMetadata(htmlContent: string): SEOIssue[] {
   // --- Canonical Link ---
   const canonical = $('link[rel="canonical"]');
   if (canonical.length === 0) {
-    addIssue(issues, {
+    add({
       severity: "warning",
       category: "SEO",
       message: "Missing canonical tag (<link rel=\"canonical\">). This helps prevent duplicate content issues.",
@@ -120,7 +150,7 @@ export function auditSeoMetadata(htmlContent: string): SEOIssue[] {
   // --- Viewport Meta Tag (Mobile Responsiveness) ---
   const viewport = $('meta[name="viewport"]');
   if (viewport.length === 0) {
-    addIssue(issues, {
+    add({
       severity: "error",
       category: "SEO",
       message: "Missing <meta name=\"viewport\"> tag. Mobile friendliness is a critical ranking factor.",
@@ -130,13 +160,13 @@ export function auditSeoMetadata(htmlContent: string): SEOIssue[] {
   // --- Heading Structure ---
   const h1Tags = $("h1");
   if (h1Tags.length === 0) {
-    addIssue(issues, {
+    add({
       severity: "error",
       category: "SEO",
       message: "Missing <h1> tag. Every page must have exactly one <h1> representing the main topic.",
     });
   } else if (h1Tags.length > 1) {
-    addIssue(issues, {
+    add({
       severity: "warning",
       category: "SEO",
       message: `Found multiple (${h1Tags.length}) <h1> tags. Multiple <h1> tags dilutes topic keyword focus.`,
@@ -145,16 +175,12 @@ export function auditSeoMetadata(htmlContent: string): SEOIssue[] {
 
   // --- Images Alt Tags (SEO + Accessibility) ---
   $("img").each((_, element) => {
-    if (issues.length >= MAX_AUDIT_ISSUES) {
-      return false;
-    }
-
     const img = $(element);
     const src = img.attr("src") || "unknown-source";
     const alt = img.attr("alt");
 
     if (alt === undefined) {
-      addIssue(issues, {
+      add({
         severity: "error",
         category: "Accessibility",
         message: "Missing 'alt' attribute on image. This makes it inaccessible to screen readers.",
@@ -162,7 +188,7 @@ export function auditSeoMetadata(htmlContent: string): SEOIssue[] {
       });
     } else if (alt.trim() === "") {
       // Empty alt is acceptable for purely decorative images, but worth warning
-      addIssue(issues, {
+      add({
         severity: "info",
         category: "Accessibility",
         message: "Empty 'alt' attribute found. Ensure this image is purely decorative, otherwise add descriptive text.",
@@ -175,31 +201,32 @@ export function auditSeoMetadata(htmlContent: string): SEOIssue[] {
   const ogTitle = $('meta[property="og:title"]');
   const ogImage = $('meta[property="og:image"]');
   if (ogTitle.length === 0 || ogImage.length === 0) {
-    addIssue(issues, {
+    add({
       severity: "info",
       category: "SEO",
       message: "Missing Open Graph social metadata (og:title / og:image). Add these to control preview cards on platforms like LinkedIn and X.",
     });
   }
 
-  return issues;
+  return collector.details();
+}
+
+export function auditSeoMetadata(htmlContent: string): SEOIssue[] {
+  return auditSeoMetadataDetailed(htmlContent).issues;
 }
 
 /**
  * Parses and validates JSON-LD Schema markup
  */
-export function validateSchemaMarkup(htmlContent: string): SEOIssue[] {
+export function validateSchemaMarkupDetailed(htmlContent: string): AuditDetails {
   const $ = cheerio.load(htmlContent);
-  const issues: SEOIssue[] = [];
+  const collector = createIssueCollector();
+  const { add } = collector;
 
   $('script[type="application/ld+json"]').each((index, element) => {
-    if (issues.length >= MAX_AUDIT_ISSUES) {
-      return false;
-    }
-
     const scriptText = $(element).html() || "";
     if (scriptText.trim() === "") {
-      addIssue(issues, {
+      add({
         severity: "warning",
         category: "Schema",
         message: `JSON-LD block #${index + 1} is empty.`,
@@ -210,7 +237,7 @@ export function validateSchemaMarkup(htmlContent: string): SEOIssue[] {
     try {
       JSON.parse(scriptText);
     } catch (error: unknown) {
-      addIssue(issues, {
+      add({
         severity: "error",
         category: "Schema",
         message: `Invalid JSON-LD schema syntax: ${getErrorMessage(error)}`,
@@ -219,7 +246,11 @@ export function validateSchemaMarkup(htmlContent: string): SEOIssue[] {
     }
   });
 
-  return issues;
+  return collector.details();
+}
+
+export function validateSchemaMarkup(htmlContent: string): SEOIssue[] {
+  return validateSchemaMarkupDetailed(htmlContent).issues;
 }
 
 /**

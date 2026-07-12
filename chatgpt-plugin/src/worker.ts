@@ -7,13 +7,21 @@ import {
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { auditSeoMetadata, checkBrokenLinks, validateSchemaMarkup } from "./audits";
-import { validateCss, validateHtml } from "./validators";
+import {
+  contentForOverview,
+  overviewSchema,
+  plural,
+  type OverviewMetric,
+  type PresentableFinding,
+  type ResultOverview,
+} from "./presentation";
+import { validateCss, validateHtmlDetailed } from "./validators";
 import { WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const HTML_MAX_LENGTH = 200_000;
 const CSS_MAX_LENGTH = 200_000;
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
-const SERVER_VERSION = "0.2.0";
+const SERVER_VERSION = "0.3.0";
 const TRUSTED_BROWSER_ORIGINS = new Set([
   "https://chatgpt.com",
   "https://chat.openai.com",
@@ -49,6 +57,8 @@ const auditResultSchema = {
   issues: z.array(auditIssueSchema),
   total_issues: z.number().int().nonnegative(),
   truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
 };
 
 const linkStatusSchema = z.object({
@@ -85,14 +95,6 @@ function withWidget(statusText: { invoking: string; invoked: string }) {
     ui: { resourceUri: WIDGET_URI },
     "openai/toolInvocation/invoking": statusText.invoking,
     "openai/toolInvocation/invoked": statusText.invoked,
-  };
-}
-
-function countValidationMessages(messages: Array<{ type: "error" | "warning" | "info" }>) {
-  return {
-    errors: messages.filter((message) => message.type === "error").length,
-    warnings: messages.filter((message) => message.type === "warning").length,
-    info: messages.filter((message) => message.type === "info").length,
   };
 }
 
@@ -165,8 +167,78 @@ function logRequest(event: string, fields: Record<string, string | number | bool
   console.log(JSON.stringify({ event, ...fields }));
 }
 
-function contentForResult(summary: string) {
-  return [{ type: "text" as const, text: summary }];
+function validationFindings(
+  messages: Array<{ type: "error" | "warning" | "info"; message: string; line?: number; column?: number }>,
+): PresentableFinding[] {
+  return messages.map((message) => ({
+    severity: message.type,
+    message: message.message,
+    line: message.line,
+    column: message.column,
+  }));
+}
+
+function auditFindings(
+  issues: Array<{ severity: "error" | "warning" | "info"; category: string; message: string }>,
+): PresentableFinding[] {
+  return issues.map((issue) => ({
+    severity: issue.severity,
+    message: issue.message,
+    label: issue.category,
+  }));
+}
+
+function failedOverview(
+  kind: ResultOverview["kind"],
+  title: string,
+  headline: string,
+  detail: string,
+): ResultOverview {
+  return {
+    kind,
+    status: "failed",
+    title,
+    headline,
+    detail,
+    total: 0,
+    shown: 0,
+    truncated: false,
+    counts: [],
+    next_action: "Try again shortly. If the problem continues, run the other local checks separately.",
+  };
+}
+
+function metric(
+  key: string,
+  label: string,
+  value: number,
+  tone: OverviewMetric["tone"],
+): OverviewMetric {
+  return { key, label, value, tone };
+}
+
+function summarizeSeverities(counts: { errors: number; warnings: number; info: number }): string {
+  const parts = [
+    counts.errors > 0 ? plural(counts.errors, "error") : undefined,
+    counts.warnings > 0 ? plural(counts.warnings, "warning") : undefined,
+    counts.info > 0 ? plural(counts.info, "informational note") : undefined,
+  ].filter((part): part is string => part !== undefined);
+  if (parts.length === 0) return "no findings";
+  if (parts.length === 1) return parts[0];
+  return `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
+}
+
+function linkCounts(links: Array<{ status: number | "blocked" | "failed"; ok: boolean }>) {
+  const redirects = links.filter(
+    (link) => typeof link.status === "number" && link.status >= 300 && link.status < 400,
+  ).length;
+  const unreachable = links.filter((link) => !link.ok).length;
+  return {
+    checked: links.length,
+    healthy: links.length - redirects - unreachable,
+    redirects,
+    unreachable,
+  };
 }
 
 function createServer() {
@@ -194,7 +266,7 @@ function createServer() {
             },
           },
           "openai/widgetDescription":
-            "A read-only validation summary that groups HTML, CSS, SEO, schema, accessibility, and link findings.",
+            "Shows the completed check's status, key counts, highest-priority next step, and expandable validation findings.",
         },
       },
     ],
@@ -208,19 +280,59 @@ function createServer() {
       description:
         "Sends supplied HTML markup to the Nu HTML Checker hosted at validator.nu and returns validation messages. Use only markup you are authorized to share.",
       inputSchema: { html: htmlInput },
-      outputSchema: { errors: z.array(validationMessageSchema), error: z.string().optional() },
+      outputSchema: {
+        errors: z.array(validationMessageSchema),
+        total_messages: z.number().int().nonnegative(),
+        truncated: z.boolean(),
+        overview: overviewSchema,
+        error: z.string().optional(),
+      },
       annotations: externalReadOnlyAnnotations,
       _meta: withWidget({ invoking: "Validating HTML…", invoked: "HTML validation complete." }),
     },
     async ({ html }) => {
       try {
-        const errors = await validateHtml(html);
-        const counts = countValidationMessages(errors);
+        const result = await validateHtmlDetailed(html);
+        const errors = result.messages;
+        const counts = {
+          errors: result.counts.error,
+          warnings: result.counts.warning,
+          info: result.counts.info,
+        };
+        const needsAttention = counts.errors > 0 || counts.warnings > 0;
+        const headline = needsAttention
+          ? `HTML needs attention: ${plural(counts.errors, "error")} and ${plural(counts.warnings, "warning")}.`
+          : counts.info > 0
+            ? `HTML passes with no errors or warnings. ${plural(counts.info, "informational note")} returned.`
+            : "HTML passes validation with no errors or warnings.";
+        const overview: ResultOverview = {
+          kind: "html",
+          status: needsAttention ? "needs_attention" : "passed",
+          title: "HTML validation",
+          headline,
+          detail: result.total === 0
+            ? "The Nu HTML Checker returned no diagnostics."
+            : `${plural(result.total, "diagnostic")} returned${result.truncated ? `; showing the first ${errors.length}` : ""}.`,
+          total: result.total,
+          shown: errors.length,
+          truncated: result.truncated,
+          counts: [
+            metric("errors", "Errors", counts.errors, "error"),
+            metric("warnings", "Warnings", counts.warnings, "warning"),
+            metric("notes", "Notes", counts.info, "info"),
+          ],
+          ...(needsAttention
+            ? { next_action: "Fix errors first, review warnings, then run HTML validation again." }
+            : {}),
+        };
         return {
-          structuredContent: { errors },
-          content: contentForResult(
-            `HTML validation found ${counts.errors} error(s), ${counts.warnings} warning(s), and ${counts.info} informational message(s).`,
-          ),
+          structuredContent: {
+            errors,
+            total_messages: result.total,
+            truncated: result.truncated,
+            overview,
+          },
+          content: contentForOverview(overview, validationFindings(errors)),
         };
     } catch (cause) {
       console.error(
@@ -228,7 +340,12 @@ function createServer() {
         cause instanceof Error ? cause.message : "Unknown upstream error",
       );
       const error = "HTML validation is temporarily unavailable. Please try again shortly.";
-      return { structuredContent: { errors: [], error }, content: contentForResult(error), isError: true };
+      const overview = failedOverview("html", "HTML validation", "HTML validation could not be completed.", error);
+      return {
+        structuredContent: { errors: [], total_messages: 0, truncated: false, overview, error },
+        content: contentForOverview(overview),
+        isError: true,
+      };
     }
     },
   );
@@ -241,21 +358,55 @@ function createServer() {
       description:
         "Parses supplied CSS locally and returns syntax messages without contacting an external service.",
       inputSchema: { css: cssInput },
-      outputSchema: { errors: z.array(cssMessageSchema), error: z.string().optional() },
+      outputSchema: {
+        errors: z.array(cssMessageSchema),
+        overview: overviewSchema,
+        error: z.string().optional(),
+      },
       annotations: localReadOnlyAnnotations,
       _meta: withWidget({ invoking: "Validating CSS…", invoked: "CSS validation complete." }),
     },
     async ({ css }) => {
       try {
         const errors = await validateCss(css);
+        const needsAttention = errors.length > 0;
+        const headline = needsAttention
+          ? `CSS needs attention: ${plural(errors.length, "syntax error")}.`
+          : "CSS parses successfully with no syntax errors.";
+        const overview: ResultOverview = {
+          kind: "css",
+          status: needsAttention ? "needs_attention" : "passed",
+          title: "CSS validation",
+          headline,
+          detail: needsAttention
+            ? "The local parser stopped at the first invalid syntax it encountered."
+            : "The local syntax parser completed without contacting an external service.",
+          total: errors.length,
+          shown: errors.length,
+          truncated: false,
+          counts: [metric("syntax_errors", "Syntax errors", errors.length, "error")],
+          ...(needsAttention ? { next_action: "Correct the syntax error, then run CSS validation again." } : {}),
+        };
         return {
-          structuredContent: { errors },
-          content: contentForResult(`CSS validation found ${errors.length} message(s).`),
+          structuredContent: { errors, overview },
+          content: contentForOverview(
+            overview,
+            errors.map((message) => ({
+              severity: "error" as const,
+              message: message.message,
+              line: message.line || undefined,
+            })),
+          ),
         };
     } catch (cause) {
       console.error("Local CSS validation failed:", cause instanceof Error ? cause.message : "Unknown error");
       const error = "CSS validation is temporarily unavailable. Please try again shortly.";
-      return { structuredContent: { errors: [], error }, content: contentForResult(error), isError: true };
+      const overview = failedOverview("css", "CSS validation", "CSS validation could not be completed.", error);
+      return {
+        structuredContent: { errors: [], overview, error },
+        content: contentForOverview(overview),
+        isError: true,
+      };
     }
     },
   );
@@ -273,17 +424,58 @@ function createServer() {
       _meta: withWidget({ invoking: "Auditing SEO metadata…", invoked: "SEO audit complete." }),
     },
     async ({ html }) => {
-      const result = auditSeoMetadata(html);
-      return {
-        structuredContent: {
-          issues: result.issues,
-          total_issues: result.total,
+      try {
+        const result = auditSeoMetadata(html);
+        const counts = {
+          errors: result.counts.error,
+          warnings: result.counts.warning,
+          info: result.counts.info,
+        };
+        const needsAttention = counts.errors > 0 || counts.warnings > 0;
+        const headline = needsAttention
+          ? `SEO audit found ${summarizeSeverities(counts)}.`
+          : result.total > 0
+            ? `SEO metadata and accessibility checks passed with ${plural(counts.info, "informational note")}.`
+            : "SEO metadata and accessibility checks passed with no actionable issues.";
+        const overview: ResultOverview = {
+          kind: "seo",
+          status: needsAttention ? "needs_attention" : "passed",
+          title: "SEO metadata audit",
+          headline,
+          detail: result.truncated
+            ? `${plural(result.total, "finding")} identified; showing the first ${result.issues.length}.`
+            : `${plural(result.total, "finding")} identified across SEO and accessibility checks.`,
+          total: result.total,
+          shown: result.issues.length,
           truncated: result.truncated,
-        },
-        content: contentForResult(
-          `SEO metadata audit found ${result.total} issue(s)${result.truncated ? "; the first 100 are shown" : ""}.`,
-        ),
-      };
+          counts: [
+            metric("errors", "Errors", counts.errors, "error"),
+            metric("warnings", "Warnings", counts.warnings, "warning"),
+            metric("notes", "Notes", counts.info, "info"),
+          ],
+          ...(needsAttention
+            ? { next_action: "Resolve SEO and accessibility errors first, then review the warnings." }
+            : {}),
+        };
+        return {
+          structuredContent: {
+            issues: result.issues,
+            total_issues: result.total,
+            truncated: result.truncated,
+            overview,
+          },
+          content: contentForOverview(overview, auditFindings(result.issues)),
+        };
+      } catch (cause) {
+        console.error("Local SEO audit failed:", cause instanceof Error ? cause.message : "Unknown error");
+        const error = "The SEO metadata audit could not be completed. Please try again shortly.";
+        const overview = failedOverview("seo", "SEO metadata audit", "SEO audit could not be completed.", error);
+        return {
+          structuredContent: { issues: [], total_issues: 0, truncated: false, overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
     },
   );
 
@@ -294,22 +486,77 @@ function createServer() {
       title: "Validate JSON-LD schema",
       description: "Parses JSON-LD blocks in supplied HTML and reports JSON syntax problems without contacting external services.",
       inputSchema: { html: htmlInput },
-      outputSchema: auditResultSchema,
+      outputSchema: { ...auditResultSchema, blocks_checked: z.number().int().nonnegative() },
       annotations: localReadOnlyAnnotations,
       _meta: withWidget({ invoking: "Checking JSON-LD…", invoked: "JSON-LD check complete." }),
     },
     async ({ html }) => {
-      const result = validateSchemaMarkup(html);
-      return {
-        structuredContent: {
-          issues: result.issues,
-          total_issues: result.total,
+      try {
+        const result = validateSchemaMarkup(html);
+        const counts = {
+          errors: result.counts.error,
+          warnings: result.counts.warning,
+          info: result.counts.info,
+        };
+        const needsAttention = counts.errors > 0 || counts.warnings > 0;
+        const noBlocks = result.blocksChecked === 0;
+        const headline = noBlocks
+          ? "No JSON-LD blocks were found in the supplied HTML."
+          : needsAttention
+            ? `JSON-LD syntax check found ${summarizeSeverities(counts)} in ${plural(result.blocksChecked, "block")}.`
+            : result.blocksChecked === 1
+              ? "The JSON-LD block contains valid JSON syntax."
+              : `All ${result.blocksChecked} JSON-LD blocks contain valid JSON syntax.`;
+        const overview: ResultOverview = {
+          kind: "schema",
+          status: noBlocks ? "not_applicable" : needsAttention ? "needs_attention" : "passed",
+          title: "JSON-LD syntax check",
+          headline,
+          detail: result.truncated
+            ? `${plural(result.total, "finding")} identified; showing the first ${result.issues.length}. This check validates JSON syntax only.`
+            : "This check validates JSON syntax only; it does not validate schema.org vocabulary or eligibility.",
+          total: result.total,
+          shown: result.issues.length,
           truncated: result.truncated,
-        },
-        content: contentForResult(
-          `JSON-LD validation found ${result.total} issue(s)${result.truncated ? "; the first 100 are shown" : ""}.`,
-        ),
-      };
+          counts: [
+            metric(
+              "valid_blocks",
+              "Valid blocks",
+              Math.max(0, result.blocksChecked - counts.errors - counts.warnings),
+              "success",
+            ),
+            metric("errors", "Errors", counts.errors, "error"),
+            metric("warnings", "Warnings", counts.warnings, "warning"),
+          ],
+          ...(needsAttention ? { next_action: "Correct invalid or empty JSON-LD blocks, then run the syntax check again." } : {}),
+        };
+        return {
+          structuredContent: {
+            issues: result.issues,
+            total_issues: result.total,
+            truncated: result.truncated,
+            blocks_checked: result.blocksChecked,
+            overview,
+          },
+          content: contentForOverview(overview, auditFindings(result.issues)),
+        };
+      } catch (cause) {
+        console.error("Local JSON-LD check failed:", cause instanceof Error ? cause.message : "Unknown error");
+        const error = "The JSON-LD syntax check could not be completed. Please try again shortly.";
+        const overview = failedOverview("schema", "JSON-LD syntax check", "JSON-LD check could not be completed.", error);
+        return {
+          structuredContent: {
+            issues: [],
+            total_issues: 0,
+            truncated: false,
+            blocks_checked: 0,
+            overview,
+            error,
+          },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
     },
   );
 
@@ -325,21 +572,93 @@ function createServer() {
         base_url: z.string().url().optional(),
         max_links: z.number().int().min(1).max(25).default(15),
       },
-      outputSchema: { links: z.array(linkStatusSchema), error: z.string().optional() },
+      outputSchema: {
+        links: z.array(linkStatusSchema),
+        links_checked: z.number().int().nonnegative(),
+        healthy_links: z.number().int().nonnegative(),
+        redirects: z.number().int().nonnegative(),
+        unreachable_links: z.number().int().nonnegative(),
+        overview: overviewSchema,
+        error: z.string().optional(),
+      },
       annotations: externalReadOnlyAnnotations,
       _meta: withWidget({ invoking: "Checking public links…", invoked: "Link check complete." }),
     },
     async ({ html, base_url, max_links }) => {
       try {
         const links = await checkBrokenLinks(html, base_url, max_links);
-        const broken = links.filter((link) => !link.ok).length;
+        const counts = linkCounts(links);
+        const needsAttention = counts.redirects > 0 || counts.unreachable > 0;
+        const headline = counts.checked === 0
+          ? "No eligible public HTTP(S) links were found to check."
+          : `Checked ${plural(counts.checked, "link")}: ${plural(counts.healthy, "healthy link")}, ${plural(counts.redirects, "redirect")}, and ${plural(counts.unreachable, "unreachable link")}.`;
+        const overview: ResultOverview = {
+          kind: "links",
+          status: counts.checked === 0 ? "not_applicable" : needsAttention ? "needs_attention" : "passed",
+          title: "Public link check",
+          headline,
+          detail: counts.checked === 0
+            ? "Only eligible public HTTP(S) links are checked; fragments and non-web links are skipped."
+            : "Redirects are reported but not followed, and response bodies are not downloaded.",
+          total: counts.checked,
+          shown: links.length,
+          truncated: false,
+          counts: [
+            metric("checked", "Checked", counts.checked, "info"),
+            metric("healthy", "Healthy", counts.healthy, "success"),
+            metric("redirects", "Redirects", counts.redirects, "warning"),
+            metric("unreachable", "Unreachable", counts.unreachable, "error"),
+          ],
+          ...(needsAttention
+            ? { next_action: counts.unreachable > 0
+              ? "Fix unreachable links first, then confirm that each redirect is intentional."
+              : "Confirm that each redirect is intentional and points to the preferred destination." }
+            : {}),
+        };
+        const findings = links.flatMap<PresentableFinding>((link): PresentableFinding[] => {
+          if (!link.ok) {
+            return [{
+              severity: "error" as const,
+              message: `${link.url} — ${link.message ?? `returned status ${link.status}`}`,
+              label: String(link.status),
+            }];
+          }
+          if (typeof link.status === "number" && link.status >= 300 && link.status < 400) {
+            return [{
+              severity: "warning" as const,
+              message: `${link.url} returned redirect status ${link.status}; the redirect was not followed.`,
+              label: String(link.status),
+            }];
+          }
+          return [];
+        });
         return {
-          structuredContent: { links },
-          content: contentForResult(`Checked ${links.length} link(s); ${broken} need attention.`),
+          structuredContent: {
+            links,
+            links_checked: counts.checked,
+            healthy_links: counts.healthy,
+            redirects: counts.redirects,
+            unreachable_links: counts.unreachable,
+            overview,
+          },
+          content: contentForOverview(overview, findings),
         };
       } catch (cause) {
         const error = cause instanceof Error ? cause.message : "Link checking could not be completed.";
-        return { structuredContent: { links: [], error }, content: contentForResult(error), isError: true };
+        const overview = failedOverview("links", "Public link check", "Link checking could not be completed.", error);
+        return {
+          structuredContent: {
+            links: [],
+            links_checked: 0,
+            healthy_links: 0,
+            redirects: 0,
+            unreachable_links: 0,
+            overview,
+            error,
+          },
+          content: contentForOverview(overview),
+          isError: true,
+        };
       }
     },
   );
@@ -374,6 +693,15 @@ function createServer() {
         links: z.array(linkStatusSchema),
         seo_truncated: z.boolean(),
         schema_truncated: z.boolean(),
+        html_total_messages: z.number().int().nonnegative(),
+        html_truncated: z.boolean(),
+        schema_blocks_checked: z.number().int().nonnegative(),
+        healthy_links: z.number().int().nonnegative(),
+        redirects: z.number().int().nonnegative(),
+        unreachable_links: z.number().int().nonnegative(),
+        links_requested: z.boolean(),
+        failed_checks: z.array(z.enum(["html", "css", "links"])),
+        overview: overviewSchema,
         error: z.string().optional(),
       },
       annotations: externalReadOnlyAnnotations,
@@ -381,35 +709,146 @@ function createServer() {
     },
     async ({ html, css, check_links, base_url, max_links }) => {
       const [htmlResult, cssResult] = await Promise.allSettled([
-        validateHtml(html),
+        validateHtmlDetailed(html),
         css ? validateCss(css) : Promise.resolve([]),
       ]);
       const seoResult = auditSeoMetadata(html);
       const schemaResult = validateSchemaMarkup(html);
       let links: Awaited<ReturnType<typeof checkBrokenLinks>> = [];
-      let error: string | undefined;
+      const failedChecks: Array<"html" | "css" | "links"> = [];
+      const failureDetails: string[] = [];
 
-      if (htmlResult.status === "rejected" || cssResult.status === "rejected") {
-        error = "One or more validation checks are temporarily unavailable.";
+      if (htmlResult.status === "rejected") {
+        failedChecks.push("html");
+        failureDetails.push("HTML validation was unavailable");
+      }
+      if (cssResult.status === "rejected") {
+        failedChecks.push("css");
+        failureDetails.push("CSS validation was unavailable");
       }
       if (check_links) {
         try {
           links = await checkBrokenLinks(html, base_url, max_links);
         } catch (cause) {
-          error = cause instanceof Error ? cause.message : "Link checking could not be completed.";
+          failedChecks.push("links");
+          failureDetails.push(cause instanceof Error ? cause.message : "Link checking could not be completed");
         }
       }
 
-      const htmlMessages = htmlResult.status === "fulfilled" ? htmlResult.value : [];
+      const htmlValidation = htmlResult.status === "fulfilled"
+        ? htmlResult.value
+        : { messages: [], total: 0, truncated: false, counts: { error: 0, warning: 0, info: 0 } };
+      const htmlMessages = htmlValidation.messages;
       const cssMessages = cssResult.status === "fulfilled" ? cssResult.value : [];
-      const htmlCounts = countValidationMessages(htmlMessages);
+      const htmlCounts = {
+        errors: htmlValidation.counts.error,
+        warnings: htmlValidation.counts.warning,
+        info: htmlValidation.counts.info,
+      };
+      const seoCounts = {
+        errors: seoResult.counts.error,
+        warnings: seoResult.counts.warning,
+        info: seoResult.counts.info,
+      };
+      const schemaCounts = {
+        errors: schemaResult.counts.error,
+        warnings: schemaResult.counts.warning,
+        info: schemaResult.counts.info,
+      };
+      const linkSummary = linkCounts(links);
+      const reportCounts = {
+        errors: htmlCounts.errors + cssMessages.length + seoCounts.errors + schemaCounts.errors + linkSummary.unreachable,
+        warnings: htmlCounts.warnings + seoCounts.warnings + schemaCounts.warnings + linkSummary.redirects,
+        info: htmlCounts.info + seoCounts.info + schemaCounts.info,
+      };
+      const passedChecks = [
+        htmlResult.status === "fulfilled" && htmlCounts.errors === 0 && htmlCounts.warnings === 0,
+        Boolean(css) && cssResult.status === "fulfilled" && cssMessages.length === 0,
+        seoCounts.errors === 0 && seoCounts.warnings === 0,
+        schemaResult.blocksChecked > 0 && schemaCounts.errors === 0 && schemaCounts.warnings === 0,
+        check_links && linkSummary.checked > 0 && linkSummary.redirects === 0 && linkSummary.unreachable === 0,
+      ].filter(Boolean).length;
+      const totalFindings = htmlValidation.total
+        + cssMessages.length
+        + seoResult.total
+        + schemaResult.total
+        + linkSummary.redirects
+        + linkSummary.unreachable;
+      const shownFindings = htmlMessages.length
+        + cssMessages.length
+        + seoResult.issues.length
+        + schemaResult.issues.length
+        + linkSummary.redirects
+        + linkSummary.unreachable;
+      const truncated = htmlValidation.truncated || seoResult.truncated || schemaResult.truncated;
+      const hasFailures = failedChecks.length > 0;
+      const needsAttention = reportCounts.errors > 0 || reportCounts.warnings > 0;
+      const linksDetail = check_links
+        ? failedChecks.includes("links")
+          ? "Link checking did not complete."
+          : `${plural(linkSummary.checked, "link")} checked.`
+        : "Links were not requested.";
+      const overview: ResultOverview = {
+        kind: "report",
+        status: hasFailures ? "partial" : needsAttention ? "needs_attention" : "passed",
+        title: "Validation report",
+        headline: hasFailures
+          ? `Validation report is partial: ${plural(failedChecks.length, "check")} could not complete.`
+          : needsAttention
+            ? `Validation report is ready: ${plural(reportCounts.errors, "error")} and ${plural(reportCounts.warnings, "warning")} need attention.`
+            : "Validation report is clear: no errors or warnings were found.",
+        detail: `Completed checks found ${summarizeSeverities(reportCounts)}. ${linksDetail}`,
+        total: totalFindings,
+        shown: shownFindings,
+        truncated,
+        counts: [
+          metric("errors", "Errors", reportCounts.errors, "error"),
+          metric("warnings", "Warnings", reportCounts.warnings, "warning"),
+          metric("notes", "Notes", reportCounts.info, "info"),
+          metric("checks_passed", "Checks passed", passedChecks, "success"),
+        ],
+        ...(hasFailures
+          ? { next_action: "Review the completed findings, then retry the unavailable checks." }
+          : needsAttention
+            ? { next_action: "Fix errors first, review warnings, then generate the report again." }
+            : {}),
+      };
+      const reportFindings: PresentableFinding[] = [
+        ...validationFindings(htmlMessages),
+        ...cssMessages.map((message) => ({
+          severity: "error" as const,
+          message: message.message,
+          line: message.line || undefined,
+          label: "CSS",
+        })),
+        ...auditFindings(seoResult.issues),
+        ...auditFindings(schemaResult.issues),
+        ...links.flatMap<PresentableFinding>((link): PresentableFinding[] => {
+          if (!link.ok) {
+            return [{
+              severity: "error" as const,
+              message: `${link.url} — ${link.message ?? `returned status ${link.status}`}`,
+              label: "Link",
+            }];
+          }
+          if (typeof link.status === "number" && link.status >= 300 && link.status < 400) {
+            return [{
+              severity: "warning" as const,
+              message: `${link.url} returned redirect status ${link.status}.`,
+              label: "Link",
+            }];
+          }
+          return [];
+        }),
+      ];
+      const error = failureDetails.length > 0 ? `${failureDetails.join("; ")}.` : undefined;
       const summary = {
         html_errors: htmlCounts.errors,
         css_errors: cssResult.status === "fulfilled" ? cssResult.value.length : 0,
         seo_issues: seoResult.total,
         schema_issues: schemaResult.total,
-        links_checked: links.length,
-        broken_links: links.filter((link) => !link.ok).length,
+        links_checked: linkSummary.checked,
+        broken_links: linkSummary.unreachable,
         html_warnings: htmlCounts.warnings,
         html_info: htmlCounts.info,
         html_messages: htmlMessages,
@@ -419,14 +858,20 @@ function createServer() {
         links,
         seo_truncated: seoResult.truncated,
         schema_truncated: schemaResult.truncated,
+        html_total_messages: htmlValidation.total,
+        html_truncated: htmlValidation.truncated,
+        schema_blocks_checked: schemaResult.blocksChecked,
+        healthy_links: linkSummary.healthy,
+        redirects: linkSummary.redirects,
+        unreachable_links: linkSummary.unreachable,
+        links_requested: check_links,
+        failed_checks: failedChecks,
+        overview,
         ...(error ? { error } : {}),
       };
       return {
         structuredContent: summary,
-        content: contentForResult(
-          `Validation report: ${summary.html_errors} HTML error(s), ${summary.css_errors} CSS error(s), ${summary.seo_issues} SEO/accessibility issue(s), ${summary.schema_issues} schema issue(s), and ${summary.broken_links} broken link(s).`,
-        ),
-        ...(error ? { isError: true } : {}),
+        content: contentForOverview(overview, reportFindings),
       };
     },
   );

@@ -104,9 +104,8 @@ const reportSummarySchema = z.object({
 });
 
 const externalReadOnlyAnnotations = {
-  // These calls send supplied content or URLs outside the local MCP process.
-  // Marking them non-read-only ensures clients can request informed approval.
-  readOnlyHint: false,
+  // These calls contact external recipients but do not modify external state.
+  readOnlyHint: true,
   destructiveHint: false,
   idempotentHint: true,
   openWorldHint: true,

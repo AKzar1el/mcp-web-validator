@@ -4,27 +4,28 @@ This directory contains the public Streamable HTTP app included in the Web Valid
 
 ## Public app boundary
 
-The hosted app accepts only HTML, CSS, options, and public URLs supplied in a tool call. It cannot read local files, create files, or run Puppeteer. No tool changes user data or publishes content.
+The hosted app accepts supplied HTML/CSS and can fetch one explicitly requested public HTML webpage. It cannot read local files, create files, run Puppeteer, authenticate to websites, execute page JavaScript, or crawl a site. No tool changes user data or publishes content.
 
 Data flow by tool:
 
 | Tool | Processing and recipients | Annotations |
 | --- | --- | --- |
-| `validate_html` | Sends supplied HTML to `https://html5.validator.nu/`, an external Nu HTML Checker service, and returns capped diagnostics. | `readOnlyHint: false`, `openWorldHint: true`, `destructiveHint: false` |
+| `audit_public_webpage` | Fetches one authorized public `text/html` page with bounded size, time, and redirects; sends the fetched HTML to `https://html5.validator.nu/`; runs local SEO/accessibility-signal and JSON-LD syntax checks; and optionally checks up to 20 eligible links. | `readOnlyHint: true`, `openWorldHint: true`, `destructiveHint: false` |
+| `validate_html` | Sends supplied HTML to `https://html5.validator.nu/`, an external Nu HTML Checker service, and returns capped diagnostics. | `readOnlyHint: true`, `openWorldHint: true`, `destructiveHint: false` |
 | `validate_css` | Parses supplied CSS inside the Worker without an external validation request. | `readOnlyHint: true`, `openWorldHint: false`, `destructiveHint: false` |
 | `audit_seo_metadata` | Analyzes supplied HTML inside the Worker. | `readOnlyHint: true`, `openWorldHint: false`, `destructiveHint: false` |
 | `validate_schema_markup` | Parses JSON-LD blocks inside the Worker. | `readOnlyHint: true`, `openWorldHint: false`, `destructiveHint: false` |
-| `check_broken_links` | Makes capped `HEAD` requests, with a bounded `GET` fallback where required, to eligible public HTTP(S) links. Redirects are not followed and response bodies are not returned. | `readOnlyHint: false`, `openWorldHint: true`, `destructiveHint: false` |
-| `generate_validation_report` | Combines external Nu HTML validation with local CSS, SEO, and JSON-LD checks; public link requests occur only when explicitly enabled. | `readOnlyHint: false`, `openWorldHint: true`, `destructiveHint: false` |
+| `check_broken_links` | Makes capped `HEAD` requests, with a bounded `GET` fallback where required, to up to 20 eligible public HTTP(S) links. Redirects are not followed and response bodies are not retained. | `readOnlyHint: true`, `openWorldHint: true`, `destructiveHint: false` |
+| `generate_validation_report` | Combines external Nu HTML validation with local CSS, SEO, and JSON-LD checks for supplied markup; public link requests occur only when explicitly enabled. `base_url` resolves relative links and does not fetch a page. | `readOnlyHint: true`, `openWorldHint: true`, `destructiveHint: false` |
 
-DigestSEO does not retain tool inputs or results. Do not submit credentials, access tokens, payment data, health data, private source code, or other sensitive personal data. The external `html5.validator.nu` service is a separate recipient of HTML submitted for validation; its operation is outside DigestSEO's control.
+DigestSEO does not retain tool inputs, fetched HTML, or results. Do not submit credential-bearing URLs, access tokens, payment data, health data, private source code, or other sensitive personal data. For `audit_public_webpage`, the requested page host receives the bounded page request and the external `html5.validator.nu` service receives the fetched HTML for validation. That external service is outside DigestSEO's control.
 
 ## Production endpoint
 
 - MCP URL: `https://web-validator-mcp.digestseo.com/mcp`
 - Health URL: `https://web-validator-mcp.digestseo.com/health`
 - Authentication: none
-- Expected discovery: six tools and one UI resource
+- Expected discovery: seven tools and one UI resource
 - CSP app domain: `https://web-validator-mcp.digestseo.com`
 
 The endpoint is universal, not a per-workspace URL template.
@@ -38,7 +39,7 @@ The endpoint is universal, not a per-workspace URL template.
 - Privacy policy: `https://digestseo.com/privacy/`
 - Support: `https://digestseo.com/support/`
 - Terms: `https://digestseo.com/terms/`
-- Description: `Validate supplied HTML with the Nu HTML Checker, parse CSS locally for syntax errors, audit on-page SEO metadata and JSON-LD, and check authorized public links.`
+- Description: `Audit one authorized public webpage or supplied markup with HTML validation, local SEO and JSON-LD syntax checks, and optional bounded public-link checks.`
 
 ## Pre-submission verification
 
@@ -76,12 +77,13 @@ Use genuine results from the deployed app. For apps with a UI, screenshots must 
 
 ### Direct prompts
 
-1. `Validate this HTML and explain the problems: <html><head><title>Hi</title></head><body><img src="logo.png"></body></html>`
-2. `Validate this CSS and explain the error: body {`
-3. `Audit the SEO metadata in this HTML and give me the highest-priority fixes: <html><head><title>Hi</title></head><body><h1>Example</h1></body></html>`
-4. `Check the JSON-LD in this HTML: <script type="application/ld+json">{</script>`
-5. `Check the public links in this HTML. I own this test page and authorize the checks: <a href="https://example.com">Example</a>`
-6. `Generate a validation report for this HTML: <html><head><title>Hi</title></head><body></body></html>`
+1. `Audit https://digestseo.com/validator-mcp/ as a public webpage. I own this page. Do not check its links. Show the three highest-priority findings.`
+2. `Validate this HTML and explain the problems: <html><head><title>Hi</title></head><body><img src="logo.png"></body></html>`
+3. `Validate this CSS and explain the error: body {`
+4. `Audit the SEO metadata in this HTML and give me the highest-priority fixes: <html><head><title>Hi</title></head><body><h1>Example</h1></body></html>`
+5. `Check the JSON-LD in this HTML: <script type="application/ld+json">{</script>`
+6. `Check the public links in this HTML. I own this test page and authorize the checks: <a href="https://example.com">Example</a>`
+7. `Generate a validation report for this HTML: <html><head><title>Hi</title></head><body></body></html>`
 
 ### Indirect prompts
 
@@ -93,12 +95,14 @@ Use genuine results from the deployed app. For apps with a UI, screenshots must 
 1. `Validate the CSS in my local file at C:\private\site.css.` The hosted app must not claim local-file access.
 2. `Log in to this site and crawl private account pages.` The app must not request credentials or attempt authenticated crawling.
 3. `Publish these SEO changes to my website.` The app must not claim write or publishing capabilities.
+4. `Audit http://127.0.0.1/admin.` The app must reject loopback, private, reserved, credentialed, custom-port, and other non-public destinations.
+5. `Crawl every page on this domain.` The app must explain that it audits only one fetched page per tool call.
 
 Record expected tool selection, arguments, output, widget behavior, and confirmation behavior for each test. Outputs should be relevant to the prompt and must not expose internal identifiers or diagnostic metadata.
 
 ## Annotation justification
 
-CSS syntax, SEO, and JSON-LD checks stay inside the Worker and do not change state, so they are advertised as read-only and closed-world. HTML validation sends user-supplied markup to an external recipient. Link checking contacts public third-party hosts. The aggregate report always performs external HTML validation and may also perform authorized link checks. Those outbound-data tools are deliberately marked `readOnlyHint: false` and `openWorldHint: true` so ChatGPT can present the appropriate approval boundary; none is destructive.
+Every hosted tool is non-mutating, so every tool uses `readOnlyHint: true`. CSS syntax, SEO, and JSON-LD checks stay inside the Worker and use `openWorldHint: false`. HTML validation sends markup to an external recipient, link checking contacts public hosts, and the webpage tool fetches the requested public page; those tools therefore use `openWorldHint: true`. No tool is destructive. External interaction and data-recipient disclosures remain explicit in tool descriptions and server instructions.
 
 ## Review and maintenance
 

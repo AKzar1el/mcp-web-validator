@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+### Added
+
+- Added the hosted `audit_public_webpage` tool for one-page live URL audits with bounded public fetching, redirect validation, HTML validation, SEO/accessibility-signal checks, JSON-LD syntax checks, and optional link checks.
+
+### Changed
+
+- Upgraded the hosted Worker contract to version 0.4.0 and the results widget to v4.
+- Limited hosted link checks to 20 targets so the worst-case live-page audit remains below the Cloudflare Workers Free subrequest ceiling.
+- Corrected non-mutating external tool annotations, clarified tool-selection metadata, and distinguished checked CSS from CSS that was not supplied.
+- Renamed the hosted HTML diagnostic field from `errors` to `messages` because it contains errors, warnings, and informational notes.
+
+### Fixed
+
+- Prevented client-controlled MCP session IDs from bypassing coarse rate limiting.
+- Added bounded Nu response handling and a structured final Worker error boundary.
+- Corrected warning-only next-step copy and the JSON-LD syntax-check title.
+
 ## [1.1.0] - 2026-07-12
 
 ### Added

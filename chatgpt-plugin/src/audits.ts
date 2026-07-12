@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import ipaddr from "ipaddr.js";
+import { HOSTED_MAX_LINKS, SERVICE_USER_AGENT } from "./constants";
 
 export type AuditSeverity = "error" | "warning" | "info";
 
@@ -23,10 +24,8 @@ export interface AuditResult {
   counts: Record<AuditSeverity, number>;
 }
 
-const MAX_LINKS = 25;
 const MAX_AUDIT_ISSUES = 100;
 const REQUEST_TIMEOUT_MS = 5_000;
-const LINK_CHECK_USER_AGENT = "DigestSEO-Web-Validator/0.3.0 (+https://digestseo.com/validator-mcp/)";
 
 function createAuditCollector() {
   const issues: AuditIssue[] = [];
@@ -176,11 +175,18 @@ function isPrivateOrReservedHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
   if (
     host === "localhost" ||
+    host === "localhost.localdomain" ||
+    host === "ip6-localhost" ||
+    host === "ip6-loopback" ||
     host.endsWith(".localhost") ||
     host.endsWith(".local") ||
     host.endsWith(".internal") ||
     host === "home.arpa" ||
-    host.endsWith(".home.arpa")
+    host.endsWith(".home.arpa") ||
+    host.endsWith(".test") ||
+    host.endsWith(".invalid") ||
+    host.endsWith(".example") ||
+    host.endsWith(".onion")
   ) {
     return true;
   }
@@ -193,11 +199,16 @@ function isPrivateOrReservedHost(hostname: string): boolean {
 
 export function toPublicHttpUrl(value: string, baseUrl?: string): URL | undefined {
   try {
+    if (!value || value.length > 2_048) return undefined;
     const url = new URL(value, baseUrl);
+    if (url.href.length > 2_048) return undefined;
     if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
     if (url.username || url.password) return undefined;
-    if (url.port && url.port !== "80" && url.port !== "443") return undefined;
+    // URL removes scheme-appropriate default ports. Any remaining port is custom
+    // or mismatched (for example, HTTP on 443) and must be rejected.
+    if (url.port) return undefined;
     if (isPrivateOrReservedHost(url.hostname)) return undefined;
+    url.hash = "";
     return url;
   } catch {
     return undefined;
@@ -213,7 +224,7 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
         method,
         headers: {
           accept: "*/*",
-          "user-agent": LINK_CHECK_USER_AGENT,
+          "user-agent": SERVICE_USER_AGENT,
         },
         redirect: "manual",
         signal: controller.signal,
@@ -281,7 +292,7 @@ export async function checkBrokenLinks(
   const $ = cheerio.load(html);
   const urls: URL[] = [];
   const seen = new Set<string>();
-  const limit = Math.min(Math.max(maxLinks, 1), MAX_LINKS);
+  const limit = Math.min(Math.max(maxLinks, 1), HOSTED_MAX_LINKS);
 
   $("a[href]").each((_, element) => {
     if (urls.length >= limit) return;

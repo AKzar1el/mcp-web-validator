@@ -1,4 +1,6 @@
 import postcss, { CssSyntaxError } from "postcss";
+import { SERVICE_USER_AGENT } from "./constants";
+import { readBoundedResponseText } from "./network";
 
 export interface ValidationMessage {
   type: "error" | "warning" | "info";
@@ -22,33 +24,53 @@ export interface HtmlValidationResult {
 
 const VALIDATOR_TIMEOUT_MS = 15_000;
 const MAX_VALIDATION_MESSAGES = 200;
-const VALIDATOR_USER_AGENT = "DigestSEO-Web-Validator/0.3.0 (+https://digestseo.com/validator-mcp/)";
+const MAX_VALIDATOR_RESPONSE_BYTES = 2 * 1024 * 1024;
 
-async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit): Promise<Response> {
+async function withValidatorTimeout<T>(action: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), VALIDATOR_TIMEOUT_MS);
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    return await action(controller.signal);
   } finally {
     clearTimeout(timer);
   }
 }
 
-/** Sends supplied markup to the Nu HTML Checker and retains cap metadata. */
-export async function validateHtmlDetailed(html: string): Promise<HtmlValidationResult> {
+async function validateHtmlDetailedWithSignal(
+  html: string,
+  signal: AbortSignal,
+): Promise<HtmlValidationResult> {
   // The Nu endpoint accepts server-side validation requests over Cloudflare's
   // production transport while returning the same standard Nu JSON format.
-  const response = await fetchWithTimeout("https://html5.validator.nu/?out=json", {
+  const response = await fetch("https://html5.validator.nu/?out=json", {
     method: "POST",
     headers: {
       "content-type": "text/html; charset=utf-8",
-      "user-agent": VALIDATOR_USER_AGENT,
+      "user-agent": SERVICE_USER_AGENT,
     },
     body: html,
+    signal,
   });
-  if (!response.ok) throw new Error(`The W3C HTML validator returned HTTP ${response.status}.`);
+  if (!response.ok) {
+    try {
+      await response.body?.cancel();
+    } catch {
+      // The upstream body may already be closed.
+    }
+    throw new Error(`The W3C HTML validator returned HTTP ${response.status}.`);
+  }
 
-  const data: unknown = await response.json();
+  const rawPayload = await readBoundedResponseText(
+    response,
+    MAX_VALIDATOR_RESPONSE_BYTES,
+    "The Nu HTML Checker response exceeded the 2 MiB limit.",
+  );
+  let data: unknown;
+  try {
+    data = JSON.parse(rawPayload);
+  } catch {
+    throw new Error("The Nu HTML Checker returned invalid JSON.");
+  }
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     throw new Error("The Nu HTML Checker returned an invalid JSON payload.");
   }
@@ -100,6 +122,11 @@ export async function validateHtmlDetailed(html: string): Promise<HtmlValidation
     truncated: rawMessages.length > MAX_VALIDATION_MESSAGES,
     counts,
   };
+}
+
+/** Sends supplied markup to the Nu HTML Checker and retains cap metadata. */
+export async function validateHtmlDetailed(html: string): Promise<HtmlValidationResult> {
+  return withValidatorTimeout((signal) => validateHtmlDetailedWithSignal(html, signal));
 }
 
 /** Backwards-compatible convenience API returning capped diagnostics only. */

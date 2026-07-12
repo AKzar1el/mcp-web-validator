@@ -40,8 +40,28 @@ async function callTool(name: string, args: Record<string, unknown>) {
   };
 }
 
+async function listTools() {
+  const response = await worker.fetch(
+    new Request("https://web-validator-mcp.digestseo.com/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 100, method: "tools/list", params: {} }),
+    }),
+    createEnv(),
+    context,
+  );
+  expect(response.status).toBe(200);
+  const payload = await response.text();
+  const dataLine = payload.split("\n").find((line) => line.startsWith("data: "));
+  return JSON.parse(dataLine?.slice(6) ?? "{}").result.tools as Array<Record<string, any>>;
+}
+
 beforeEach(() => {
   vi.spyOn(console, "log").mockImplementation(() => undefined);
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
 afterEach(() => {
@@ -99,6 +119,28 @@ describe("MCP HTTP boundary", () => {
     expect(key).not.toContain("203.0.113.10");
   });
 
+  it("uses the Cloudflare IP for limiting even when clients rotate session IDs", async () => {
+    const env = createEnv();
+    for (const sessionId of ["session-one", "session-two"]) {
+      await worker.fetch(
+        new Request("https://web-validator-mcp.digestseo.com/mcp", {
+          method: "POST",
+          headers: {
+            "cf-connecting-ip": "203.0.113.11",
+            "mcp-session-id": sessionId,
+            "content-length": String(2 * 1024 * 1024 + 1),
+          },
+        }),
+        env,
+        context,
+      );
+    }
+
+    const calls = (env.MCP_RATE_LIMITER.limit as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.[0]?.key).toBe(calls[1]?.[0]?.key);
+  });
+
   it("rejects oversized requests before MCP JSON parsing", async () => {
     const response = await worker.fetch(
       new Request("https://web-validator-mcp.digestseo.com/mcp", {
@@ -142,6 +184,67 @@ describe("MCP HTTP boundary", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("access-control-allow-origin")).toBeNull();
     expect(await response.text()).toContain('"serverInfo"');
+  });
+
+  it("turns pre-handler failures into a structured JSON-RPC response", async () => {
+    const env = {
+      MCP_RATE_LIMITER: { limit: vi.fn(async () => Promise.reject(new Error("limiter unavailable"))) },
+    } as unknown as Env;
+    const response = await worker.fetch(
+      new Request("https://web-validator-mcp.digestseo.com/mcp", {
+        method: "POST",
+        headers: { origin: "https://chatgpt.com" },
+      }),
+      env,
+      context,
+    );
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get("access-control-allow-origin")).toBe("https://chatgpt.com");
+    await expect(response.json()).resolves.toMatchObject({
+      jsonrpc: "2.0",
+      error: { message: "The MCP request could not be completed." },
+    });
+  });
+});
+
+describe("hosted tool contract", () => {
+  it("discovers seven accurately annotated tools", async () => {
+    const tools = await listTools();
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "validate_html",
+      "validate_css",
+      "audit_seo_metadata",
+      "validate_schema_markup",
+      "check_broken_links",
+      "generate_validation_report",
+      "audit_public_webpage",
+    ]);
+
+    const webpage = tools.find((tool) => tool.name === "audit_public_webpage");
+    expect(webpage).toMatchObject({
+      title: "Audit public webpage",
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+      inputSchema: {
+        properties: {
+          max_links: { maximum: 20, default: 15 },
+          check_links: { default: false },
+        },
+      },
+    });
+    expect(tools.find((tool) => tool.name === "validate_schema_markup")?.title)
+      .toBe("Validate JSON-LD syntax");
+    for (const name of ["validate_html", "check_broken_links", "generate_validation_report"]) {
+      expect(tools.find((tool) => tool.name === name)?.annotations).toMatchObject({
+        readOnlyHint: true,
+        openWorldHint: true,
+      });
+    }
   });
 });
 
@@ -246,7 +349,7 @@ describe("polished tool responses", () => {
     expect(text).not.toContain('"errors":');
   });
 
-  it("reports HTML truncation without changing the legacy errors array", async () => {
+  it("reports HTML truncation through the messages contract", async () => {
     const messages = Array.from({ length: 205 }, (_, index) => ({
       type: "error",
       message: `Error ${index + 1}`,
@@ -256,13 +359,28 @@ describe("polished tool responses", () => {
 
     const result = await callTool("validate_html", { html: "<p>test</p>" });
 
-    expect(result.structuredContent.errors).toHaveLength(200);
+    expect(result.structuredContent.messages).toHaveLength(200);
     expect(result.structuredContent).toMatchObject({
       total_messages: 205,
       truncated: true,
       overview: { total: 205, shown: 200, truncated: true },
     });
     expect(result.content[0]?.text).toContain("showing the first 200");
+  });
+
+  it("uses warning-only guidance when HTML has no errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({
+        messages: [{ type: "info", subType: "warning", message: "Add a lang attribute" }],
+      })),
+    );
+
+    const result = await callTool("validate_html", { html: "<!doctype html><title>Test</title>" });
+    const text = result.content[0]?.text ?? "";
+    expect(text).toContain("HTML needs attention: 1 warning.");
+    expect(text).toContain("Review the warnings");
+    expect(text).not.toContain("Fix errors");
   });
 
   it("distinguishes absent JSON-LD from valid JSON-LD", async () => {
@@ -368,10 +486,123 @@ describe("polished tool responses", () => {
 
     expect(result.isError).toBe(true);
     expect(result.structuredContent).toMatchObject({
-      errors: [],
+      messages: [],
       total_messages: 0,
       overview: { kind: "html", status: "failed" },
     });
     expect(result.content[0]?.text).toContain("HTML validation could not be completed");
+  });
+});
+
+describe("public webpage audit", () => {
+  it("fetches one page and returns the existing report without exposing its HTML", async () => {
+    const privateMarker = "private-page-marker-that-must-not-be-returned";
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url.startsWith("https://example.com/page")) {
+        return new Response(
+          `<!doctype html><html><head><title>Example page title for validation</title></head><body><h1>Example</h1><!--${privateMarker}--></body></html>`,
+          { headers: { "content-type": "text/html; charset=utf-8" } },
+        );
+      }
+      if (url.startsWith("https://html5.validator.nu/")) {
+        return Response.json({ messages: [{ type: "error", message: "Example HTML problem" }] });
+      }
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callTool("audit_public_webpage", {
+      url: "https://example.com/page#fragment",
+      check_links: false,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      requested_url: "https://example.com/page",
+      fetched_url: "https://example.com/page",
+      redirects_followed: 0,
+      http_status: 200,
+      content_type: "text/html",
+      page_fetched: true,
+      css_checked: false,
+      links_requested: false,
+      links_checked: 0,
+      html_errors: 1,
+      overview: { kind: "report", title: "Public webpage audit" },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(result)).not.toContain(privateMarker);
+    expect(result.content[0]?.text).toContain("Audited https://example.com/page");
+    expect(result.content[0]?.text).toContain("Linked and external CSS were not checked");
+  });
+
+  it("uses the final redirected URL to resolve optional relative links", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(target);
+      if (url === "https://example.com/start") {
+        return new Response(null, { status: 302, headers: { location: "/folder/page" } });
+      }
+      if (url === "https://example.com/folder/page") {
+        return new Response('<!doctype html><title>Page</title><a href="child">Child</a>', {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      if (url === "https://example.com/folder/child" && init?.method === "HEAD") {
+        return new Response(null, { status: 200 });
+      }
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callTool("audit_public_webpage", {
+      url: "https://example.com/start",
+      check_links: true,
+      max_links: 1,
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      fetched_url: "https://example.com/folder/page",
+      redirects_followed: 1,
+      links_requested: true,
+      links_checked: 1,
+      healthy_links: 1,
+    });
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/folder/child"))
+      .toBe(true);
+  });
+
+  it("returns a clear failure and performs no validation for a blocked URL", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callTool("audit_public_webpage", {
+      url: "http://127.0.0.1/private",
+      check_links: false,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      page_fetched: false,
+      css_checked: false,
+      failed_checks: ["fetch"],
+      overview: { status: "failed", title: "Public webpage audit" },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not call the validator after a non-HTML page response", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callTool("audit_public_webpage", {
+      url: "https://example.com/api",
+      check_links: false,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({ page_fetched: false, failed_checks: ["fetch"] });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

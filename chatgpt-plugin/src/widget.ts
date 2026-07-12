@@ -1,4 +1,4 @@
-export const WIDGET_URI = "ui://web-validator/results-v3.html";
+export const WIDGET_URI = "ui://web-validator/results-v4.html";
 
 /**
  * A dependency-free, read-only result viewer. It never fetches from the
@@ -666,6 +666,7 @@ export const WIDGET_HTML = `<!doctype html>
           const categories = data.issues.map(function (item) { return normalizeKey(item && item.category); });
           return categories.length > 0 && categories.every(function (category) { return category === "schema"; }) ? "schema" : "seo";
         }
+        if (Array.isArray(data.messages)) return "html";
         if (Array.isArray(data.errors)) {
           if (data.errors.length === 0) return "validation";
           return data.errors.some(function (item) { return item && (item.type || item.column !== undefined); }) ? "html" : "css";
@@ -676,6 +677,7 @@ export const WIDGET_HTML = `<!doctype html>
       function sourceLabel(source, kind, item) {
         if (item && item.category) return String(item.category);
         const labels = {
+          messages: "HTML",
           errors: kind === "css" ? "CSS" : "HTML",
           issues: kind === "schema" ? "Schema" : "SEO",
           html_messages: "HTML",
@@ -738,7 +740,7 @@ export const WIDGET_HTML = `<!doctype html>
 
       function collectFindings(data, kind) {
         const findings = [];
-        const sources = ["errors", "issues", "html_messages", "css_messages", "seo_findings", "schema_findings", "links"];
+        const sources = ["messages", "errors", "issues", "html_messages", "css_messages", "seo_findings", "schema_findings", "links"];
         for (const source of sources) {
           const values = data[source];
           if (!Array.isArray(values)) continue;

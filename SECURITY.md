@@ -25,7 +25,7 @@ Please avoid accessing data that is not yours, disrupting the public service, or
 
 The local stdio server runs with the permissions of the MCP client that launches it. Its documented features can read user-selected files, make outbound validation and link-check requests, open local files or public URLs in a headless browser, and write screenshot files. Users should review every sensitive tool call and run MCP clients with least privilege.
 
-The hosted app cannot access local files. It accepts only tool inputs supplied by the client, sends HTML validation payloads to the external `html5.validator.nu` service, and may contact eligible public URLs during authorized link checks. See the [privacy policy](https://digestseo.com/privacy/) for data-handling details.
+The hosted app cannot access local files. It can fetch one explicitly requested public HTML webpage with bounded redirects, time, and size; sends supplied or fetched HTML validation payloads to the external `html5.validator.nu` service; and may contact eligible public URLs during authorized link checks. It does not authenticate, execute page JavaScript, fetch linked assets, or crawl a site. See the [privacy policy](https://digestseo.com/privacy/) for data-handling details.
 
 The following are normally outside this project's vulnerability scope unless they expose a project-specific weakness:
 

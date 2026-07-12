@@ -20,23 +20,26 @@ export interface AuditResult {
   issues: AuditIssue[];
   total: number;
   truncated: boolean;
+  counts: Record<AuditSeverity, number>;
 }
 
 const MAX_LINKS = 25;
 const MAX_AUDIT_ISSUES = 100;
 const REQUEST_TIMEOUT_MS = 5_000;
-const LINK_CHECK_USER_AGENT = "DigestSEO-Web-Validator/0.2.0 (+https://digestseo.com/validator-mcp/)";
+const LINK_CHECK_USER_AGENT = "DigestSEO-Web-Validator/0.3.0 (+https://digestseo.com/validator-mcp/)";
 
 function createAuditCollector() {
   const issues: AuditIssue[] = [];
+  const counts: Record<AuditSeverity, number> = { error: 0, warning: 0, info: 0 };
   let total = 0;
   return {
     add(issue: AuditIssue) {
       total += 1;
+      counts[issue.severity] += 1;
       if (issues.length < MAX_AUDIT_ISSUES) issues.push(issue);
     },
     result(): AuditResult {
-      return { issues, total, truncated: total > issues.length };
+      return { issues, total, truncated: total > issues.length, counts };
     },
   };
 }
@@ -139,11 +142,12 @@ export function auditSeoMetadata(html: string): AuditResult {
 }
 
 /** Parses JSON-LD blocks locally and reports syntax problems only. */
-export function validateSchemaMarkup(html: string): AuditResult {
+export function validateSchemaMarkup(html: string): AuditResult & { blocksChecked: number } {
   const $ = cheerio.load(html);
   const collector = createAuditCollector();
+  const blocks = $('script[type="application/ld+json"]');
 
-  $('script[type="application/ld+json"]').each((index, element) => {
+  blocks.each((index, element) => {
     const value = $(element).html()?.trim() ?? "";
     if (!value) {
       collector.add({
@@ -165,7 +169,7 @@ export function validateSchemaMarkup(html: string): AuditResult {
     }
   });
 
-  return collector.result();
+  return { ...collector.result(), blocksChecked: blocks.length };
 }
 
 function isPrivateOrReservedHost(hostname: string): boolean {

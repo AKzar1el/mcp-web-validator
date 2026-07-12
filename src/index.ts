@@ -6,9 +6,25 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { captureScreenshots } from "./screenshot.js";
-import { auditSeoMetadata, checkBrokenLinks, validateSchemaMarkup } from "./seo-auditor.js";
+import {
+  auditSeoMetadata,
+  auditSeoMetadataDetailed,
+  checkBrokenLinks,
+  validateSchemaMarkup,
+  validateSchemaMarkupDetailed,
+} from "./seo-auditor.js";
 import { createValidationReport, type ValidationReport } from "./report.js";
 import { fetchPublicText, getErrorMessage, readTextFile } from "./network.js";
+import {
+  cssValidationContent,
+  failureContent,
+  htmlValidationContent,
+  linkCheckContent,
+  reportContent,
+  schemaValidationContent,
+  screenshotCaptureContent,
+  seoAuditContent,
+} from "./presentation.js";
 import { PACKAGE_VERSION } from "./version.js";
 import {
   MAX_CSS_VALIDATION_BYTES,
@@ -105,7 +121,7 @@ const localReadOnlyAnnotations = {
 
 function result<T extends object>(
   structuredContent: T,
-  summary: string,
+  content: string,
   isError = false,
 ): CallToolResult {
   return {
@@ -113,7 +129,7 @@ function result<T extends object>(
     content: [
       {
         type: "text",
-        text: `${summary}\n\n${JSON.stringify(structuredContent, null, 2)}`,
+        text: content,
       },
     ],
     ...(isError ? { isError: true } : {}),
@@ -175,10 +191,18 @@ export function createServer(): McpServer {
       try {
         const html = await readTextFile(filePath, HTML_MAX_BYTES);
         const errors = await validateHtmlContent(html);
-        return result({ errors }, `HTML validation returned ${errors.length} diagnostic(s).`);
+        return result({ errors }, htmlValidationContent(errors));
       } catch (cause) {
         const error = getErrorMessage(cause);
-        return result({ errors: [], error }, `HTML validation failed: ${error}`, true);
+        return result(
+          { errors: [], error },
+          failureContent(
+            "HTML validation",
+            error,
+            "Confirm the file exists and is readable, then retry. If the W3C service is unavailable, try again later.",
+          ),
+          true,
+        );
       }
     },
   );
@@ -216,11 +240,19 @@ export function createServer(): McpServer {
         const errors = await validateHtmlContent(fetched.text);
         return result(
           { errors, fetchedUrl: fetched.url },
-          `HTML validation returned ${errors.length} diagnostic(s).`,
+          htmlValidationContent(errors, fetched.url),
         );
       } catch (cause) {
         const error = getErrorMessage(cause);
-        return result({ errors: [], error }, `URL validation failed: ${error}`, true);
+        return result(
+          { errors: [], error },
+          failureContent(
+            "URL validation",
+            error,
+            "Confirm the URL is public, uses HTTP or HTTPS on a standard port, and returns HTML, then retry.",
+          ),
+          true,
+        );
       }
     },
   );
@@ -244,10 +276,18 @@ export function createServer(): McpServer {
       try {
         const css = await readTextFile(filePath, CSS_MAX_BYTES);
         const errors = await validateCssContent(css);
-        return result({ errors }, `CSS validation returned ${errors.length} error(s).`);
+        return result({ errors }, cssValidationContent(errors));
       } catch (cause) {
         const error = getErrorMessage(cause);
-        return result({ errors: [], error }, `CSS validation failed: ${error}`, true);
+        return result(
+          { errors: [], error },
+          failureContent(
+            "CSS validation",
+            error,
+            "Confirm the file exists, is readable, and is within the size limit, then retry.",
+          ),
+          true,
+        );
       }
     },
   );
@@ -271,17 +311,20 @@ export function createServer(): McpServer {
     },
     async ({ htmlContent }) => {
       try {
-        const allIssues = auditSeoMetadata(htmlContent);
-        const issues = allIssues.slice(0, 200);
+        const { issues, totalIssues, truncated } = auditSeoMetadataDetailed(htmlContent);
         return result(
-          { issues, totalIssues: allIssues.length, truncated: issues.length < allIssues.length },
-          `SEO audit found ${allIssues.length} issue(s).`,
+          { issues, totalIssues, truncated },
+          seoAuditContent(issues, totalIssues, truncated),
         );
       } catch (cause) {
         const error = getErrorMessage(cause);
         return result(
           { issues: [], totalIssues: 0, truncated: false, error },
-          `SEO audit failed: ${error}`,
+          failureContent(
+            "SEO audit",
+            error,
+            "Confirm the supplied HTML is complete and within the size limit, then retry.",
+          ),
           true,
         );
       }
@@ -310,11 +353,18 @@ export function createServer(): McpServer {
     async ({ htmlContent, baseUrl, maxLinks }) => {
       try {
         const links = await checkBrokenLinks(htmlContent, baseUrl, maxLinks);
-        const broken = links.filter((link) => !link.ok).length;
-        return result({ links }, `Checked ${links.length} link(s); ${broken} need attention.`);
+        return result({ links }, linkCheckContent(links, baseUrl));
       } catch (cause) {
         const error = getErrorMessage(cause);
-        return result({ links: [], error }, `Link check failed: ${error}`, true);
+        return result(
+          { links: [], error },
+          failureContent(
+            "Link check",
+            error,
+            "Confirm the base URL is public and the supplied HTML is within the size limit, then retry.",
+          ),
+          true,
+        );
       }
     },
   );
@@ -338,17 +388,20 @@ export function createServer(): McpServer {
     },
     async ({ htmlContent }) => {
       try {
-        const allIssues = validateSchemaMarkup(htmlContent);
-        const issues = allIssues.slice(0, 200);
+        const { issues, totalIssues, truncated } = validateSchemaMarkupDetailed(htmlContent);
         return result(
-          { issues, totalIssues: allIssues.length, truncated: issues.length < allIssues.length },
-          `JSON-LD syntax validation found ${allIssues.length} issue(s).`,
+          { issues, totalIssues, truncated },
+          schemaValidationContent(issues, totalIssues, truncated, htmlContent),
         );
       } catch (cause) {
         const error = getErrorMessage(cause);
         return result(
           { issues: [], totalIssues: 0, truncated: false, error },
-          `JSON-LD validation failed: ${error}`,
+          failureContent(
+            "JSON-LD syntax",
+            error,
+            "Confirm the supplied HTML is complete and within the size limit, then retry.",
+          ),
           true,
         );
       }
@@ -400,11 +453,19 @@ export function createServer(): McpServer {
           schemaIssues: validateSchemaMarkup(html).slice(0, 200),
           links,
         });
-        return result(reportData, reportData.report);
+        return result(reportData, reportContent(reportData));
       } catch (cause) {
         const error = getErrorMessage(cause);
         const reportData = failedReport(htmlFilePath, error);
-        return result(reportData, reportData.report, true);
+        return result(
+          reportData,
+          failureContent(
+            "Validation report",
+            error,
+            "Confirm the input paths are readable and any base URL is public, then regenerate the report.",
+          ),
+          true,
+        );
       }
     },
   );
@@ -456,13 +517,17 @@ export function createServer(): McpServer {
         const screenshots = await captureScreenshots(targetPath, outputDirectory, viewports);
         return result(
           { screenshots, outputDirectory },
-          `Captured ${screenshots.length} screenshot(s) in ${outputDirectory}.`,
+          screenshotCaptureContent(screenshots.length, outputDirectory),
         );
       } catch (cause) {
         const error = getErrorMessage(cause);
         return result(
           { screenshots: [], outputDirectory, error },
-          `Screenshot capture failed: ${error}`,
+          failureContent(
+            "Screenshot capture",
+            error,
+            "Confirm the target is reachable or readable and the output directory is writable, then retry.",
+          ),
           true,
         );
       }

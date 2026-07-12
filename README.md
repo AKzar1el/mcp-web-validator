@@ -18,7 +18,7 @@ This repository contains two deliberately separate MCP surfaces:
 | Surface | Transport | Best for | Access and side effects |
 | --- | --- | --- | --- |
 | Local npm server | stdio | Claude Desktop, Cursor, and other local MCP clients | Can read user-selected workspace files, contact validation and link targets, and write screenshot files. |
-| Hosted app | Streamable HTTP | ChatGPT and remote MCP clients | Can fetch one authorized public HTML page or process supplied markup. It cannot access local files, authenticate, crawl sites, execute page JavaScript, or create screenshots. |
+| Hosted app | Streamable HTTP | ChatGPT and remote MCP clients | Can fetch one authorized public HTML page, run a bounded sitemap-first site audit, or process supplied markup. It cannot access local files, authenticate, recursively crawl links, execute page JavaScript, or create screenshots. |
 
 Local installation:
 
@@ -56,11 +56,12 @@ The npm package exposes these exact runtime tool names:
 
 ## Hosted app tools
 
-The hosted app exposes seven tools:
+The hosted app exposes eight tools:
 
 | Tool | Purpose |
 | --- | --- |
 | `audit_public_webpage` | Fetch one authorized public HTML page and run the combined HTML, SEO/accessibility-signal, and JSON-LD syntax audit. Link checks are optional. |
+| `audit_public_site` | Run a bounded sitemap-first audit of up to eight authorized, same-origin public pages. It respects `robots.txt`, returns compact page coverage and deduplicated findings, and does not run site-wide link checks. |
 | `validate_html` | Validate raw HTML markup already supplied in the conversation. |
 | `validate_css` | Parse supplied CSS for syntax errors inside the Worker. |
 | `audit_seo_metadata` | Audit supplied HTML for covered on-page SEO and accessibility signals. |
@@ -68,7 +69,7 @@ The hosted app exposes seven tools:
 | `check_broken_links` | Check up to 20 authorized public links extracted from supplied HTML. |
 | `generate_validation_report` | Combine the checks for supplied markup; `base_url` resolves relative links but does not fetch a page. |
 
-`audit_public_webpage` follows at most three validated redirects, accepts a bounded `text/html` response, and records the final URL. It does not crawl additional pages, execute JavaScript, authenticate, or fetch linked stylesheets and assets. The fetched HTML is sent to `https://html5.validator.nu/`, the same external Nu HTML Checker used by `validate_html` and the report tool. CSS parsing, SEO analysis, and JSON-LD parsing run inside the DigestSEO Worker. Optional link checks make capped `HEAD` requests, with a bounded `GET` fallback where necessary, to eligible public HTTP(S) URLs; link redirects are reported but not followed. The hosted app does not retain tool inputs, fetched HTML, or results.
+`audit_public_webpage` follows at most three validated redirects, accepts a bounded `text/html` response, and records the final URL. It does not crawl additional pages, execute JavaScript, authenticate, or fetch linked stylesheets and assets. `audit_public_site` first locks the final public origin, reads bounded same-origin `robots.txt` and XML sitemap documents, then audits at most eight eligible sitemap pages in one call. It never follows HTML links, subdomains, external sitemap entries, private/reserved destinations, custom ports, or cross-origin redirects; use `page_offset` when the response says more eligible pages remain. The fetched HTML is sent to `https://html5.validator.nu/`, the same external Nu HTML Checker used by `validate_html` and the report tool. CSS parsing, SEO analysis, and JSON-LD parsing run inside the DigestSEO Worker. Optional link checks make capped `HEAD` requests, with a bounded `GET` fallback where necessary, to eligible public HTTP(S) URLs; link redirects are reported but not followed. The site tool intentionally does not perform site-wide link checking. The hosted app does not retain tool inputs, fetched HTML, or results.
 
 ## Privacy and safe use
 

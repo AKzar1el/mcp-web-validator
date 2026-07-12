@@ -36,7 +36,7 @@ describe("fetchPublicHtml", () => {
     });
     expect(init?.headers).toEqual({
       accept: "text/html",
-      "user-agent": expect.stringContaining("DigestSEO-Web-Validator/0.4.0"),
+      "user-agent": expect.stringContaining("DigestSEO-Web-Validator/0.5.0"),
     });
   });
 
@@ -98,6 +98,17 @@ describe("fetchPublicHtml", () => {
       code: "redirect",
       message: expect.stringContaining("HTTPS-to-HTTP"),
     });
+  });
+
+  it("rejects a crawl redirect that leaves the locked website origin before a second fetch", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(null, { status: 302, headers: { location: "https://public.example.org/page" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchPublicHtml("https://example.com/start", { allowedOrigin: "https://example.com" }))
+      .rejects.toMatchObject({ code: "scope" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("rejects redirect loops and redirect chains longer than three hops", async () => {

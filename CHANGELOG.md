@@ -6,11 +6,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ### Added
 
+- Added the hosted `audit_public_site` tool for bounded, sitemap-first, same-origin public-site audits with robots enforcement, page continuation, compact coverage, grouped findings, and a transparent health-score denominator.
 - Added the hosted `audit_public_webpage` tool for one-page live URL audits with bounded public fetching, redirect validation, HTML validation, SEO/accessibility-signal checks, JSON-LD syntax checks, and optional link checks.
 
 ### Changed
 
-- Upgraded the hosted Worker contract to version 0.4.0 and the results widget to v4.
+- Upgraded the hosted Worker contract to version 0.5.0 and the results widget to v5.
+- Added a dedicated per-client rate limit for bounded public-site audits and cache-busted the site-aware widget resource.
 - Limited hosted link checks to 20 targets so the worst-case live-page audit remains below the Cloudflare Workers Free subrequest ceiling.
 - Corrected non-mutating external tool annotations, clarified tool-selection metadata, and distinguished checked CSS from CSS that was not supplied.
 - Renamed the hosted HTML diagnostic field from `errors` to `messages` because it contains errors, warnings, and informational notes.

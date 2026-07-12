@@ -8,6 +8,9 @@ function createEnv(success = true) {
     MCP_RATE_LIMITER: {
       limit: vi.fn(async () => ({ success })),
     },
+    SITE_AUDIT_RATE_LIMITER: {
+      limit: vi.fn(async () => ({ success })),
+    },
   } as unknown as Env;
 }
 
@@ -209,7 +212,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers seven accurately annotated tools", async () => {
+  it("discovers eight accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -219,6 +222,7 @@ describe("hosted tool contract", () => {
       "check_broken_links",
       "generate_validation_report",
       "audit_public_webpage",
+      "audit_public_site",
     ]);
 
     const webpage = tools.find((tool) => tool.name === "audit_public_webpage");
@@ -239,6 +243,21 @@ describe("hosted tool contract", () => {
     });
     expect(tools.find((tool) => tool.name === "validate_schema_markup")?.title)
       .toBe("Validate JSON-LD syntax");
+    expect(tools.find((tool) => tool.name === "audit_public_site")).toMatchObject({
+      title: "Audit public site",
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+      inputSchema: {
+        properties: {
+          max_pages: { maximum: 8, default: 5 },
+          page_offset: { minimum: 0, default: 0 },
+        },
+      },
+    });
     for (const name of ["validate_html", "check_broken_links", "generate_validation_report"]) {
       expect(tools.find((tool) => tool.name === name)?.annotations).toMatchObject({
         readOnlyHint: true,
@@ -604,5 +623,49 @@ describe("public webpage audit", () => {
     expect(result.isError).toBe(true);
     expect(result.structuredContent).toMatchObject({ page_fetched: false, failed_checks: ["fetch"] });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("public site audit", () => {
+  it("returns compact same-origin sitemap summaries without exposing fetched HTML", async () => {
+    const privateMarker = "private-site-marker-that-must-not-be-returned";
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") {
+        return new Response(`<!doctype html><html><head><title>Example site audit page title</title><meta name=description content='A sufficiently long description for this safe public-site audit test page, with no private content in the response.'><meta name=viewport content='width=device-width'><link rel=canonical href='https://example.com/'></head><body><h1>Example</h1><!--${privateMarker}--></body></html>`, {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response("<urlset><url><loc>https://example.com/</loc></url></urlset>", {
+          headers: { "content-type": "application/xml" },
+        });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callTool("audit_public_site", {
+      site_url: "https://example.com/",
+      max_pages: 1,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      site_url: "https://example.com/",
+      discovery: "sitemap",
+      pages_selected: 1,
+      pages_audited: 1,
+      pages_partial: 0,
+      pages_failed: 0,
+      audit_health_score: expect.any(Number),
+      overview: { kind: "site" },
+    });
+    expect(JSON.stringify(result)).not.toContain(privateMarker);
+    expect(result.content[0]?.text).toContain("Public site audit");
   });
 });

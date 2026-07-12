@@ -7,7 +7,15 @@ import {
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { auditSeoMetadata, checkBrokenLinks, validateSchemaMarkup } from "./audits";
-import { CSS_MAX_LENGTH, HOSTED_MAX_LINKS, HTML_MAX_LENGTH, SERVER_VERSION } from "./constants";
+import {
+  CSS_MAX_LENGTH,
+  HOSTED_MAX_LINKS,
+  HTML_MAX_LENGTH,
+  SERVER_VERSION,
+  SITE_AUDIT_DEFAULT_MAX_PAGES,
+  SITE_AUDIT_MAX_PAGES,
+  SITE_AUDIT_MAX_SITEMAP_URLS,
+} from "./constants";
 import { fetchPublicHtml, PublicHtmlFetchError } from "./network";
 import {
   contentForOverview,
@@ -18,6 +26,7 @@ import {
   type ResultOverview,
 } from "./presentation";
 import { validateCss, validateHtmlDetailed } from "./validators";
+import { auditPublicSite } from "./site-audit";
 import { WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -66,6 +75,59 @@ const linkStatusSchema = z.object({
   ok: z.boolean(),
   message: z.string().optional(),
 });
+
+const siteFindingSchema = z.object({
+  severity: z.enum(["error", "warning", "info"]),
+  category: z.enum(["HTML", "SEO", "Schema", "Accessibility"]),
+  message: z.string(),
+});
+
+const sitePageSchema = z.object({
+  url: z.string(),
+  fetched_url: z.string().optional(),
+  status: z.enum(["passed", "needs_attention", "partial", "failed", "skipped"]),
+  http_status: z.number().int().min(200).max(299).optional(),
+  redirects_followed: z.number().int().min(0).max(3).optional(),
+  page_fetched: z.boolean(),
+  html_validation_status: z.enum(["completed", "timeout", "unavailable", "not_run"]),
+  html_errors: z.number().int().nonnegative(),
+  html_warnings: z.number().int().nonnegative(),
+  seo_errors: z.number().int().nonnegative(),
+  seo_warnings: z.number().int().nonnegative(),
+  schema_errors: z.number().int().nonnegative(),
+  schema_warnings: z.number().int().nonnegative(),
+  notes: z.number().int().nonnegative(),
+  health_score: z.number().int().min(0).max(100).optional(),
+  failure_code: z.string().optional(),
+  top_findings: z.array(siteFindingSchema),
+});
+
+const siteIssueGroupSchema = siteFindingSchema.extend({
+  affected_pages: z.number().int().nonnegative(),
+  example_urls: z.array(z.string()),
+});
+
+const siteAuditOutputSchema = {
+  site_url: z.string(),
+  sitemap_url: z.string().optional(),
+  discovery: z.enum(["sitemap", "root_only", "partial"]),
+  discovery_error: z.enum(["robots_unavailable", "sitemap_unavailable", "sitemap_invalid"]).optional(),
+  pages_discovered: z.number().int().nonnegative(),
+  pages_selected: z.number().int().nonnegative(),
+  pages_audited: z.number().int().nonnegative(),
+  pages_partial: z.number().int().nonnegative(),
+  pages_failed: z.number().int().nonnegative(),
+  pages_skipped_robots: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+  next_page_offset: z.number().int().nonnegative().optional(),
+  audit_health_score: z.number().int().min(0).max(100).optional(),
+  score_coverage_percent: z.number().int().min(0).max(100),
+  pages: z.array(sitePageSchema),
+  issue_groups: z.array(siteIssueGroupSchema),
+  issue_groups_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+};
 
 const reportOutputSchema = {
   html_errors: z.number().int().nonnegative(),
@@ -524,12 +586,114 @@ function failedPublicPageAudit(error: string, linksRequested: boolean) {
   };
 }
 
-function createServer() {
+function siteAuditFindings(
+  groups: Array<{ severity: "error" | "warning" | "info"; category: string; message: string }>,
+): PresentableFinding[] {
+  return groups.map((group) => ({
+    severity: group.severity,
+    label: group.category,
+    message: group.message,
+  }));
+}
+
+function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>): ResultOverview {
+  const totals = result.pages.reduce(
+    (current, page) => ({
+      errors: current.errors + page.html_errors + page.seo_errors + page.schema_errors,
+      warnings: current.warnings + page.html_warnings + page.seo_warnings + page.schema_warnings,
+      notes: current.notes + page.notes,
+    }),
+    { errors: 0, warnings: 0, notes: 0 },
+  );
+  const completed = result.pages_audited;
+  const hasCoverageGap = result.pages_partial > 0
+    || result.pages_failed > 0
+    || result.pages_skipped_robots > 0
+    || result.truncated;
+  const status: ResultOverview["status"] = completed === 0 && result.pages_partial === 0
+    ? "failed"
+    : hasCoverageGap
+      ? "partial"
+      : totals.errors > 0 || totals.warnings > 0
+        ? "needs_attention"
+        : "passed";
+  const headline = status === "failed"
+    ? "Public site audit could not complete an eligible page audit."
+    : status === "partial"
+      ? `Public site audit is partial: ${plural(completed, "page")} completed with coverage limits.`
+      : totals.errors > 0 || totals.warnings > 0
+        ? `Public site audit found ${summarizeSeverities({ errors: totals.errors, warnings: totals.warnings, info: 0 })}.`
+        : "Public site audit found no errors or warnings in the completed checks.";
+  const scoreDetail = result.audit_health_score === undefined
+    ? "No full HTML-and-metadata score was available."
+    : `Audit health score: ${result.audit_health_score}/100 across ${result.score_coverage_percent}% of selected pages.`;
+  const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_selected, "page")} were selected. ${scoreDetail} Link checks are intentionally not run by this bounded site tool.`;
+  const nextAction = result.next_page_offset !== undefined
+    ? `Continue with page_offset ${result.next_page_offset} to audit the next bounded sitemap batch.`
+    : totals.errors > 0 || totals.warnings > 0
+      ? "Fix the highest-impact grouped findings, then rerun the bounded site audit."
+      : result.pages_partial > 0 || result.pages_failed > 0
+        ? "Review partial and failed page coverage, then retry the affected batch."
+        : undefined;
+  return {
+    kind: "site",
+    status,
+    title: "Public site audit",
+    headline,
+    detail,
+    total: totals.errors + totals.warnings + totals.notes,
+    shown: result.issue_groups.length,
+    truncated: result.truncated || result.issue_groups_truncated,
+    counts: [
+      metric("pages_audited", "Pages audited", result.pages_audited, "success"),
+      metric("pages_partial", "Pages partial", result.pages_partial, "warning"),
+      metric("pages_failed", "Pages failed", result.pages_failed, "error"),
+      metric("errors", "Errors", totals.errors, "error"),
+      metric("warnings", "Warnings", totals.warnings, "warning"),
+      ...(result.audit_health_score === undefined
+        ? []
+        : [metric("audit_health_score", "Audit health score", result.audit_health_score, "success")]),
+    ],
+    ...(nextAction ? { next_action: nextAction } : {}),
+  };
+}
+
+function failedPublicSiteAudit(error: string) {
+  const overview = failedOverview(
+    "site",
+    "Public site audit",
+    "The public site could not be audited.",
+    error,
+  );
+  return {
+    structuredContent: {
+      site_url: "",
+      discovery: "root_only" as const,
+      pages_discovered: 0,
+      pages_selected: 0,
+      pages_audited: 0,
+      pages_partial: 0,
+      pages_failed: 0,
+      pages_skipped_robots: 0,
+      truncated: false,
+      score_coverage_percent: 0,
+      pages: [],
+      issue_groups: [],
+      issue_groups_truncated: false,
+      overview,
+      error,
+    },
+    content: contentForOverview(overview),
+    isError: true,
+  };
+}
+
+function createServer(env: Env, siteAuditRateLimitKey: string) {
   const server = new McpServer(
     { name: "web-validator-by-digestseo", version: SERVER_VERSION },
     {
       instructions:
-        "Use this app only for markup and public webpages the user owns or is authorized to inspect. For a live page URL, use audit_public_webpage; for pasted markup, use the focused markup tools or generate_validation_report. No tool modifies user data. HTML validation sends markup to the Nu HTML Checker hosted at validator.nu; CSS syntax, SEO, and JSON-LD checks run inside the Worker. Link checking is optional, contacts eligible public links, and never follows redirects. Do not submit credentials, health data, payment data, or other sensitive personal data.",
+        "Use this app only for markup and public webpages the user owns or is authorized to inspect. For one live public page, use audit_public_webpage. For a bounded sitemap-first public-site audit, use audit_public_site; it audits at most eight same-origin pages per call, respects robots.txt, does not recursively follow HTML links, and never runs site-wide link checks. For pasted markup, use the focused markup tools or generate_validation_report. No tool modifies user data. HTML validation sends markup to the Nu HTML Checker hosted at validator.nu; CSS syntax, SEO, and JSON-LD checks run inside the Worker. Link checking is optional only on the focused markup/page tools, contacts eligible public links, and never follows redirects. Do not submit credentials, health data, payment data, or other sensitive personal data.",
     },
   );
 
@@ -549,7 +713,7 @@ function createServer() {
             },
           },
           "openai/widgetDescription":
-            "Shows a markup or public-webpage audit's status, key counts, highest-priority next step, and expandable validation findings.",
+            "Shows a markup, public-webpage, or bounded public-site audit's status, key counts, highest-priority next step, and expandable validation findings.",
         },
       },
     ],
@@ -1071,6 +1235,71 @@ function createServer() {
     },
   );
 
+  registerAppTool(
+    server,
+    "audit_public_site",
+    {
+      title: "Audit public site",
+      description:
+        `Use this for a bounded, sitemap-first audit of a public website the user owns or is authorized to inspect. It fetches at most ${SITE_AUDIT_MAX_PAGES} same-origin HTML pages per call, respects robots.txt, and returns compact page summaries plus deduplicated findings. It does not recursively follow HTML links, authenticate, execute JavaScript, fetch assets, or run site-wide link checks. Use page_offset to continue when more sitemap pages remain.`,
+      inputSchema: {
+        site_url: publicPageUrlInput.describe("Authorized public website URL. The final public origin becomes the crawl boundary."),
+        max_pages: z
+          .number()
+          .int()
+          .min(1)
+          .max(SITE_AUDIT_MAX_PAGES)
+          .default(SITE_AUDIT_DEFAULT_MAX_PAGES)
+          .describe(`Maximum same-origin pages to audit in this call, from 1 to ${SITE_AUDIT_MAX_PAGES}.`),
+        page_offset: z
+          .number()
+          .int()
+          .min(0)
+          .max(SITE_AUDIT_MAX_SITEMAP_URLS)
+          .default(0)
+          .describe("Zero-based sitemap-page offset for continuing a capped audit batch."),
+      },
+      outputSchema: siteAuditOutputSchema,
+      annotations: externalReadOnlyAnnotations,
+      _meta: withWidget({
+        invoking: "Discovering and auditing public sitemap pages…",
+        invoked: "Public site audit complete.",
+      }),
+    },
+    async ({ site_url, max_pages, page_offset }) => {
+      try {
+        const rateLimit = await env.SITE_AUDIT_RATE_LIMITER.limit({ key: siteAuditRateLimitKey });
+        if (!rateLimit.success) {
+          return failedPublicSiteAudit("Site audits are temporarily rate limited. Please retry shortly.");
+        }
+      } catch {
+        return failedPublicSiteAudit("Site auditing is temporarily unavailable. Please retry shortly.");
+      }
+
+      try {
+        const result = await auditPublicSite({
+          siteUrl: site_url,
+          maxPages: max_pages,
+          pageOffset: page_offset,
+        });
+        const overview = siteAuditOverview(result);
+        return {
+          structuredContent: { ...result, overview },
+          content: contentForOverview(overview, siteAuditFindings(result.issue_groups)),
+        };
+      } catch (cause) {
+        const error = cause instanceof PublicHtmlFetchError
+          ? cause.message
+          : "The public site audit could not be completed. Please try again shortly.";
+        console.error(JSON.stringify({
+          event: "public_site_audit_failed",
+          code: cause instanceof PublicHtmlFetchError ? cause.code : "audit_failed",
+        }));
+        return failedPublicSiteAudit(error);
+      }
+    },
+  );
+
   return server;
 }
 
@@ -1104,9 +1333,9 @@ export default {
         return jsonRpcHttpError(403, "Forbidden: untrusted Origin header.");
       }
 
+      const siteAuditRateLimitKey = request.method === "OPTIONS" ? "options" : await rateLimitKey(request);
       if (request.method !== "OPTIONS") {
-        const key = await rateLimitKey(request);
-        const { success } = await env.MCP_RATE_LIMITER.limit({ key });
+        const { success } = await env.MCP_RATE_LIMITER.limit({ key: siteAuditRateLimitKey });
         if (!success) {
           logRequest("mcp_request_rejected", {
             reason: "rate_limited",
@@ -1128,7 +1357,7 @@ export default {
         return jsonRpcHttpError(413, "MCP request body exceeds the 2 MiB limit.", origin);
       }
 
-      const handler = createMcpHandler(createServer(), {
+      const handler = createMcpHandler(createServer(env, siteAuditRateLimitKey), {
         corsOptions: {
           origin: origin ?? "https://chatgpt.com",
           headers:

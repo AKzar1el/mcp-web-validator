@@ -17,9 +17,32 @@ export interface FetchedPublicHtml {
   contentType: "text/html";
 }
 
+export interface FetchedPublicText {
+  text: string;
+  requestedUrl: string;
+  finalUrl: string;
+  redirectsFollowed: number;
+  status: number;
+  contentType: string;
+}
+
+export interface FetchPublicHtmlOptions {
+  /** Restricts the requested URL and every redirect to this exact origin. */
+  allowedOrigin?: string;
+}
+
+export interface FetchPublicTextOptions {
+  /** Restricts the requested URL and every redirect to this exact origin. */
+  allowedOrigin: string;
+  acceptedContentTypes: readonly string[];
+  maxBytes: number;
+  timeoutMs?: number;
+}
+
 export type PublicHtmlFetchErrorCode =
   | "invalid_url"
   | "blocked_url"
+  | "scope"
   | "redirect"
   | "http_status"
   | "content_type"
@@ -60,6 +83,15 @@ function requirePublicPageUrl(value: string, baseUrl?: string): URL {
 
   url.hash = "";
   return url;
+}
+
+function requireAllowedOrigin(url: URL, allowedOrigin: string | undefined): void {
+  if (allowedOrigin && url.origin !== allowedOrigin) {
+    throw new PublicHtmlFetchError(
+      "scope",
+      "Crawl resources must remain on the authorized website origin.",
+    );
+  }
 }
 
 async function cancelQuietly(response: Response): Promise<void> {
@@ -108,8 +140,12 @@ export async function readBoundedResponseText(
 }
 
 /** Fetches one bounded public HTML document while validating every redirect. */
-export async function fetchPublicHtml(value: string): Promise<FetchedPublicHtml> {
+export async function fetchPublicHtml(
+  value: string,
+  options: FetchPublicHtmlOptions = {},
+): Promise<FetchedPublicHtml> {
   const requestedUrl = requirePublicPageUrl(value);
+  requireAllowedOrigin(requestedUrl, options.allowedOrigin);
   let currentUrl = requestedUrl;
   const visited = new Set<string>();
   const controller = new AbortController();
@@ -117,6 +153,7 @@ export async function fetchPublicHtml(value: string): Promise<FetchedPublicHtml>
 
   try {
     for (let redirectsFollowed = 0; ; redirectsFollowed += 1) {
+      requireAllowedOrigin(currentUrl, options.allowedOrigin);
       if (visited.has(currentUrl.href)) {
         throw new PublicHtmlFetchError("redirect", "The page returned a redirect loop.");
       }
@@ -148,6 +185,7 @@ export async function fetchPublicHtml(value: string): Promise<FetchedPublicHtml>
         }
 
         const nextUrl = requirePublicPageUrl(location, currentUrl.href);
+        requireAllowedOrigin(nextUrl, options.allowedOrigin);
         if (currentUrl.protocol === "https:" && nextUrl.protocol === "http:") {
           throw new PublicHtmlFetchError("redirect", "An HTTPS-to-HTTP redirect was blocked.");
         }
@@ -212,6 +250,117 @@ export async function fetchPublicHtml(value: string): Promise<FetchedPublicHtml>
       throw new PublicHtmlFetchError("timeout", "The page fetch timed out after 12 seconds.");
     }
     throw new PublicHtmlFetchError("fetch_failed", "The public page could not be fetched.");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Fetches a small public text resource (for example robots.txt or a sitemap)
+ * with the same URL, redirect, credential, timeout, and response-size guards
+ * as the public HTML fetcher. Callers must lock requests to a crawl origin.
+ */
+export async function fetchPublicText(
+  value: string,
+  options: FetchPublicTextOptions,
+): Promise<FetchedPublicText> {
+  const requestedUrl = requirePublicPageUrl(value);
+  requireAllowedOrigin(requestedUrl, options.allowedOrigin);
+  let currentUrl = requestedUrl;
+  const visited = new Set<string>();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? PUBLIC_HTML_TIMEOUT_MS);
+
+  try {
+    for (let redirectsFollowed = 0; ; redirectsFollowed += 1) {
+      requireAllowedOrigin(currentUrl, options.allowedOrigin);
+      if (visited.has(currentUrl.href)) {
+        throw new PublicHtmlFetchError("redirect", "The resource returned a redirect loop.");
+      }
+      visited.add(currentUrl.href);
+
+      const response = await fetch(currentUrl, {
+        method: "GET",
+        redirect: "manual",
+        credentials: "omit",
+        cache: "no-store",
+        signal: controller.signal,
+        headers: {
+          accept: options.acceptedContentTypes.join(", "),
+          "user-agent": SERVICE_USER_AGENT,
+        },
+      });
+
+      if (REDIRECT_STATUSES.has(response.status)) {
+        const location = response.headers.get("location");
+        await cancelQuietly(response);
+        if (!location) {
+          throw new PublicHtmlFetchError("redirect", "The resource returned a redirect without a destination.");
+        }
+        if (redirectsFollowed >= MAX_PUBLIC_HTML_REDIRECTS) {
+          throw new PublicHtmlFetchError(
+            "redirect",
+            `The resource exceeded the ${MAX_PUBLIC_HTML_REDIRECTS}-redirect limit.`,
+          );
+        }
+
+        const nextUrl = requirePublicPageUrl(location, currentUrl.href);
+        requireAllowedOrigin(nextUrl, options.allowedOrigin);
+        if (currentUrl.protocol === "https:" && nextUrl.protocol === "http:") {
+          throw new PublicHtmlFetchError("redirect", "An HTTPS-to-HTTP redirect was blocked.");
+        }
+        currentUrl = nextUrl;
+        continue;
+      }
+
+      if (!response.ok) {
+        const status = response.status;
+        await cancelQuietly(response);
+        throw new PublicHtmlFetchError("http_status", `The resource returned HTTP ${status}.`);
+      }
+
+      const contentType = response.headers
+        .get("content-type")
+        ?.split(";", 1)[0]
+        .trim()
+        .toLowerCase() ?? "";
+      if (!options.acceptedContentTypes.includes(contentType)) {
+        await cancelQuietly(response);
+        throw new PublicHtmlFetchError("content_type", "The resource returned an unsupported content type.");
+      }
+
+      let text: string;
+      try {
+        text = await readBoundedResponseText(
+          response,
+          options.maxBytes,
+          "The resource exceeds the configured download limit.",
+        );
+      } catch (cause) {
+        if (cause instanceof Error && cause.message.includes("configured download limit")) {
+          throw new PublicHtmlFetchError("too_large", cause.message);
+        }
+        throw cause;
+      }
+      if (!text.trim()) {
+        throw new PublicHtmlFetchError("empty", "The resource was empty.");
+      }
+
+      return {
+        text,
+        requestedUrl: requestedUrl.href,
+        finalUrl: currentUrl.href,
+        redirectsFollowed,
+        status: response.status,
+        contentType,
+      };
+    }
+  } catch (cause) {
+    if (cause instanceof PublicHtmlFetchError) throw cause;
+    if (controller.signal.aborted) {
+      throw new PublicHtmlFetchError("timeout", "The resource fetch timed out after 12 seconds.");
+    }
+    throw new PublicHtmlFetchError("fetch_failed", "The public resource could not be fetched.");
   } finally {
     clearTimeout(timer);
   }

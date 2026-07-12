@@ -1,4 +1,4 @@
-export const WIDGET_URI = "ui://web-validator/results-v4.html";
+export const WIDGET_URI = "ui://web-validator/results-v5.html";
 
 /**
  * A dependency-free, read-only result viewer. It never fetches from the
@@ -548,6 +548,7 @@ export const WIDGET_HTML = `<!doctype html>
         schema: "JSON-LD check",
         links: "Public link check",
         report: "Full validation report",
+        site: "Public site audit",
         validation: "Validation results",
       };
 
@@ -660,6 +661,7 @@ export const WIDGET_HTML = `<!doctype html>
       }
 
       function inferKind(data) {
+        if (Array.isArray(data.issue_groups)) return "site";
         if (Array.isArray(data.html_messages) || Array.isArray(data.css_messages) || Array.isArray(data.seo_findings)) return "report";
         if (Array.isArray(data.links)) return "links";
         if (Array.isArray(data.issues)) {
@@ -685,6 +687,7 @@ export const WIDGET_HTML = `<!doctype html>
           seo_findings: "SEO",
           schema_findings: "Schema",
           links: "Links",
+          issue_groups: "Site audit",
         };
         return labels[source] || "";
       }
@@ -740,7 +743,7 @@ export const WIDGET_HTML = `<!doctype html>
 
       function collectFindings(data, kind) {
         const findings = [];
-        const sources = ["messages", "errors", "issues", "html_messages", "css_messages", "seo_findings", "schema_findings", "links"];
+        const sources = ["messages", "errors", "issues", "html_messages", "css_messages", "seo_findings", "schema_findings", "links", "issue_groups"];
         for (const source of sources) {
           const values = data[source];
           if (!Array.isArray(values)) continue;
@@ -803,6 +806,16 @@ export const WIDGET_HTML = `<!doctype html>
             schema_issues: asNumber(data.schema_issues, 0),
             broken_links: asNumber(data.broken_links, 0),
             links_checked: asNumber(data.links_checked, 0),
+          };
+        } else if (kind === "site") {
+          total = asNumber(data.pages_selected, 0);
+          headlineText = total > 0 ? plural(total, "page selected for audit", "pages selected for audit") : "No eligible sitemap pages were selected";
+          detailText = "Review the site-wide issue groups and page coverage before continuing the crawl.";
+          counts = {
+            pages_audited: asNumber(data.pages_audited, 0),
+            pages_partial: asNumber(data.pages_partial, 0),
+            pages_failed: asNumber(data.pages_failed, 0),
+            audit_health_score: asNumber(data.audit_health_score, 0),
           };
         } else {
           headlineText = total > 0 ? plural(total, "finding returned", "findings returned") : "Validation complete";
@@ -936,7 +949,7 @@ export const WIDGET_HTML = `<!doctype html>
 
       function renderMetrics(overview) {
         metrics.replaceChildren();
-        const limit = overview.kind === "report" ? 6 : 4;
+        const limit = overview.kind === "report" || overview.kind === "site" ? 6 : 4;
         const entries = countEntries(overview.counts).slice(0, limit);
         for (const entry of entries) {
           const card = makeElement("div", "metric");

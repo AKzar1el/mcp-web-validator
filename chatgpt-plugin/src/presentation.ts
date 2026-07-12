@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const resultKindSchema = z.enum(["html", "css", "seo", "schema", "links", "report"]);
+export const resultKindSchema = z.enum(["html", "css", "seo", "schema", "links", "report", "site"]);
 export const resultStatusSchema = z.enum([
   "passed",
   "needs_attention",

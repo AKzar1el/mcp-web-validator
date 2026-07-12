@@ -2,7 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "mcp-web-validator-chatgpt",
   "main": "src/worker.ts",
-  "compatibility_date": "2026-07-10",
+  "compatibility_date": "2026-07-12",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "ratelimits": [
     {
@@ -10,6 +10,14 @@
       "namespace_id": "2026071001",
       "simple": {
         "limit": 300,
+        "period": 60
+      }
+    },
+    {
+      "name": "SITE_AUDIT_RATE_LIMITER",
+      "namespace_id": "2026071201",
+      "simple": {
+        "limit": 10,
         "period": 60
       }
     }

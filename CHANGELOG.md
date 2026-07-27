@@ -11,6 +11,7 @@ All notable changes to this project are documented here. The project follows [Se
 
 ### Changed
 
+- Organized local MCP tool names under shallow dot-notation paths and documented every local input, including nested screenshot viewport fields.
 - Upgraded the hosted Worker contract to version 0.5.0 and the results widget to v5.
 - Added a dedicated per-client rate limit for bounded public-site audits and cache-busted the site-aware widget resource.
 - Limited hosted link checks to 20 targets so the worst-case live-page audit remains below the Cloudflare Workers Free subrequest ceiling.

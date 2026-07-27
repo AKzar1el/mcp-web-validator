@@ -27,19 +27,35 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name).sort();
     assert.deepEqual(names, [
-      "css_validate_local",
-      "html_validate_local",
-      "html_validate_url",
-      "links_check_broken",
-      "report_generate_validation",
-      "schema_validate_markup",
-      "screenshot_capture",
-      "seo_audit_metadata",
+      "css.local",
+      "html.local",
+      "html.url",
+      "links.broken",
+      "report.validation",
+      "schema.markup",
+      "screenshot.capture",
+      "seo.metadata",
     ]);
 
+    function assertInputDescriptions(schema, path) {
+      for (const [name, property] of Object.entries(schema.properties ?? {})) {
+        assert.equal(
+          typeof property.description,
+          "string",
+          `${path}.${name} must describe what the input accepts`,
+        );
+        assertInputDescriptions(property, `${path}.${name}`);
+      }
+      if (schema.items) {
+        assertInputDescriptions(schema.items, `${path}[]`);
+      }
+    }
+
     for (const tool of tools) {
-      assert.match(tool.name, /^[a-zA-Z0-9_-]{1,64}$/);
+      assert.match(tool.name, /^[a-zA-Z0-9._-]{1,64}$/);
+      assert.match(tool.name, /^[^.]+\.[^.]+$/, `${tool.name} must use a shallow dot-notation path`);
       assert.equal(typeof tool.title, "string");
+      assertInputDescriptions(tool.inputSchema, tool.name);
       assert.ok(tool.outputSchema, `${tool.name} must advertise structured output`);
       assert.equal(typeof tool.annotations?.readOnlyHint, "boolean");
       assert.equal(typeof tool.annotations?.destructiveHint, "boolean");
@@ -48,7 +64,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     }
 
     const seo = await client.callTool({
-      name: "seo_audit_metadata",
+      name: "seo.metadata",
       arguments: { htmlContent: "<!doctype html><html><head></head><body><h1>Test</h1></body></html>" },
     });
     assert.equal(seo.isError, undefined);
@@ -65,7 +81,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.doesNotMatch(seoText, /"(?:issues|totalIssues|truncated)"\s*:/);
 
     const schema = await client.callTool({
-      name: "schema_validate_markup",
+      name: "schema.markup",
       arguments: {
         htmlContent:
           '<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite"}</script>',
@@ -80,7 +96,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.doesNotMatch(schemaText, /"(?:issues|totalIssues|truncated)"\s*:/);
 
     const absentSchema = await client.callTool({
-      name: "schema_validate_markup",
+      name: "schema.markup",
       arguments: { htmlContent: "<!doctype html><html><body><h1>No schema</h1></body></html>" },
     });
     assert.deepEqual(absentSchema.structuredContent?.issues, []);
@@ -89,7 +105,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
 
     const schemaBlockCount = 205;
     const truncatedSchema = await client.callTool({
-      name: "schema_validate_markup",
+      name: "schema.markup",
       arguments: {
         htmlContent: Array.from(
           { length: schemaBlockCount },
@@ -102,7 +118,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.equal(truncatedSchema.structuredContent?.truncated, true);
     assert.match(textContent(truncatedSchema), /Showing the first 200 of 205 findings/);
 
-    const screenshot = tools.find((tool) => tool.name === "screenshot_capture");
+    const screenshot = tools.find((tool) => tool.name === "screenshot.capture");
     assert.equal(screenshot?.annotations?.readOnlyHint, false);
     assert.equal(screenshot?.annotations?.destructiveHint, true);
   } finally {

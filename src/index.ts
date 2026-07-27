@@ -172,7 +172,7 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
-    "html_validate_local",
+    "html.local",
     {
       title: "Validate local HTML",
       description:
@@ -207,7 +207,7 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
-    "html_validate_url",
+    "html.url",
     {
       title: "Validate a public URL",
       description:
@@ -257,7 +257,7 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
-    "css_validate_local",
+    "css.local",
     {
       title: "Validate local CSS",
       description:
@@ -292,7 +292,7 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
-    "seo_audit_metadata",
+    "seo.metadata",
     {
       title: "Audit SEO metadata",
       description:
@@ -331,7 +331,7 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
-    "links_check_broken",
+    "links.broken",
     {
       title: "Check public links",
       description:
@@ -341,7 +341,13 @@ export function createServer(): McpServer {
         baseUrl: publicUrlSchema
           .optional()
           .describe("Optional public HTTP(S) base URL used to resolve relative links."),
-        maxLinks: z.number().int().min(1).max(25).default(25),
+        maxLinks: z
+          .number()
+          .int()
+          .min(1)
+          .max(25)
+          .default(25)
+          .describe("Maximum number of public HTTP(S) links to check, from 1 to 25."),
       },
       outputSchema: {
         links: z.array(linkStatusSchema),
@@ -369,7 +375,7 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
-    "schema_validate_markup",
+    "schema.markup",
     {
       title: "Validate JSON-LD syntax",
       description:
@@ -408,7 +414,7 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
-    "report_generate_validation",
+    "report.validation",
     {
       title: "Generate a validation report",
       description:
@@ -470,7 +476,7 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
-    "screenshot_capture",
+    "screenshot.capture",
     {
       title: "Capture responsive screenshots",
       description:
@@ -489,14 +495,28 @@ export function createServer(): McpServer {
         viewports: z
           .array(
             z.object({
-              name: z.string().regex(/^[A-Za-z0-9_-]{1,50}$/),
-              width: z.number().int().min(200).max(3_840),
-              height: z.number().int().min(200).max(4_320),
+              name: z
+                .string()
+                .regex(/^[A-Za-z0-9_-]{1,50}$/)
+                .describe("Safe filename label for this screenshot viewport."),
+              width: z
+                .number()
+                .int()
+                .min(200)
+                .max(3_840)
+                .describe("Viewport width in CSS pixels, from 200 to 3840."),
+              height: z
+                .number()
+                .int()
+                .min(200)
+                .max(4_320)
+                .describe("Viewport height in CSS pixels, from 200 to 4320."),
             }),
           )
           .min(1)
           .max(MAX_VIEWPORTS)
-          .optional(),
+          .optional()
+          .describe("Optional viewport definitions; defaults to desktop, tablet, and mobile sizes."),
       },
       outputSchema: {
         screenshots: z.array(screenshotSchema),

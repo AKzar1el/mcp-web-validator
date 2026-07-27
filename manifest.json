@@ -26,7 +26,7 @@
   },
   "tools": [
     {
-      "name": "html_validate_local",
+      "name": "html.local",
       "title": "Validate local HTML",
       "description": "Reads a bounded local HTML file and sends its markup to the W3C Nu HTML Checker. Use only files the user is authorized to share.",
       "inputSchema": {
@@ -110,7 +110,7 @@
       }
     },
     {
-      "name": "html_validate_url",
+      "name": "html.url",
       "title": "Validate a public URL",
       "description": "Fetches a bounded public HTTP(S) page, then sends its markup to the W3C Nu HTML Checker. Private, reserved, credentialed, and nonstandard-port destinations are rejected.",
       "inputSchema": {
@@ -196,7 +196,7 @@
       }
     },
     {
-      "name": "css_validate_local",
+      "name": "css.local",
       "title": "Validate local CSS",
       "description": "Reads a bounded local CSS file and sends it to the W3C Jigsaw CSS Validator. Use only files the user is authorized to share.",
       "inputSchema": {
@@ -266,7 +266,7 @@
       }
     },
     {
-      "name": "seo_audit_metadata",
+      "name": "seo.metadata",
       "title": "Audit SEO metadata",
       "description": "Analyzes supplied HTML locally for metadata, heading structure, viewport configuration, image alternatives, and Open Graph fields.",
       "inputSchema": {
@@ -355,7 +355,7 @@
       }
     },
     {
-      "name": "links_check_broken",
+      "name": "links.broken",
       "title": "Check public links",
       "description": "Resolves and checks up to 25 public HTTP(S) links in supplied HTML. Redirects are reported but not followed, and response bodies are discarded.",
       "inputSchema": {
@@ -374,6 +374,7 @@
           },
           "maxLinks": {
             "default": 25,
+            "description": "Maximum number of public HTTP(S) links to check, from 1 to 25.",
             "type": "integer",
             "minimum": 1,
             "maximum": 25
@@ -447,7 +448,7 @@
       }
     },
     {
-      "name": "schema_validate_markup",
+      "name": "schema.markup",
       "title": "Validate JSON-LD syntax",
       "description": "Parses JSON-LD blocks in supplied HTML locally and reports empty blocks or JSON syntax errors. It does not validate vocabulary semantics.",
       "inputSchema": {
@@ -536,7 +537,7 @@
       }
     },
     {
-      "name": "report_generate_validation",
+      "name": "report.validation",
       "title": "Generate a validation report",
       "description": "Combines W3C HTML/CSS validation, local SEO/accessibility checks, JSON-LD syntax checks, and a bounded public-link check into a Markdown and structured report.",
       "inputSchema": {
@@ -884,7 +885,7 @@
       }
     },
     {
-      "name": "screenshot_capture",
+      "name": "screenshot.capture",
       "title": "Capture responsive screenshots",
       "description": "Renders a local HTML file or HTTP(S) URL in a sandboxed local Chromium browser and writes PNG screenshots to the requested directory. Existing matching files may be replaced.",
       "inputSchema": {
@@ -904,6 +905,7 @@
             "maxLength": 4096
           },
           "viewports": {
+            "description": "Optional viewport definitions; defaults to desktop, tablet, and mobile sizes.",
             "minItems": 1,
             "maxItems": 8,
             "type": "array",
@@ -912,17 +914,20 @@
               "properties": {
                 "name": {
                   "type": "string",
-                  "pattern": "^[A-Za-z0-9_-]{1,50}$"
+                  "pattern": "^[A-Za-z0-9_-]{1,50}$",
+                  "description": "Safe filename label for this screenshot viewport."
                 },
                 "width": {
                   "type": "integer",
                   "minimum": 200,
-                  "maximum": 3840
+                  "maximum": 3840,
+                  "description": "Viewport width in CSS pixels, from 200 to 3840."
                 },
                 "height": {
                   "type": "integer",
                   "minimum": 200,
-                  "maximum": 4320
+                  "maximum": 4320,
+                  "description": "Viewport height in CSS pixels, from 200 to 4320."
                 }
               },
               "required": [

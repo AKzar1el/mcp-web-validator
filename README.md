@@ -39,7 +39,7 @@ https://web-validator-mcp.digestseo.com/mcp
 - Node.js 22.12.0 or newer
 - An MCP client that supports stdio, or a client that supports Streamable HTTP for the hosted endpoint
 
-Puppeteer may download a compatible browser during npm installation. The browser is used only by the local `screenshot_capture` tool.
+Puppeteer may download a compatible browser during npm installation. The browser is used only by the local `screenshot.capture` tool.
 
 ## Local server tools
 
@@ -47,14 +47,14 @@ The npm package exposes these exact runtime tool names:
 
 | Tool | Purpose | Network or filesystem behavior |
 | --- | --- | --- |
-| `html_validate_local` | Validate a local HTML file. | Reads the selected file and submits its markup to the external W3C Nu HTML Checker at `validator.w3.org/nu/`. |
-| `html_validate_url` | Validate the markup returned by a public URL. | Fetches the URL, then submits the returned markup to the external Nu checker. |
-| `css_validate_local` | Validate a local CSS file. | Reads the selected file and submits its CSS to the external W3C Jigsaw CSS Validator. |
-| `seo_audit_metadata` | Audit titles, descriptions, canonical tags, headings, viewport metadata, image alt attributes, and Open Graph metadata. | Processes supplied HTML locally. |
-| `links_check_broken` | Check links extracted from supplied HTML. | Sends bounded HTTP requests to eligible public links. |
-| `schema_validate_markup` | Parse JSON-LD blocks and report JSON syntax errors. | Processes supplied HTML locally. |
-| `report_generate_validation` | Combine HTML, optional CSS, SEO, JSON-LD, and bounded link checks in a Markdown report. | Reads selected files, contacts the validators, and checks eligible public links found in the HTML. |
-| `screenshot_capture` | Capture desktop, tablet, mobile, or custom viewport screenshots. | Opens a selected local file or eligible public URL and writes PNG files to the selected output directory; existing matching files may be replaced. |
+| `html.local` | Validate a local HTML file. | Reads the selected file and submits its markup to the external W3C Nu HTML Checker at `validator.w3.org/nu/`. |
+| `html.url` | Validate the markup returned by a public URL. | Fetches the URL, then submits the returned markup to the external Nu checker. |
+| `css.local` | Validate a local CSS file. | Reads the selected file and submits its CSS to the external W3C Jigsaw CSS Validator. |
+| `seo.metadata` | Audit titles, descriptions, canonical tags, headings, viewport metadata, image alt attributes, and Open Graph metadata. | Processes supplied HTML locally. |
+| `links.broken` | Check links extracted from supplied HTML. | Sends bounded HTTP requests to eligible public links. |
+| `schema.markup` | Parse JSON-LD blocks and report JSON syntax errors. | Processes supplied HTML locally. |
+| `report.validation` | Combine HTML, optional CSS, SEO, JSON-LD, and bounded link checks in a Markdown report. | Reads selected files, contacts the validators, and checks eligible public links found in the HTML. |
+| `screenshot.capture` | Capture desktop, tablet, mobile, or custom viewport screenshots. | Opens a selected local file or eligible public URL and writes PNG files to the selected output directory; existing matching files may be replaced. |
 
 ## Hosted app tools
 
@@ -147,6 +147,10 @@ npm run deploy:dry-run
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations. Deployment and marketplace-review notes live in [chatgpt-plugin/SUBMISSION.md](chatgpt-plugin/SUBMISSION.md).
+
+## Ecosystem
+
+[![smithery badge](https://smithery.ai/badge/digestseo/web-validator)](https://smithery.ai/servers/digestseo/web-validator)
 
 ## License
 

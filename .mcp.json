@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mcp-web-validator": {
+      "command": "npx",
+      "args": ["-y", "mcp-web-validator"]
+    }
+  }
+}

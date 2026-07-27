@@ -37,6 +37,21 @@ Add a stdio server entry using the absolute path to the cloned repository:
 Replace `<repository-root>` with the actual checkout path. On Windows, use the
 absolute path with escaped backslashes or forward slashes in JSON.
 
+## Cursor Marketplace plugin
+
+This repository includes the Cursor plugin manifest at
+`.cursor-plugin/plugin.json` and its MCP configuration at `mcp.json`. After
+marketplace approval, install the plugin from Cursor's Marketplace. For local
+plugin testing, place a checkout at:
+
+```text
+%USERPROFILE%\.cursor\plugins\local\mcp-web-validator
+```
+
+Then restart Cursor or reload its window. The plugin starts the published
+package with `npx -y mcp-web-validator`; no API keys or environment variables
+are required.
+
 ## Verify
 
 Run the repository checks before enabling the server:

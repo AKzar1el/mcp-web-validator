@@ -1,0 +1,22 @@
+{
+  "name": "mcp-web-validator",
+  "version": "1.1.0",
+  "description": "Validate HTML and CSS, audit technical SEO and accessibility signals, check JSON-LD and links, and capture responsive screenshots from Cursor.",
+  "author": {
+    "name": "AKzar1el",
+    "url": "https://github.com/AKzar1el"
+  },
+  "homepage": "https://digestseo.com/validator-mcp/",
+  "repository": "https://github.com/AKzar1el/mcp-web-validator",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "web-validation",
+    "html",
+    "css",
+    "seo",
+    "accessibility",
+    "w3c"
+  ],
+  "logo": "icon.png"
+}

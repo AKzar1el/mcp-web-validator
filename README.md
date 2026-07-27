@@ -111,6 +111,12 @@ Create a command/stdio MCP server with:
 npx -y mcp-web-validator
 ```
 
+This repository also includes a Cursor Marketplace plugin manifest. After the
+plugin is published, install **Web Validator by DigestSEO** from Cursor's
+Marketplace or add the repository from Cursor's plugin UI. The plugin bundles
+the same local stdio server and does not require API keys or environment
+variables.
+
 ## Development
 
 Clone the repository and install the locked dependencies:

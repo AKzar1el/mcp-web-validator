@@ -62,6 +62,33 @@ async function listTools() {
   return JSON.parse(dataLine?.slice(6) ?? "{}").result.tools as Array<Record<string, any>>;
 }
 
+async function readResource(uri: string) {
+  const response = await worker.fetch(
+    new Request("https://web-validator-mcp.digestseo.com/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 101,
+        method: "resources/read",
+        params: { uri },
+      }),
+    }),
+    createEnv(),
+    context,
+  );
+  expect(response.status).toBe(200);
+  const payload = await response.text();
+  const dataLine = payload.split("\n").find((line) => line.startsWith("data: "));
+  expect(dataLine).toBeDefined();
+  return JSON.parse(dataLine?.slice(6) ?? "{}").result as {
+    contents: Array<{ uri: string; mimeType: string; text: string }>;
+  };
+}
+
 beforeEach(() => {
   vi.spyOn(console, "log").mockImplementation(() => undefined);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -73,6 +100,21 @@ afterEach(() => {
 });
 
 describe("MCP HTTP boundary", () => {
+  it("serves the current and cached legacy widget resource URIs", async () => {
+    const current = await readResource("ui://web-validator/results-v5.html");
+    const legacy = await readResource("ui://web-validator/results-v4.html");
+
+    expect(current.contents[0]).toMatchObject({
+      uri: "ui://web-validator/results-v5.html",
+      mimeType: "text/html;profile=mcp-app",
+    });
+    expect(legacy.contents[0]).toMatchObject({
+      uri: "ui://web-validator/results-v4.html",
+      mimeType: "text/html;profile=mcp-app",
+    });
+    expect(legacy.contents[0]?.text).toBe(current.contents[0]?.text);
+  });
+
   it("rejects untrusted browser origins before invoking the limiter", async () => {
     const env = createEnv();
     const response = await worker.fetch(

@@ -1,4 +1,6 @@
 export const WIDGET_URI = "ui://web-validator/results-v5.html";
+// Keep the previous resource readable for hosts that cached the v4 tool metadata.
+export const LEGACY_WIDGET_URI = "ui://web-validator/results-v4.html";
 
 /**
  * A dependency-free, read-only result viewer. It never fetches from the

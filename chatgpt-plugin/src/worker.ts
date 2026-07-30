@@ -27,7 +27,7 @@ import {
 } from "./presentation";
 import { validateCss, validateHtmlDetailed } from "./validators";
 import { auditPublicSite } from "./site-audit";
-import { WIDGET_HTML, WIDGET_URI } from "./widget";
+import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
 const TRUSTED_BROWSER_ORIGINS = new Set([
@@ -697,27 +697,32 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
     },
   );
 
-  registerAppResource(server, "web-validator-results", WIDGET_URI, {}, async () => ({
-    contents: [
-      {
-        uri: WIDGET_URI,
-        mimeType: RESOURCE_MIME_TYPE,
-        text: WIDGET_HTML,
-        _meta: {
-          ui: {
-            prefersBorder: true,
-            domain: "https://web-validator-mcp.digestseo.com",
-            csp: {
-              connectDomains: [],
-              resourceDomains: [],
+  function registerWidgetResource(name: string, uri: string) {
+    registerAppResource(server, name, uri, {}, async () => ({
+      contents: [
+        {
+          uri,
+          mimeType: RESOURCE_MIME_TYPE,
+          text: WIDGET_HTML,
+          _meta: {
+            ui: {
+              prefersBorder: true,
+              domain: "https://web-validator-mcp.digestseo.com",
+              csp: {
+                connectDomains: [],
+                resourceDomains: [],
+              },
             },
+            "openai/widgetDescription":
+              "Shows a markup, public-webpage, or bounded public-site audit's status, key counts, highest-priority next step, and expandable validation findings.",
           },
-          "openai/widgetDescription":
-            "Shows a markup, public-webpage, or bounded public-site audit's status, key counts, highest-priority next step, and expandable validation findings.",
         },
-      },
-    ],
-  }));
+      ],
+    }));
+  }
+
+  registerWidgetResource("web-validator-results", WIDGET_URI);
+  registerWidgetResource("web-validator-results-legacy", LEGACY_WIDGET_URI);
 
   registerAppTool(
     server,

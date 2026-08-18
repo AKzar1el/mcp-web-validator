@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.AKzar1el/mcp-web-validator",
   "title": "Web Validator by DigestSEO",
-  "description": "Audit bounded public sitemaps and live webpages, validate HTML and CSS, check SEO and JSON-LD syntax, and inspect authorized links.",
+  "description": "Audit public webpages and supplied markup for HTML, CSS, SEO, JSON-LD, and link issues.",
   "version": "0.5.0",
   "repository": {
     "url": "https://github.com/AKzar1el/mcp-web-validator",

@@ -36,6 +36,15 @@ jobs:
       - name: Run checks
         run: npm run check
 
+      - name: Validate MCP Registry manifest
+        env:
+          MCP_PUBLISHER_VERSION: v1.8.1
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz" \
+            | tar xz -C "$RUNNER_TEMP" mcp-publisher
+          "$RUNNER_TEMP/mcp-publisher" validate registry/server.json
+
       - name: Inspect package contents
         run: npm pack --dry-run
 

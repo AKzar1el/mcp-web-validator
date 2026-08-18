@@ -118,6 +118,14 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.equal(truncatedSchema.structuredContent?.truncated, true);
     assert.match(textContent(truncatedSchema), /Showing the first 200 of 205 findings/);
 
+    const unreadableReport = await client.callTool({
+      name: "report.validation",
+      arguments: { htmlFilePath: "definitely-missing-report-input.html" },
+    });
+    assert.equal(unreadableReport.isError, true);
+    assert.deepEqual(unreadableReport.structuredContent?.failedChecks, ["input"]);
+    assert.match(textContent(unreadableReport), /^### Validation report: could not finish/m);
+
     const screenshot = tools.find((tool) => tool.name === "screenshot.capture");
     assert.equal(screenshot?.annotations?.readOnlyHint, false);
     assert.equal(screenshot?.annotations?.destructiveHint, true);

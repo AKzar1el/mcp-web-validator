@@ -81,6 +81,110 @@ test("link checker reports redirects without following their targets", async () 
   }
 });
 
+test("link checker retries a 501 HEAD response with a bounded GET", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input, init) => {
+    requested.push({ url: String(input), method: init?.method, range: init?.headers?.Range });
+    return init?.method === "HEAD"
+      ? new Response(null, { status: 501 })
+      : new Response(null, { status: 200 });
+  };
+
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/head-501-get-200">Link</a>', undefined, 1);
+    assert.deepEqual(links, [
+      {
+        url: "https://1.1.1.1/head-501-get-200",
+        status: 200,
+        ok: true,
+        message: undefined,
+      },
+    ]);
+    assert.deepEqual(requested, [
+      { url: "https://1.1.1.1/head-501-get-200", method: "HEAD", range: undefined },
+      { url: "https://1.1.1.1/head-501-get-200", method: "GET", range: "bytes=0-0" },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker reports the bounded GET result after a 501 HEAD response", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input, init) => {
+    requested.push({ url: String(input), method: init?.method });
+    return init?.method === "HEAD"
+      ? new Response(null, { status: 501 })
+      : new Response(null, { status: 404 });
+  };
+
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/head-501-get-404">Link</a>', undefined, 1);
+    assert.deepEqual(links, [
+      {
+        url: "https://1.1.1.1/head-501-get-404",
+        status: 404,
+        ok: false,
+        message: undefined,
+      },
+    ]);
+    assert.deepEqual(requested.map((request) => request.method), ["HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker preserves failure handling when the 501 GET fallback fails", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input, init) => {
+    requested.push({ url: String(input), method: init?.method });
+    if (init?.method === "HEAD") return new Response(null, { status: 501 });
+    throw new Error("GET fallback failed");
+  };
+
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/head-501-get-failed">Link</a>', undefined, 1);
+    assert.deepEqual(links, [
+      {
+        url: "https://1.1.1.1/head-501-get-failed",
+        status: "failed",
+        ok: false,
+        message: "GET fallback failed",
+      },
+    ]);
+    assert.deepEqual(requested.map((request) => request.method), ["HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker does not retry a 500 HEAD response", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input, init) => {
+    requested.push({ url: String(input), method: init?.method });
+    return new Response(null, { status: 500 });
+  };
+
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/head-500">Link</a>', undefined, 1);
+    assert.deepEqual(links, [
+      {
+        url: "https://1.1.1.1/head-500",
+        status: 500,
+        ok: false,
+        message: undefined,
+      },
+    ]);
+    assert.deepEqual(requested.map((request) => request.method), ["HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("W3C diagnostics are capped before becoming MCP output", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () =>

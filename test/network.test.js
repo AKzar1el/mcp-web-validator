@@ -54,7 +54,7 @@ test("link checker resolves relative links, deduplicates, and caps requests", as
   }
 });
 
-test("link checker reports redirects without following their targets", async () => {
+test("link checker reports redirects as reachable without following their targets", async () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async () => {
@@ -72,10 +72,67 @@ test("link checker reports redirects without following their targets", async () 
       {
         url: "https://1.1.1.1/redirect",
         status: 302,
-        ok: false,
+        ok: true,
         message: "Redirect not followed",
       },
     ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker classifies HTTP response classes without following redirects", async () => {
+  const originalFetch = globalThis.fetch;
+  const cases = [
+    [200, true],
+    [204, true],
+    [301, true],
+    [302, true],
+    [307, true],
+    [308, true],
+    [404, false],
+    [410, false],
+    [500, false],
+  ];
+  const requested = [];
+  globalThis.fetch = async (input, init) => {
+    requested.push({ url: String(input), method: init?.method });
+    const status = Number(new URL(String(input)).pathname.slice(1));
+    return new Response(null, { status });
+  };
+
+  try {
+    for (const [status, ok] of cases) {
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/${status}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, status);
+      assert.equal(links[0].ok, ok);
+      assert.equal(links[0].message, status >= 300 && status < 400 ? "Redirect not followed" : undefined);
+    }
+    assert.deepEqual(requested.map((request) => request.method), cases.map(() => "HEAD"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker reports blocked targets and network failures as unreachable", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new Error("network failure");
+  };
+
+  try {
+    const links = await checkBrokenLinks(
+      '<a href="http://127.0.0.1/">Blocked</a><a href="https://1.1.1.1/failed">Failed</a>',
+      undefined,
+      2,
+    );
+    assert.deepEqual(
+      links.map(({ status, ok }) => ({ status, ok })),
+      [
+        { status: "blocked", ok: false },
+        { status: "failed", ok: false },
+      ],
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

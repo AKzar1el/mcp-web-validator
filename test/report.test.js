@@ -57,3 +57,47 @@ test("report produces matching machine-readable counts", () => {
     },
   );
 });
+
+test("report keeps redirects visible without counting them as broken links", () => {
+  const result = createValidationReport({
+    htmlFilePath: "index.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [
+      { url: "https://example.test/ok", status: 200, ok: true },
+      { url: "https://example.test/no-content", status: 204, ok: true },
+      ...[301, 302, 307, 308].map((status) => ({
+        url: `https://example.test/${status}`,
+        status,
+        ok: true,
+        message: "Redirect not followed",
+      })),
+      { url: "https://example.test/missing", status: 404, ok: false },
+      { url: "https://example.test/gone", status: 410, ok: false },
+      { url: "https://example.test/error", status: 500, ok: false },
+      { url: "https://example.test/blocked", status: "blocked", ok: false },
+      { url: "https://example.test/failed", status: "failed", ok: false },
+    ],
+  });
+
+  assert.equal(result.summary.linksChecked, 11);
+  assert.equal(result.summary.brokenLinks, 5);
+  assert.equal(result.summary.linkScore, 0);
+  assert.match(result.report, /5 broken or unreachable, 4 redirects to review of 11 checked/);
+  assert.match(result.report, /\| https:\/\/example\.test\/301 \| 301 \| Yes \| Redirect not followed \|/);
+
+  const redirectsOnly = createValidationReport({
+    htmlFilePath: "redirects.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/redirect", status: 301, ok: true, message: "Redirect not followed" }],
+  });
+  assert.equal(redirectsOnly.summary.brokenLinks, 0);
+  assert.equal(redirectsOnly.summary.linkScore, 100);
+});

@@ -254,7 +254,7 @@ export function validateSchemaMarkup(htmlContent: string): SEOIssue[] {
 }
 
 /**
- * Extracts and tests all links inside the HTML content for broken links (4xx / 5xx)
+ * Extracts and tests links, treating 3xx responses as reachable redirects and 4xx/5xx as broken.
  */
 export async function checkBrokenLinks(
   htmlContent: string,
@@ -327,7 +327,7 @@ export async function checkBrokenLinks(
           maxRedirects: 0,
         });
         const status = getResult.response.status;
-        const ok = getResult.response.ok;
+        const ok = status >= 200 && status < 400;
         const finalUrl = getResult.url.href;
         await cancelResponseBody(getResult.response);
         return {
@@ -346,7 +346,7 @@ export async function checkBrokenLinks(
       return {
         url,
         status: headStatus,
-        ok: headStatus >= 200 && headStatus < 300,
+        ok: headStatus >= 200 && headStatus < 400,
         message:
           headStatus >= 300 && headStatus < 400
             ? "Redirect not followed"

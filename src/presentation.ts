@@ -229,8 +229,19 @@ export function schemaValidationContent(
 }
 
 function linkPriority(link: LinkStatus): ActionPriority {
-  if (typeof link.status === "number" && link.status >= 300 && link.status < 400) return 1;
+  if (isRedirect(link)) return 1;
   return 0;
+}
+
+function isRedirect(link: LinkStatus): boolean {
+  return typeof link.status === "number" && link.status >= 300 && link.status < 400;
+}
+
+function linkActionMessage(link: LinkStatus): string {
+  if (isRedirect(link)) {
+    return `${link.status} redirect; destination was not followed`;
+  }
+  return `Link returned ${typeof link.status === "number" ? `HTTP ${link.status}` : link.status}${link.message ? ` — ${link.message}` : ""}`;
 }
 
 export function linkCheckContent(links: LinkStatus[], baseUrl?: string): string {
@@ -245,8 +256,9 @@ export function linkCheckContent(links: LinkStatus[], baseUrl?: string): string 
     });
   }
 
-  const unhealthy = links.filter((link) => !link.ok);
-  if (unhealthy.length === 0) {
+  const unreachable = links.filter((link) => !link.ok);
+  const redirects = links.filter(isRedirect);
+  if (unreachable.length === 0 && redirects.length === 0) {
     return toolContent({
       title: "Link check",
       status: "clean",
@@ -257,15 +269,29 @@ export function linkCheckContent(links: LinkStatus[], baseUrl?: string): string 
     });
   }
 
+  const actions = [
+    ...unreachable,
+    ...redirects,
+  ].map((link) => ({
+    priority: linkPriority(link),
+    location: link.url,
+    message: linkActionMessage(link),
+  }));
+
+  const linkOutcome = [
+    unreachable.length > 0
+      ? `${countLabel(unreachable.length, "link")} ${unreachable.length === 1 ? "is" : "are"} broken or unreachable`
+      : "no checked links are broken or unreachable",
+    redirects.length > 0
+      ? `${countLabel(redirects.length, "redirect")} ${redirects.length === 1 ? "needs" : "need"} review`
+      : undefined,
+  ].filter((item): item is string => item !== undefined).join("; ");
+
   return toolContent({
     title: "Link check",
-    status: "attention needed",
-    outcome: `${countLabel(unhealthy.length, "link")} of ${links.length} checked ${unhealthy.length === 1 ? "needs" : "need"} attention. Redirects are reported but not followed.`,
-    actions: unhealthy.map((link) => ({
-      priority: linkPriority(link),
-      location: link.url,
-      message: `${typeof link.status === "number" ? `HTTP ${link.status}` : link.status}${link.message ? ` — ${link.message}` : ""}`,
-    })),
+    status: unreachable.length > 0 ? "attention needed" : "review suggested",
+    outcome: `${linkOutcome} of ${links.length} checked. Redirect destinations are not followed.`,
+    actions,
     nextStep: "Update failed destinations and review redirects, then rerun the link check.",
   });
 }
@@ -296,10 +322,10 @@ function reportActionItems(reportData: ValidationReportResult): ActionItem[] {
       message: `JSON-LD: ${issue.message}`,
     })),
     ...reportData.links
-      .filter((link) => !link.ok)
+      .filter((link) => !link.ok || isRedirect(link))
       .map((link) => ({
         priority: linkPriority(link),
-        message: `Link returned ${typeof link.status === "number" ? `HTTP ${link.status}` : link.status}${link.message ? ` — ${link.message}` : ""}`,
+        message: linkActionMessage(link),
         location: link.url,
       })),
   ];
@@ -317,9 +343,10 @@ export function reportContent(reportData: ValidationReportResult): string {
   const cssSummary = summary.cssScore === null
     ? "CSS not audited"
     : countLabel(summary.cssErrors, "CSS error");
+  const redirects = reportData.links.filter(isRedirect).length;
   const linkSummary = summary.linkScore === null
     ? "no eligible links checked"
-    : `${summary.brokenLinks} of ${countLabel(summary.linksChecked, "link")} ${summary.brokenLinks === 1 ? "needs" : "need"} attention`;
+    : `${summary.brokenLinks} broken or unreachable and ${countLabel(redirects, "redirect")} to review of ${countLabel(summary.linksChecked, "link")}`;
   return toolContent({
     title: "Validation report",
     status,

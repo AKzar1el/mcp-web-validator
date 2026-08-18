@@ -57,6 +57,10 @@ function markdownCell(value: unknown): string {
     .trim();
 }
 
+function isRedirect(link: LinkStatus): boolean {
+  return typeof link.status === "number" && link.status >= 300 && link.status < 400;
+}
+
 /** Builds the human-readable report and its machine-readable equivalent. */
 export function createValidationReport(input: ValidationReportInput): ValidationReport {
   const htmlErrors = input.htmlMessages.filter((message) => message.type === "error").length;
@@ -66,6 +70,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
   const seoWarnings = input.seoIssues.filter((issue) => issue.severity === "warning").length;
   const schemaErrors = input.schemaIssues.filter((issue) => issue.severity === "error").length;
   const brokenLinks = input.links.filter((link) => !link.ok).length;
+  const redirectLinks = input.links.filter(isRedirect).length;
 
   const htmlScore = clampScore(100 - htmlErrors * 15 - htmlWarnings * 2);
   const cssScore = input.cssAudited ? clampScore(100 - cssErrors * 20) : null;
@@ -113,7 +118,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
     `- CSS: ${input.cssAudited ? `${cssErrors} error(s)` : "not audited"}`,
     `- SEO and accessibility: ${seoErrors} error(s), ${seoWarnings} warning(s)`,
     `- JSON-LD syntax: ${schemaErrors} error(s)`,
-    `- Links: ${brokenLinks} broken or unreachable of ${input.links.length} checked`,
+    `- Links: ${brokenLinks} broken or unreachable, ${redirectLinks} redirect${redirectLinks === 1 ? "" : "s"} to review of ${input.links.length} checked`,
     "",
     `## HTML diagnostics (${input.htmlMessages.length})`,
   ];
@@ -160,7 +165,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
   if (input.links.length === 0) {
     report.push("No public HTTP(S) links were checked.");
   } else {
-    report.push("", "| URL | Status | Healthy | Details |", "| :--- | :---: | :---: | :--- |");
+    report.push("", "| URL | Status | Reachable | Details |", "| :--- | :---: | :---: | :--- |");
     for (const link of input.links) {
       report.push(
         `| ${markdownCell(link.url)} | ${markdownCell(link.status)} | ${link.ok ? "Yes" : "No"} | ${markdownCell(link.message ?? "Accessible")} |`,

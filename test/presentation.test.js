@@ -60,6 +60,25 @@ test("all action-based narrations use the shared escaping boundary", () => {
   }
 });
 
+test("link narration treats redirects as review items instead of broken links", () => {
+  const output = linkCheckContent([
+    { url: "https://example.test/redirect", status: 301, ok: true, message: "Redirect not followed" },
+    { url: "https://example.test/missing", status: 404, ok: false },
+  ]);
+
+  assert.match(output, /^### Link check: attention needed/m);
+  assert.match(output, /1 link is broken or unreachable; 1 redirect needs review/i);
+  assert.match(output, /301 redirect; destination was not followed/);
+  assert.match(output, /Link returned HTTP 404/);
+
+  const redirectsOnly = linkCheckContent([
+    { url: "https://example.test/redirect", status: 308, ok: true, message: "Redirect not followed" },
+  ]);
+  assert.match(redirectsOnly, /^### Link check: review suggested/m);
+  assert.match(redirectsOnly, /no checked links are broken or unreachable; 1 redirect needs review/i);
+  assert.doesNotMatch(redirectsOnly, /Link returned HTTP 308/);
+});
+
 test("user-derived URLs, snippets, and paths remain inside unbreakable code spans", () => {
   const source = "https://example.test/`source`/[link](https://evil.test)";
   const html = htmlValidationContent([], source);

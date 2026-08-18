@@ -334,28 +334,52 @@ function reportActionItems(reportData: ValidationReportResult): ActionItem[] {
 export function reportContent(reportData: ValidationReportResult): string {
   const { summary } = reportData;
   const actions = reportActionItems(reportData);
+  const partial = reportData.failedChecks.length > 0;
   const hasActionableFinding = actions.some((action) => action.priority < 2);
-  const status = actions.length === 0
+  const status = partial
+    ? "partial"
+    : actions.length === 0
     ? "clean across completed checks"
     : hasActionableFinding
       ? "attention needed"
       : "review suggested";
   const cssSummary = summary.cssScore === null
-    ? "CSS not audited"
+    ? reportData.failedChecks.includes("css")
+      ? "CSS validation unavailable"
+      : "CSS not audited"
     : countLabel(summary.cssErrors, "CSS error");
   const redirects = reportData.links.filter(isRedirect).length;
   const linkSummary = summary.linkScore === null
-    ? "no eligible links checked"
+    ? reportData.failedChecks.includes("links")
+      ? "link checking unavailable"
+      : "no eligible links checked"
     : `${summary.brokenLinks} broken or unreachable and ${countLabel(redirects, "redirect")} to review of ${countLabel(summary.linksChecked, "link")}`;
+  const checkLabels = {
+    input: "input file",
+    html: "HTML validation",
+    css: "CSS validation",
+    seo: "SEO analysis",
+    schema: "JSON-LD analysis",
+    links: "link checking",
+  } as const;
+  const unavailableChecks = reportData.failedChecks
+    .filter((check) => check !== "input")
+    .map((check) => checkLabels[check]);
   return toolContent({
     title: "Validation report",
     status,
-    outcome: `The report's heuristic overall score is **${summary.overallScore}/100**. HTML has ${countLabel(summary.htmlErrors, "error")} and ${countLabel(summary.htmlWarnings, "other diagnostic")}; ${cssSummary}; SEO has ${countLabel(summary.seoErrors, "error")} and ${countLabel(summary.seoWarnings, "warning")}; JSON-LD has ${countLabel(summary.schemaErrors, "syntax error")}; ${linkSummary}.`,
+    outcome: partial
+      ? `Partial validation report: ${unavailableChecks.join(", ")} ${unavailableChecks.length === 1 ? "was" : "were"} unavailable; remaining checks completed. HTML has ${countLabel(summary.htmlErrors, "error")}; ${cssSummary}; SEO has ${countLabel(summary.seoErrors, "error")}; JSON-LD has ${countLabel(summary.schemaErrors, "syntax error")}; ${linkSummary}.`
+      : `The report's heuristic overall score is **${summary.overallScore}/100**. HTML has ${countLabel(summary.htmlErrors, "error")} and ${countLabel(summary.htmlWarnings, "other diagnostic")}; ${cssSummary}; SEO has ${countLabel(summary.seoErrors, "error")} and ${countLabel(summary.seoWarnings, "warning")}; JSON-LD has ${countLabel(summary.schemaErrors, "syntax error")}; ${linkSummary}.`,
     actions,
-    nextStep: actions.length === 0
+    nextStep: partial
+      ? "Review the completed findings, then retry the unavailable checks."
+      : actions.length === 0
       ? "Use the full Markdown report as the audit record and rerun it after meaningful page changes."
       : "Work through these priorities, then regenerate the report to compare the heuristic score.",
-    note: "The score is a triage heuristic based on these checks, not a Lighthouse score or a search-ranking prediction.",
+    note: partial
+      ? "No overall score is shown while one or more checks are unavailable."
+      : "The score is a triage heuristic based on these checks, not a Lighthouse score or a search-ranking prediction.",
   });
 }
 

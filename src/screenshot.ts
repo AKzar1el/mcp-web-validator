@@ -1,7 +1,7 @@
 import puppeteer from "puppeteer";
 import * as path from "path";
 import * as fs from "fs/promises";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPublicHttpUrl, getErrorMessage } from "./network.js";
 
 export interface ViewportConfig {
@@ -28,6 +28,13 @@ const MIN_VIEWPORT_DIMENSION = 100;
 const MAX_VIEWPORT_DIMENSION = 7_680;
 const SAFE_VIEWPORT_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 const NAVIGATION_TIMEOUT_MS = 30_000;
+
+interface InterceptedRequest {
+  url(): string;
+  isInterceptResolutionHandled(): boolean;
+  continue(): Promise<unknown>;
+  abort(errorCode?: string): Promise<unknown>;
+}
 
 function validateViewports(viewports: ViewportConfig[]): ViewportConfig[] {
   if (viewports.length === 0 || viewports.length > MAX_VIEWPORTS) {
@@ -74,6 +81,77 @@ function resolveContainedOutputPath(outputDirectory: string, fileName: string): 
   return outputPath;
 }
 
+function isPathWithinDirectory(directory: string, filePath: string): boolean {
+  const relativePath = path.relative(directory, filePath);
+  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+}
+
+async function assertLocalScreenshotRequestAllowed(requestUrl: URL, localDirectory: string): Promise<void> {
+  if (requestUrl.hostname) {
+    throw new Error("Blocked local file request with a host name");
+  }
+
+  let resolvedPath: string;
+  try {
+    resolvedPath = await fs.realpath(fileURLToPath(requestUrl));
+  } catch (error: unknown) {
+    throw new Error(`Blocked local file request: ${getErrorMessage(error)}`);
+  }
+
+  if (!isPathWithinDirectory(localDirectory, resolvedPath)) {
+    throw new Error("Blocked local file request outside the selected file directory");
+  }
+}
+
+async function assertScreenshotRequestAllowed(requestUrl: string, localDirectory?: string): Promise<void> {
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(requestUrl);
+  } catch {
+    throw new Error("Blocked invalid page request URL");
+  }
+
+  if (parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:") {
+    await assertPublicHttpUrl(parsedUrl);
+    return;
+  }
+
+  if (parsedUrl.protocol === "data:" || parsedUrl.protocol === "blob:") {
+    return;
+  }
+
+  if (parsedUrl.protocol === "file:" && localDirectory) {
+    await assertLocalScreenshotRequestAllowed(parsedUrl, localDirectory);
+    return;
+  }
+
+  throw new Error(`Blocked unsupported page request protocol ${parsedUrl.protocol}`);
+}
+
+async function resolveScreenshotRequest(
+  request: InterceptedRequest,
+  localDirectory: string | undefined,
+  onBlocked: (message: string) => void,
+): Promise<void> {
+  if (request.isInterceptResolutionHandled()) {
+    return;
+  }
+
+  try {
+    await assertScreenshotRequestAllowed(request.url(), localDirectory);
+    if (request.isInterceptResolutionHandled()) {
+      return;
+    }
+    await request.continue();
+  } catch (error: unknown) {
+    onBlocked(getErrorMessage(error));
+    if (request.isInterceptResolutionHandled()) {
+      return;
+    }
+    await request.abort("blockedbyclient");
+  }
+}
+
 /**
  * Captures screenshots of a local HTML file or remote URL at different viewport sizes.
  * @param targetPath Local file path or HTTP(S) URL
@@ -99,17 +177,18 @@ export async function captureScreenshots(
 
   // Resolve target to file:// URL if it is a local file path
   let targetUrl: string;
-  let isRemoteTarget = false;
+  let localDirectory: string | undefined;
   if (/^https?:\/\//i.test(targetPath)) {
     targetUrl = (await assertPublicHttpUrl(targetPath)).href;
-    isRemoteTarget = true;
   } else {
     const absolutePath = path.resolve(targetPath);
-    const stats = await fs.stat(absolutePath);
+    const resolvedPath = await fs.realpath(absolutePath);
+    const stats = await fs.stat(resolvedPath);
     if (!stats.isFile()) {
-      throw new Error(`Screenshot target is not a regular file: ${absolutePath}`);
+      throw new Error(`Screenshot target is not a regular file: ${resolvedPath}`);
     }
-    targetUrl = pathToFileURL(absolutePath).href;
+    localDirectory = path.dirname(resolvedPath);
+    targetUrl = pathToFileURL(resolvedPath).href;
   }
 
   // Ensure output directory exists
@@ -127,36 +206,14 @@ export async function captureScreenshots(
     page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
 
     let blockedRequestMessage: string | undefined;
-    if (isRemoteTarget) {
-      await page.setRequestInterception(true);
-      page.on("request", (request) => {
-        void (async () => {
-          if (request.isInterceptResolutionHandled()) {
-            return;
-          }
-
-          try {
-            const requestUrl = new URL(request.url());
-            if (requestUrl.protocol === "http:" || requestUrl.protocol === "https:") {
-              await assertPublicHttpUrl(requestUrl);
-            } else if (requestUrl.protocol !== "data:" && requestUrl.protocol !== "blob:") {
-              throw new Error(`Blocked unsupported page request protocol ${requestUrl.protocol}`);
-            }
-
-            if (!request.isInterceptResolutionHandled()) {
-              await request.continue();
-            }
-          } catch (error: unknown) {
-            blockedRequestMessage ??= getErrorMessage(error);
-            if (!request.isInterceptResolutionHandled()) {
-              await request.abort("blockedbyclient");
-            }
-          }
-        })().catch(() => {
-          // Puppeteer will surface navigation failures; avoid an unhandled listener rejection.
-        });
+    await page.setRequestInterception(true);
+    page.on("request", (request) => {
+      void resolveScreenshotRequest(request, localDirectory, (message) => {
+        blockedRequestMessage ??= message;
+      }).catch(() => {
+        // Puppeteer will surface navigation failures; avoid an unhandled listener rejection.
       });
-    }
+    });
 
     for (const vp of viewports) {
       await page.setViewport({

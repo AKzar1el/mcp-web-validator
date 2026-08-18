@@ -13,7 +13,12 @@ import {
   validateSchemaMarkup,
   validateSchemaMarkupDetailed,
 } from "./seo-auditor.js";
-import { createValidationReport, type ValidationReport } from "./report.js";
+import {
+  createValidationReport,
+  type ValidationReport,
+  type ValidationReportCheck,
+  validationReportChecks,
+} from "./report.js";
 import { fetchPublicText, getErrorMessage, readTextFile } from "./network.js";
 import {
   cssValidationContent,
@@ -88,10 +93,10 @@ const screenshotSchema = z.object({
 });
 
 const reportSummarySchema = z.object({
-  overallScore: z.number().int().min(0).max(100),
-  htmlScore: z.number().int().min(0).max(100),
+  overallScore: z.number().int().min(0).max(100).nullable(),
+  htmlScore: z.number().int().min(0).max(100).nullable(),
   cssScore: z.number().int().min(0).max(100).nullable(),
-  seoScore: z.number().int().min(0).max(100),
+  seoScore: z.number().int().min(0).max(100).nullable(),
   linkScore: z.number().int().min(0).max(100).nullable(),
   htmlErrors: z.number().int().nonnegative(),
   htmlWarnings: z.number().int().nonnegative(),
@@ -135,14 +140,14 @@ function result<T extends object>(
   };
 }
 
-function failedReport(filePath: string, error: string): ValidationReport & { errors: string[] } {
+function failedReport(filePath: string, error: string): ValidationReport {
   return {
     report: `Validation report could not be generated: ${error}`,
     summary: {
-      overallScore: 0,
-      htmlScore: 0,
+      overallScore: null,
+      htmlScore: null,
       cssScore: null,
-      seoScore: 0,
+      seoScore: null,
       linkScore: null,
       htmlErrors: 0,
       htmlWarnings: 0,
@@ -158,8 +163,84 @@ function failedReport(filePath: string, error: string): ValidationReport & { err
     seoIssues: [],
     schemaIssues: [],
     links: [],
+    failedChecks: ["input"],
     errors: [`${path.basename(filePath || "document")}: ${error}`],
   };
+}
+
+interface ValidationReportDependencies {
+  readTextFile: typeof readTextFile;
+  validateHtmlContent: typeof validateHtmlContent;
+  validateCssContent: typeof validateCssContent;
+  auditSeoMetadata: typeof auditSeoMetadata;
+  validateSchemaMarkup: typeof validateSchemaMarkup;
+  checkBrokenLinks: typeof checkBrokenLinks;
+}
+
+const validationReportDependencies: ValidationReportDependencies = {
+  readTextFile,
+  validateHtmlContent,
+  validateCssContent,
+  auditSeoMetadata,
+  validateSchemaMarkup,
+  checkBrokenLinks,
+};
+
+export interface GenerateValidationReportOptions {
+  htmlFilePath: string;
+  cssFilePath?: string;
+  baseUrl?: string;
+}
+
+/** Runs independent validation checks without discarding successful results when another check fails. */
+export async function generateValidationReport(
+  { htmlFilePath, cssFilePath, baseUrl }: GenerateValidationReportOptions,
+  dependencies: ValidationReportDependencies = validationReportDependencies,
+): Promise<ValidationReport> {
+  const html = await dependencies.readTextFile(htmlFilePath, HTML_MAX_BYTES);
+  const failedChecks: ValidationReportCheck[] = [];
+  const errors: string[] = [];
+  const recordFailure = (check: ValidationReportCheck, label: string, cause: unknown): void => {
+    if (!failedChecks.includes(check)) {
+      failedChecks.push(check);
+    }
+    errors.push(`${label} was unavailable: ${getErrorMessage(cause)}`);
+  };
+
+  let css: string | undefined;
+  if (cssFilePath) {
+    try {
+      css = await dependencies.readTextFile(cssFilePath, CSS_MAX_BYTES);
+    } catch (cause) {
+      recordFailure("css", "CSS validation", cause);
+    }
+  }
+
+  const [htmlResult, cssResult, seoResult, schemaResult, linksResult] = await Promise.allSettled([
+    dependencies.validateHtmlContent(html),
+    css === undefined ? Promise.resolve([]) : dependencies.validateCssContent(css),
+    Promise.resolve().then(() => dependencies.auditSeoMetadata(html)),
+    Promise.resolve().then(() => dependencies.validateSchemaMarkup(html)),
+    dependencies.checkBrokenLinks(html, baseUrl, 25),
+  ]);
+
+  if (htmlResult.status === "rejected") recordFailure("html", "HTML validation", htmlResult.reason);
+  if (cssResult.status === "rejected") recordFailure("css", "CSS validation", cssResult.reason);
+  if (seoResult.status === "rejected") recordFailure("seo", "SEO analysis", seoResult.reason);
+  if (schemaResult.status === "rejected") recordFailure("schema", "JSON-LD analysis", schemaResult.reason);
+  if (linksResult.status === "rejected") recordFailure("links", "Link checking", linksResult.reason);
+
+  return createValidationReport({
+    htmlFilePath,
+    cssAudited: css !== undefined,
+    htmlMessages: htmlResult.status === "fulfilled" ? htmlResult.value : [],
+    cssMessages: cssResult.status === "fulfilled" ? cssResult.value : [],
+    seoIssues: seoResult.status === "fulfilled" ? seoResult.value.slice(0, 200) : [],
+    schemaIssues: schemaResult.status === "fulfilled" ? schemaResult.value.slice(0, 200) : [],
+    links: linksResult.status === "fulfilled" ? linksResult.value : [],
+    failedChecks,
+    errors,
+  });
 }
 
 export function createServer(): McpServer {
@@ -436,27 +517,17 @@ export function createServer(): McpServer {
         seoIssues: z.array(seoIssueSchema),
         schemaIssues: z.array(seoIssueSchema),
         links: z.array(linkStatusSchema),
+        failedChecks: z.array(z.enum(validationReportChecks)),
         errors: z.array(z.string()).optional(),
       },
       annotations: externalReadOnlyAnnotations,
     },
     async ({ htmlFilePath, cssFilePath, baseUrl }) => {
       try {
-        const html = await readTextFile(htmlFilePath, HTML_MAX_BYTES);
-        const css = cssFilePath ? await readTextFile(cssFilePath, CSS_MAX_BYTES) : undefined;
-        const [htmlMessages, cssMessages, links] = await Promise.all([
-          validateHtmlContent(html),
-          css === undefined ? Promise.resolve([]) : validateCssContent(css),
-          checkBrokenLinks(html, baseUrl, 25),
-        ]);
-        const reportData = createValidationReport({
+        const reportData = await generateValidationReport({
           htmlFilePath,
-          cssAudited: css !== undefined,
-          htmlMessages,
-          cssMessages,
-          seoIssues: auditSeoMetadata(html).slice(0, 200),
-          schemaIssues: validateSchemaMarkup(html).slice(0, 200),
-          links,
+          cssFilePath,
+          baseUrl,
         });
         return result(reportData, reportContent(reportData));
       } catch (cause) {

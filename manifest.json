@@ -576,14 +576,28 @@
             "type": "object",
             "properties": {
               "overallScore": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 100
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "htmlScore": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 100
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "cssScore": {
                 "anyOf": [
@@ -598,9 +612,16 @@
                 ]
               },
               "seoScore": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 100
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "linkScore": {
                 "anyOf": [
@@ -855,6 +876,20 @@
               "additionalProperties": false
             }
           },
+          "failedChecks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "input",
+                "html",
+                "css",
+                "seo",
+                "schema",
+                "links"
+              ]
+            }
+          },
           "errors": {
             "type": "array",
             "items": {
@@ -869,7 +904,8 @@
           "cssMessages",
           "seoIssues",
           "schemaIssues",
-          "links"
+          "links",
+          "failedChecks"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false

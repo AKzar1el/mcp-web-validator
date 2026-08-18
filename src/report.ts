@@ -2,11 +2,14 @@ import * as path from "node:path";
 import type { CSSMessage, W3CMessage } from "./w3c-validator.js";
 import type { LinkStatus, SEOIssue } from "./seo-auditor.js";
 
+export const validationReportChecks = ["input", "html", "css", "seo", "schema", "links"] as const;
+export type ValidationReportCheck = (typeof validationReportChecks)[number];
+
 export interface ValidationReportSummary {
-  overallScore: number;
-  htmlScore: number;
+  overallScore: number | null;
+  htmlScore: number | null;
   cssScore: number | null;
-  seoScore: number;
+  seoScore: number | null;
   linkScore: number | null;
   htmlErrors: number;
   htmlWarnings: number;
@@ -26,6 +29,8 @@ export interface ValidationReport {
   seoIssues: SEOIssue[];
   schemaIssues: SEOIssue[];
   links: LinkStatus[];
+  failedChecks: ValidationReportCheck[];
+  errors?: string[];
 }
 
 export interface ValidationReportInput {
@@ -36,13 +41,16 @@ export interface ValidationReportInput {
   seoIssues: SEOIssue[];
   schemaIssues: SEOIssue[];
   links: LinkStatus[];
+  failedChecks?: ValidationReportCheck[];
+  errors?: string[];
 }
 
 function clampScore(score: number): number {
   return Math.max(0, Math.min(100, score));
 }
 
-function scoreIndicator(score: number): string {
+function scoreIndicator(score: number | null): string {
+  if (score === null) return "Unavailable";
   if (score >= 90) return "🟢";
   if (score >= 50) return "🟠";
   return "🔴";
@@ -63,6 +71,8 @@ function isRedirect(link: LinkStatus): boolean {
 
 /** Builds the human-readable report and its machine-readable equivalent. */
 export function createValidationReport(input: ValidationReportInput): ValidationReport {
+  const failedChecks = input.failedChecks ?? [];
+  const checkFailed = (check: ValidationReportCheck): boolean => failedChecks.includes(check);
   const htmlErrors = input.htmlMessages.filter((message) => message.type === "error").length;
   const htmlWarnings = input.htmlMessages.length - htmlErrors;
   const cssErrors = input.cssMessages.length;
@@ -72,16 +82,18 @@ export function createValidationReport(input: ValidationReportInput): Validation
   const brokenLinks = input.links.filter((link) => !link.ok).length;
   const redirectLinks = input.links.filter(isRedirect).length;
 
-  const htmlScore = clampScore(100 - htmlErrors * 15 - htmlWarnings * 2);
-  const cssScore = input.cssAudited ? clampScore(100 - cssErrors * 20) : null;
-  const seoScore = clampScore(100 - seoErrors * 15 - seoWarnings * 4 - schemaErrors * 15);
-  const linkScore = input.links.length > 0 ? clampScore(100 - brokenLinks * 25) : null;
+  const htmlScore = checkFailed("html") ? null : clampScore(100 - htmlErrors * 15 - htmlWarnings * 2);
+  const cssScore = checkFailed("css") || !input.cssAudited ? null : clampScore(100 - cssErrors * 20);
+  const seoScore = checkFailed("seo") ? null : clampScore(100 - seoErrors * 15 - seoWarnings * 4 - schemaErrors * 15);
+  const linkScore = checkFailed("links") || input.links.length === 0
+    ? null
+    : clampScore(100 - brokenLinks * 25);
   const auditedScores = [htmlScore, seoScore, cssScore, linkScore].filter(
     (score): score is number => score !== null,
   );
-  const overallScore = Math.round(
-    auditedScores.reduce((total, score) => total + score, 0) / auditedScores.length,
-  );
+  const overallScore = failedChecks.length > 0 || auditedScores.length === 0
+    ? null
+    : Math.round(auditedScores.reduce((total, score) => total + score, 0) / auditedScores.length);
 
   const summary: ValidationReportSummary = {
     overallScore,
@@ -100,17 +112,17 @@ export function createValidationReport(input: ValidationReportInput): Validation
   };
 
   const report: string[] = [
-    `# Web Validation & SEO Audit Report — ${scoreIndicator(overallScore)} **${overallScore}**/100`,
+    `# Web Validation & SEO Audit Report — ${overallScore === null ? "Partial" : `${scoreIndicator(overallScore)} **${overallScore}**/100`}`,
     `*Generated for: \`${markdownCell(path.basename(input.htmlFilePath))}\`*`,
     "",
     "## Page health scores",
     "",
     "| Audit | Status | Score |",
     "| :--- | :---: | :---: |",
-    `| W3C HTML validation | ${scoreIndicator(htmlScore)} | **${htmlScore}** / 100 |`,
-    `| CSS validation | ${cssScore === null ? "Not audited" : scoreIndicator(cssScore)} | ${cssScore === null ? "N/A" : `**${cssScore}** / 100`} |`,
-    `| SEO and accessibility | ${scoreIndicator(seoScore)} | **${seoScore}** / 100 |`,
-    `| Link integrity | ${linkScore === null ? "No links checked" : scoreIndicator(linkScore)} | ${linkScore === null ? "N/A" : `**${linkScore}** / 100`} |`,
+    `| W3C HTML validation | ${htmlScore === null ? "Unavailable" : scoreIndicator(htmlScore)} | ${htmlScore === null ? "N/A" : `**${htmlScore}** / 100`} |`,
+    `| CSS validation | ${cssScore === null ? (checkFailed("css") ? "Unavailable" : "Not audited") : scoreIndicator(cssScore)} | ${cssScore === null ? "N/A" : `**${cssScore}** / 100`} |`,
+    `| SEO and accessibility | ${seoScore === null ? "Unavailable" : scoreIndicator(seoScore)} | ${seoScore === null ? "N/A" : `**${seoScore}** / 100`} |`,
+    `| Link integrity | ${linkScore === null ? (checkFailed("links") ? "Unavailable" : "No links checked") : scoreIndicator(linkScore)} | ${linkScore === null ? "N/A" : `**${linkScore}** / 100`} |`,
     "",
     "## Summary",
     "",
@@ -122,6 +134,10 @@ export function createValidationReport(input: ValidationReportInput): Validation
     "",
     `## HTML diagnostics (${input.htmlMessages.length})`,
   ];
+
+  if (failedChecks.length > 0) {
+    report.splice(2, 0, "", "## Partial validation report", "The following checks were unavailable: " + failedChecks.join(", ") + ". Remaining checks completed.");
+  }
 
   if (input.htmlMessages.length === 0) {
     report.push("No HTML validation diagnostics were returned.");
@@ -181,5 +197,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
     seoIssues: input.seoIssues,
     schemaIssues: input.schemaIssues,
     links: input.links,
+    failedChecks,
+    ...(input.errors && input.errors.length > 0 ? { errors: input.errors } : {}),
   };
 }

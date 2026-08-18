@@ -26,7 +26,7 @@ DigestSEO does not retain tool inputs, fetched HTML, robots files, sitemaps, or 
 - MCP URL: `https://web-validator-mcp.digestseo.com/mcp`
 - Health URL: `https://web-validator-mcp.digestseo.com/health`
 - Authentication: none
-- Expected discovery: eight tools and one UI resource
+- Expected discovery: eight tools and two UI resources: the current MCP Apps resource `ui://web-validator/results-v5.html` and the legacy compatibility resource `ui://web-validator/results-v4.html`
 - CSP app domain: `https://web-validator-mcp.digestseo.com`
 
 The endpoint is universal, not a per-workspace URL template.
@@ -63,9 +63,9 @@ npm run deploy
 After deployment:
 
 1. Confirm `/health` returns HTTP 200.
-2. Use MCP Inspector to initialize the production `/mcp` endpoint, list all tools, read the UI resource, and call every tool with representative input.
+2. Use MCP Inspector to initialize the production `/mcp` endpoint, list all tools, read both UI resources, and call every tool with representative input.
 3. Confirm a request with an unapproved `Origin` is rejected with HTTP 403 while normal server-to-server MCP requests still work.
-4. Verify that tool names, descriptions, schemas, annotations, server instructions, the UI resource, CSP, app domain, and localization fields match the intended review snapshot.
+4. Verify that tool names, descriptions, schemas, annotations, server instructions, both UI resources, CSP, app domain, and localization fields match the intended review snapshot.
 5. Test the app in ChatGPT Developer Mode on web and mobile.
 6. Confirm the privacy, support, terms, company, documentation, and icon URLs load without authentication.
 7. Re-select **Scan Tools** in the plugin submission portal after the final deployment.

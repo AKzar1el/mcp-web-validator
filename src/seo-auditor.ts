@@ -77,7 +77,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     add({
       severity: "error",
       category: "SEO",
-      message: "Missing <title> tag. This is critical for search indexing and click-through rates.",
+      message: "Missing <title> tag. Add a concise, descriptive title to help represent the page in search results.",
     });
   } else {
     const titleText = titleTag.text().trim();
@@ -91,14 +91,14 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       add({
         severity: "warning",
         category: "SEO",
-        message: `Title length (${titleText.length} chars) is too short. Try to make it at least 30-50 characters.`,
+        message: `Title is ${titleText.length} characters. This is shorter than the audit's common editorial range; review whether it describes the page clearly.`,
         element: `<title>${titleText}</title>`,
       });
     } else if (titleText.length > 60) {
       add({
         severity: "warning",
         category: "SEO",
-        message: `Title length (${titleText.length} chars) is too long. Search engines will truncate it. Keep it under 60 characters.`,
+        message: `Title is ${titleText.length} characters. This is longer than the audit's common editorial range; Google title links may be shortened or rewritten depending on context and device.`,
         element: `<title>${titleText}</title>`,
       });
     }
@@ -110,7 +110,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     add({
       severity: "error",
       category: "SEO",
-      message: "Missing <meta name=\"description\">. Search engines will automatically generate snippets, which may lower CTR.",
+      message: "Missing <meta name=\"description\">. Add a concise, accurate page summary; Google may use page content or this description to generate a snippet.",
     });
   } else {
     const descText = metaDescription.attr("content")?.trim() || "";
@@ -124,14 +124,14 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       add({
         severity: "warning",
         category: "SEO",
-        message: `Meta description is too short (${descText.length} chars). Aim for 120-160 characters to optimize your search snippet.`,
+        message: `Meta description is ${descText.length} characters. This is shorter than the audit's common editorial range; review whether it provides a useful page summary.`,
         element: `<meta name="description" content="${descText}">`,
       });
     } else if (descText.length > 160) {
       add({
         severity: "warning",
         category: "SEO",
-        message: `Meta description is too long (${descText.length} chars). Search engines will truncate it. Keep it under 160 characters.`,
+        message: `Meta description is ${descText.length} characters. This is longer than the audit's common editorial range; displayed snippets may be shortened depending on the query and device.`,
         element: `<meta name="description" content="${descText}">`,
       });
     }
@@ -153,7 +153,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     add({
       severity: "error",
       category: "SEO",
-      message: "Missing <meta name=\"viewport\"> tag. Mobile friendliness is a critical ranking factor.",
+      message: "Missing <meta name=\"viewport\"> tag. Review mobile rendering; this tag helps browsers size and scale the page on mobile devices.",
     });
   }
 

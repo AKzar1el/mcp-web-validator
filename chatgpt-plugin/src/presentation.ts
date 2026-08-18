@@ -46,16 +46,41 @@ export interface PresentableFinding {
 const SEVERITY_ORDER = { error: 0, warning: 1, info: 2 } as const;
 const MAX_FINDINGS_IN_CONTENT = 3;
 const MAX_MESSAGE_LENGTH = 220;
+const MAX_LOCATION_LENGTH = 120;
 
 export function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : pluralForm}`;
 }
 
-function compactText(value: string): string {
+function collapseWhitespace(value: string, maxLength = MAX_MESSAGE_LENGTH): string {
   const compact = value.replace(/\s+/g, " ").trim();
-  return compact.length <= MAX_MESSAGE_LENGTH
+  return compact.length <= maxLength
     ? compact
-    : `${compact.slice(0, MAX_MESSAGE_LENGTH - 1).trimEnd()}…`;
+    : `${compact.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+/** Escapes untrusted prose while preserving surrounding application-authored Markdown. */
+function markdownText(value: string, maxLength = MAX_MESSAGE_LENGTH): string {
+  return collapseWhitespace(value, maxLength)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\\/g, "\\\\")
+    .replace(/([`*_[\]{}()#+\-.!|~])/g, "\\$1");
+}
+
+/** Wraps untrusted locations in a code span that embedded backticks cannot close. */
+function markdownCode(value: string, maxLength = MAX_LOCATION_LENGTH): string {
+  const compact = collapseWhitespace(value, maxLength);
+  const longestBacktickRun = Math.max(
+    0,
+    ...Array.from(compact.matchAll(/`+/g), (match) => match[0].length),
+  );
+  const delimiter = "`".repeat(longestBacktickRun + 1);
+  const content = compact.startsWith("`") || compact.endsWith("`")
+    ? ` ${compact} `
+    : compact;
+  return `${delimiter}${content}${delimiter}`;
 }
 
 function findingLocation(finding: PresentableFinding): string | undefined {
@@ -86,8 +111,8 @@ export function contentForOverview(
     .map(({ finding }) => {
       const severity = finding.severity === "error" ? "Error" : "Warning";
       const location = findingLocation(finding);
-      const prefix = location ? `${severity} · ${location}` : severity;
-      return `- **${prefix}:** ${compactText(finding.message)}`;
+      const prefix = location ? `${severity} · ${markdownCode(location)}` : severity;
+      return `- **${prefix}:** ${markdownText(finding.message)}`;
     });
 
   if (actionable.length > 0) sections.push(`**Fix first**\n${actionable.join("\n")}`);

@@ -412,7 +412,7 @@ describe("polished tool responses", () => {
     });
     expect(text).toContain("HTML needs attention: 2 errors and 2 warnings.");
     expect(text.match(/^- \*\*/gm)).toHaveLength(3);
-    expect(text.indexOf("Error · Line 2, column 4")).toBeLessThan(text.indexOf("Warning · Line 8"));
+    expect(text.indexOf("Error · `Line 2, column 4`")).toBeLessThan(text.indexOf("Warning · `Line 8`"));
     expect(text).not.toContain("private-demo-marker");
     expect(text).not.toContain('"errors":');
   });

@@ -266,6 +266,13 @@ describe("hosted tool contract", () => {
       "audit_public_webpage",
       "audit_public_site",
     ]);
+    const noAuthSecuritySchemes = [{ type: "noauth" }];
+    for (const tool of tools) {
+      expect(tool.securitySchemes).toEqual(noAuthSecuritySchemes);
+      expect(tool._meta?.securitySchemes).toEqual(noAuthSecuritySchemes);
+      expect(tool.securitySchemes).toEqual(tool._meta?.securitySchemes);
+      expect(tool.securitySchemes).not.toContainEqual(expect.objectContaining({ type: "oauth2" }));
+    }
 
     const webpage = tools.find((tool) => tool.name === "audit_public_webpage");
     expect(webpage).toMatchObject({

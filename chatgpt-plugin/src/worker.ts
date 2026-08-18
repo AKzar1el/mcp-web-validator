@@ -200,6 +200,13 @@ function withWidget(statusText: { invoking: string; invoked: string }) {
   };
 }
 
+function withNoAuthWidget(statusText: { invoking: string; invoked: string }) {
+  return {
+    securitySchemes: noAuthSecuritySchemes(),
+    _meta: withWidget(statusText),
+  };
+}
+
 function withExactCors(response: Response, origin?: string): Response {
   const headers = new Headers(response.headers);
   headers.delete("access-control-allow-origin");
@@ -216,6 +223,65 @@ function withExactCors(response: Response, origin?: string): Response {
     statusText: response.statusText,
     headers,
   });
+}
+
+function withCanonicalToolSecuritySchemes(payload: unknown): unknown | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const result = (payload as { result?: unknown }).result;
+  if (!result || typeof result !== "object") return undefined;
+  const tools = (result as { tools?: unknown }).tools;
+  if (!Array.isArray(tools)) return undefined;
+
+  return {
+    ...(payload as Record<string, unknown>),
+    result: {
+      ...(result as Record<string, unknown>),
+      tools: tools.map((tool) => {
+        if (!tool || typeof tool !== "object") return tool;
+        const meta = (tool as { _meta?: unknown })._meta;
+        const securitySchemes = meta && typeof meta === "object"
+          ? (meta as { securitySchemes?: unknown }).securitySchemes
+          : undefined;
+        return Array.isArray(securitySchemes)
+          ? { ...(tool as Record<string, unknown>), securitySchemes }
+          : tool;
+      }),
+    },
+  };
+}
+
+async function addCanonicalToolSecuritySchemes(response: Response): Promise<Response> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!response.ok || (!contentType.includes("application/json") && !contentType.includes("text/event-stream"))) {
+    return response;
+  }
+
+  const body = await response.text();
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  if (contentType.includes("text/event-stream")) {
+    const normalized = body.replace(/^data: (.+)$/gm, (line, data) => {
+      try {
+        const payload = withCanonicalToolSecuritySchemes(JSON.parse(data));
+        return payload === undefined ? line : `data: ${JSON.stringify(payload)}`;
+      } catch {
+        return line;
+      }
+    });
+    return new Response(normalized, { status: response.status, statusText: response.statusText, headers });
+  }
+
+  try {
+    const payload = withCanonicalToolSecuritySchemes(JSON.parse(body));
+    if (payload === undefined) return new Response(body, { status: response.status, statusText: response.statusText, headers });
+    return new Response(JSON.stringify(payload), {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  } catch {
+    return new Response(body, { status: response.status, statusText: response.statusText, headers });
+  }
 }
 
 function jsonRpcHttpError(status: number, message: string, origin?: string, extraHeaders?: HeadersInit): Response {
@@ -740,7 +806,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
         error: z.string().optional(),
       },
       annotations: externalReadOnlyAnnotations,
-      _meta: withWidget({ invoking: "Validating HTML…", invoked: "HTML validation complete." }),
+      ...withNoAuthWidget({ invoking: "Validating HTML…", invoked: "HTML validation complete." }),
     },
     async ({ html }) => {
       try {
@@ -815,7 +881,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
         error: z.string().optional(),
       },
       annotations: localReadOnlyAnnotations,
-      _meta: withWidget({ invoking: "Validating CSS…", invoked: "CSS validation complete." }),
+      ...withNoAuthWidget({ invoking: "Validating CSS…", invoked: "CSS validation complete." }),
     },
     async ({ css }) => {
       try {
@@ -872,7 +938,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
       inputSchema: { html: htmlInput },
       outputSchema: auditResultSchema,
       annotations: localReadOnlyAnnotations,
-      _meta: withWidget({ invoking: "Auditing SEO metadata…", invoked: "SEO audit complete." }),
+      ...withNoAuthWidget({ invoking: "Auditing SEO metadata…", invoked: "SEO audit complete." }),
     },
     async ({ html }) => {
       try {
@@ -938,7 +1004,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
       inputSchema: { html: htmlInput },
       outputSchema: { ...auditResultSchema, blocks_checked: z.number().int().nonnegative() },
       annotations: localReadOnlyAnnotations,
-      _meta: withWidget({ invoking: "Checking JSON-LD…", invoked: "JSON-LD check complete." }),
+      ...withNoAuthWidget({ invoking: "Checking JSON-LD…", invoked: "JSON-LD check complete." }),
     },
     async ({ html }) => {
       try {
@@ -1042,7 +1108,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
         error: z.string().optional(),
       },
       annotations: externalReadOnlyAnnotations,
-      _meta: withWidget({ invoking: "Checking public links…", invoked: "Link check complete." }),
+      ...withNoAuthWidget({ invoking: "Checking public links…", invoked: "Link check complete." }),
     },
     async ({ html, base_url, max_links }) => {
       try {
@@ -1156,7 +1222,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
       },
       outputSchema: reportOutputSchema,
       annotations: externalReadOnlyAnnotations,
-      _meta: withWidget({ invoking: "Generating validation report…", invoked: "Validation report complete." }),
+      ...withNoAuthWidget({ invoking: "Generating validation report…", invoked: "Validation report complete." }),
     },
     async ({ html, css, check_links, base_url, max_links }) => runValidationReport({
       html,
@@ -1199,7 +1265,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
         page_fetched: z.boolean(),
       },
       annotations: externalReadOnlyAnnotations,
-      _meta: withWidget({
+      ...withNoAuthWidget({
         invoking: "Fetching and auditing webpage…",
         invoked: "Public webpage audit complete.",
       }),
@@ -1266,7 +1332,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
       },
       outputSchema: siteAuditOutputSchema,
       annotations: externalReadOnlyAnnotations,
-      _meta: withWidget({
+      ...withNoAuthWidget({
         invoking: "Discovering and auditing public sitemap pages…",
         invoked: "Public site audit complete.",
       }),
@@ -1372,7 +1438,7 @@ export default {
           maxAge: 86400,
         },
       });
-      const response = withExactCors(await handler(request, env, ctx), origin);
+      const response = await addCanonicalToolSecuritySchemes(withExactCors(await handler(request, env, ctx), origin));
       logRequest("mcp_request", {
         method: request.method,
         status: response.status,

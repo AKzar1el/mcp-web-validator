@@ -33,7 +33,9 @@ function createMockRequest(url) {
 async function waitForRequestResolution(request) {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     if (request.resolution.continued + request.resolution.aborted > 0) return;
-    await new Promise((resolve) => setImmediate(resolve));
+    // Local file policy validation awaits realpath(), so give asynchronous I/O a
+    // short opportunity to settle instead of only advancing the immediate queue.
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error(`Intercepted request was not resolved: ${request.url()}`);
 }

@@ -16,15 +16,15 @@
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^1.7.4",
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "agents": "^0.17.3",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "agents": "^0.20.1",
     "cheerio": "^1.0.0",
-    "ipaddr.js": "^2.2.0",
-    "postcss": "^8.5.16",
+    "ipaddr.js": "^2.5.0",
+    "postcss": "^8.5.26",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.18.4",
+    "@cloudflare/vitest-pool-workers": "^0.21.3",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18",
     "wrangler": "^4.110.0"

@@ -9,6 +9,7 @@
 An MCP server for HTML and CSS validation, technical SEO and accessibility checks, JSON-LD syntax validation, broken-link checks, and responsive screenshots. It is part of the [DigestSEO](https://digestseo.com/) suite of open-source SEO tools.
 
 - Product: [digestseo.com/validator-mcp](https://digestseo.com/validator-mcp/)
+- Engineering case study: [DigestSEO MCP Suite — AI visibility, Search Console, web validation, and trend intelligence](https://tomiseregi.si/projects/digestseo-mcp-suite)
 - Documentation: [this README](https://github.com/AKzar1el/mcp-web-validator#readme)
 - Support: [digestseo.com/support](https://digestseo.com/support/)
 - Privacy: [digestseo.com/privacy](https://digestseo.com/privacy/)

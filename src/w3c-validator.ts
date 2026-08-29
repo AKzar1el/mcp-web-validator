@@ -36,6 +36,34 @@ function assertContentSize(content: string, maxBytes: number, label: string): vo
   }
 }
 
+function normalizeW3CMessage(message: unknown): W3CMessage | null {
+  if (typeof message !== "object" || message === null) {
+    return null;
+  }
+
+  const candidate = message as Record<string, unknown>;
+  if (typeof candidate.type !== "string" || typeof candidate.message !== "string") {
+    return null;
+  }
+
+  const normalized: W3CMessage = {
+    type: candidate.type,
+    message: candidate.message,
+  };
+
+  for (const field of ["lastLine", "lastColumn", "firstLine", "firstColumn"] as const) {
+    if (typeof candidate[field] === "number" && Number.isInteger(candidate[field])) {
+      normalized[field] = candidate[field];
+    }
+  }
+
+  if (typeof candidate.extract === "string") {
+    normalized.extract = candidate.extract;
+  }
+
+  return normalized;
+}
+
 /**
  * Validates HTML using the W3C Nu HTML Checker API
  */
@@ -68,13 +96,10 @@ export async function validateHtmlContent(htmlContent: string): Promise<W3CMessa
     if (!Array.isArray(data.messages)) {
       throw new Error("W3C HTML validator returned an invalid response shape");
     }
-    return data.messages.filter((message): message is W3CMessage => {
-      if (typeof message !== "object" || message === null) {
-        return false;
-      }
-      const candidate = message as Partial<W3CMessage>;
-      return typeof candidate.type === "string" && typeof candidate.message === "string";
-    }).slice(0, MAX_VALIDATION_MESSAGES);
+    return data.messages
+      .map(normalizeW3CMessage)
+      .filter((message): message is W3CMessage => message !== null)
+      .slice(0, MAX_VALIDATION_MESSAGES);
   } catch (error: unknown) {
     throw new Error(`HTML validation failed: ${getErrorMessage(error)}`);
   }

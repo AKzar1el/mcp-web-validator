@@ -1,0 +1,44 @@
+name: Publish v1.1.0 GitHub release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/create-v1.1.0-release.yml
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create stable release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Publish v1.1.0 if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if gh release view v1.1.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v1.1.0 already exists; nothing to do."
+            exit 0
+          fi
+
+          gh release create v1.1.0 \
+            --repo "$GITHUB_REPOSITORY" \
+            --target 3defbfe96b3a3697ac4d7bf4fb7b246160dd0fc9 \
+            --title "v1.1.0" \
+            --notes-file - <<'EOF'
+          Stable GitHub release for the existing mcp-web-validator 1.1.0 package.
+
+          Highlights:
+          - Added concise, tool-specific result summaries with prioritized fixes and clear next steps.
+          - Added a shared hosted result overview with truthful status and partial-report metadata.
+          - Added the responsive v3 ChatGPT results widget.
+          - Replaced duplicated raw JSON narration with polished Markdown while preserving structured results.
+          - Fixed CSS severity presentation, link-health reporting, truncation notices, and JSON-LD state reporting.
+          EOF

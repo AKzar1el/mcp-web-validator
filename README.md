@@ -4,6 +4,7 @@
 [![CI](https://github.com/AKzar1el/mcp-web-validator/actions/workflows/ci.yml/badge.svg)](https://github.com/AKzar1el/mcp-web-validator/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Indexed on TensorBlock MCP Index](https://mcp-index.tensorblock.co/v1/servers/github-akzar1el-mcp-web-validator-4b38b48a/badge.svg)](https://tensorblock.co/mcp/servers/github-akzar1el-mcp-web-validator-4b38b48a)
+[![mcp-web-validator MCP server](https://glama.ai/mcp/servers/AKzar1el/mcp-web-validator/badges/score.svg)](https://glama.ai/mcp/servers/AKzar1el/mcp-web-validator)
 
 
 An MCP server for HTML and CSS validation, technical SEO and accessibility checks, JSON-LD syntax validation, broken-link checks, and responsive screenshots. It is part of the [DigestSEO](https://digestseo.com/) suite of open-source SEO tools.

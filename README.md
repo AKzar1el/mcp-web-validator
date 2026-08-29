@@ -119,6 +119,12 @@ Marketplace or add the repository from Cursor's plugin UI. The plugin bundles
 the same local stdio server and does not require API keys or environment
 variables.
 
+### Kiro
+
+[![Add to Kiro](https://kiro.dev/images/add-to-kiro.svg)](https://kiro.dev/launch/mcp/add?name=mcp-web-validator&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22mcp-web-validator%22%5D%2C%22disabled%22%3Afalse%2C%22autoApprove%22%3A%5B%5D%7D)
+
+This installs the local stdio package, preserving its workspace-file and screenshot capabilities. Node.js 22.12.0+ is required.
+
 ## Development
 
 Clone the repository and install the locked dependencies:

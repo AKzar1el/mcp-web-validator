@@ -1,0 +1,45 @@
+name: Prepare Registry install metadata
+
+on:
+  push:
+    branches:
+      - chore/registry-installable-1-1
+    paths:
+      - .github/workflows/prepare-registry-install.yml
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chore/registry-installable-1-1
+
+      - name: Add npm install metadata to server.json
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = 'server.json';
+          const server = JSON.parse(fs.readFileSync(path, 'utf8'));
+          if (server.name !== 'io.github.AKzar1el/mcp-web-validator') throw new Error('Registry name drift');
+          if (server.version !== '1.1.0') throw new Error(`Unexpected source version: ${server.version}`);
+          server.packages = [{
+            registryType: 'npm',
+            identifier: 'mcp-web-validator',
+            version: '1.1.0',
+            transport: { type: 'stdio' },
+          }];
+          fs.writeFileSync(path, `${JSON.stringify(server, null, 2)}\n`);
+          NODE
+
+      - name: Commit metadata
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add server.json
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore: add npm Registry install metadata'
+          git push origin HEAD:chore/registry-installable-1-1

@@ -1,0 +1,77 @@
+name: Prepare Anthropic MCPB metadata
+
+on:
+  push:
+    branches:
+      - chore/anthropic-mcpb-directory
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chore/anthropic-mcpb-directory
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+
+      - name: Apply MCPB privacy metadata only
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          const manifestPath = 'manifest.json';
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+          manifest.privacy_policies = [
+            'https://digestseo.com/privacy/',
+            'https://www.w3.org/policies/privacy/'
+          ];
+          fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+
+          const readmePath = 'README.md';
+          let readme = fs.readFileSync(readmePath, 'utf8');
+          const oldHeading = '## Privacy and safe use';
+          if (!readme.includes(oldHeading)) throw new Error(`Missing README heading: ${oldHeading}`);
+          readme = readme.replace(oldHeading, '## Privacy Policy');
+          fs.writeFileSync(readmePath, readme);
+          NODE
+
+      - name: Verify project
+        run: |
+          npm ci
+          npm run check
+          npm run build
+
+      - name: Capture MCPB manifest validation
+        shell: bash
+        run: |
+          set +e
+          npx -y @anthropic-ai/mcpb@2.1.2 validate manifest.json > mcpb-validation.txt 2>&1
+          STATUS=$?
+          set -e
+          cat mcpb-validation.txt
+          if [ "$STATUS" -ne 0 ]; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add mcpb-validation.txt
+            git commit -m "chore: capture MCPB validation diagnostics"
+            git push origin HEAD:chore/anthropic-mcpb-directory
+            exit "$STATUS"
+          fi
+
+      - name: Commit verified metadata
+        run: |
+          rm -f mcpb-validation.txt
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add manifest.json README.md
+          git commit -m "chore: align MCPB privacy metadata"
+          git push origin HEAD:chore/anthropic-mcpb-directory

@@ -1,0 +1,120 @@
+name: Publish npm + Official MCP Registry
+
+on:
+  pull_request:
+    paths:
+      - package.json
+      - package-lock.json
+      - server.json
+      - scripts/sync-manifests.mjs
+      - .github/workflows/publish-mcp.yml
+  push:
+    branches:
+      - main
+    paths:
+      - server.json
+      - .github/workflows/publish-mcp.yml
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY_SERVER_VERSION: 1.1.1-registry.1
+
+jobs:
+  validate:
+    name: Validate package and Registry metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run repository checks
+        run: npm run check
+
+      - name: Verify npm and Registry install metadata
+        run: |
+          node - <<'NODE'
+          const pkg = require('./package.json');
+          const server = require('./server.json');
+          const expectedPackage = {
+            registryType: 'npm',
+            identifier: 'mcp-web-validator',
+            version: '1.1.0',
+            transport: { type: 'stdio' },
+          };
+          if (pkg.name !== 'mcp-web-validator') throw new Error(`Unexpected package name: ${pkg.name}`);
+          if (pkg.version !== '1.1.0') throw new Error(`Unexpected package version: ${pkg.version}`);
+          if (pkg.mcpName !== 'io.github.AKzar1el/mcp-web-validator') throw new Error(`Unexpected mcpName: ${pkg.mcpName}`);
+          if (server.name !== pkg.mcpName) throw new Error('server.json name does not match package.json mcpName');
+          if (server.version !== pkg.version) throw new Error('Committed server.json must track the package version');
+          if (JSON.stringify(server.packages?.[0]) !== JSON.stringify(expectedPackage)) {
+            throw new Error('server.json npm install metadata drift');
+          }
+          NODE
+
+  publish-npm:
+    name: Publish mcp-web-validator 1.1.0 to npm
+    if: github.event_name == 'push'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Publish with npm trusted publishing
+        run: npm publish --access public
+
+  publish-registry:
+    name: Publish installable metadata to Official MCP Registry
+    if: github.event_name == 'push'
+    needs: publish-npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build immutable Registry metadata revision
+        env:
+          REGISTRY_SERVER_VERSION: ${{ env.REGISTRY_SERVER_VERSION }}
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const source = JSON.parse(fs.readFileSync('server.json', 'utf8'));
+          source.version = process.env.REGISTRY_SERVER_VERSION;
+          fs.writeFileSync('server.registry.json', `${JSON.stringify(source, null, 2)}\n`);
+          NODE
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+
+      - name: Validate installable Registry metadata
+        run: ./mcp-publisher validate server.registry.json
+
+      - name: Log in with GitHub OIDC
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish Registry metadata
+        run: ./mcp-publisher publish server.registry.json

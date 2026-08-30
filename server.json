@@ -1044,5 +1044,15 @@
         "accessibility"
       ]
     }
-  }
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "mcp-web-validator",
+      "version": "1.1.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
 }

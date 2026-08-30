@@ -20,3 +20,14 @@ test("MCPB manifest uses static tool declarations only", () => {
     );
   }
 });
+
+test("MCPB manifest points Puppeteer at the bundled cross-platform browser cache", () => {
+  assert.equal(
+    manifest.server?.mcp_config?.env?.PUPPETEER_CACHE_DIR,
+    "${__dirname}/.mcpb-browser-cache",
+  );
+  assert.deepEqual(
+    [...(manifest.compatibility?.platforms ?? [])].sort(),
+    ["darwin", "win32"],
+  );
+});

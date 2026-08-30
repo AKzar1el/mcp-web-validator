@@ -35,10 +35,6 @@ jobs:
             'https://digestseo.com/privacy/',
             'https://www.w3.org/policies/privacy/'
           ];
-          manifest.tools = (manifest.tools ?? []).map(({ name, description }) => ({
-            name,
-            ...(description ? { description } : {})
-          }));
           fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 
           const readmePath = 'README.md';
@@ -52,11 +48,15 @@ jobs:
           fs.writeFileSync(readmePath, readme);
           NODE
 
-      - name: Verify project and MCPB manifest
+      - name: Synchronize generated manifests
         run: |
           npm ci
-          npm run check
           npm run build
+          npm run sync:manifests
+
+      - name: Verify project and MCPB manifest
+        run: |
+          npm run check
           npx -y @anthropic-ai/mcpb@2.1.2 validate manifest.json
 
       - name: Commit verified metadata
@@ -64,7 +64,7 @@ jobs:
           rm -f mcpb-validation.txt
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add manifest.json README.md
+          git add manifest.json server.json README.md
           git add -u mcpb-validation.txt || true
           git commit -m "chore: align Anthropic MCPB directory metadata"
           git push origin HEAD:chore/anthropic-mcpb-directory

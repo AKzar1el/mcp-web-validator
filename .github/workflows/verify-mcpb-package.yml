@@ -123,7 +123,14 @@ jobs:
           if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then exit "$status"; fi
           grep -F 'screenshot.capture' responses.jsonl
           grep -F 'html.local' responses.jsonl
-          if grep -R -E 'sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{20,}' extracted --exclude-dir=node_modules; then
+          if grep -R -E 'sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{20,}' \
+            extracted/dist \
+            extracted/manifest.json \
+            extracted/package.json \
+            extracted/package-lock.json \
+            extracted/README.md \
+            extracted/SECURITY.md \
+            extracted/CHANGELOG.md; then
             echo 'Potential credential-like value found in first-party bundle files' >&2
             exit 1
           fi

@@ -22,22 +22,29 @@ try {
   await client.close();
 }
 
-const files = ["manifest.json", "server.json"];
+const manifestTools = tools.map(({ name, description }) => ({
+  name,
+  ...(description ? { description } : {}),
+}));
+const files = [
+  { name: "manifest.json", tools: manifestTools },
+  { name: "server.json", tools },
+];
 const checkOnly = process.argv.includes("--check");
 
-for (const file of files) {
-  const filePath = path.join(repositoryRoot, file);
+for (const { name, tools: expectedTools } of files) {
+  const filePath = path.join(repositoryRoot, name);
   const current = JSON.parse(await readFile(filePath, "utf8"));
-  const expected = { ...current, version: packageJson.version, tools };
+  const expected = { ...current, version: packageJson.version, tools: expectedTools };
 
   if (checkOnly) {
     assert.deepStrictEqual(
       current,
       expected,
-      `${file} is stale. Run npm run sync:manifests and commit the result.`,
+      `${name} is stale. Run npm run sync:manifests and commit the result.`,
     );
   } else {
     await writeFile(filePath, `${JSON.stringify(expected, null, 2)}\n`, "utf8");
-    console.log(`Updated ${file} with ${tools.length} runtime tool definitions.`);
+    console.log(`Updated ${name} with ${expectedTools.length} tool definitions.`);
   }
 }

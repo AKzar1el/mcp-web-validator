@@ -1,0 +1,102 @@
+name: Publish hosted surface to MCP Registry
+
+on:
+  pull_request:
+    paths:
+      - server.json
+      - .github/workflows/publish-registry-remote.yml
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish-registry-remote.yml
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY_SERVER_VERSION: 1.1.1-registry.1
+  MCP_REMOTE_URL: https://web-validator-mcp.digestseo.com/mcp
+
+jobs:
+  validate:
+    name: Validate hosted Registry metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Smoke test live Streamable HTTP endpoint
+        env:
+          MCP_REMOTE_URL: ${{ env.MCP_REMOTE_URL }}
+        run: |
+          curl --fail --silent --show-error --max-time 20 \
+            -X POST "$MCP_REMOTE_URL" \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"registry-smoke","version":"1.0.0"}}}' \
+            -o "${RUNNER_TEMP}/mcp-initialize.txt"
+          grep -q 'serverInfo' "${RUNNER_TEMP}/mcp-initialize.txt"
+
+      - name: Build immutable Registry metadata revision
+        env:
+          REGISTRY_SERVER_VERSION: ${{ env.REGISTRY_SERVER_VERSION }}
+          MCP_REMOTE_URL: ${{ env.MCP_REMOTE_URL }}
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const source = JSON.parse(fs.readFileSync('server.json', 'utf8'));
+          if (source.name !== 'io.github.AKzar1el/mcp-web-validator') throw new Error('Registry name drift');
+          if (source.version !== '1.1.0') throw new Error(`Unexpected source version: ${source.version}`);
+          source.version = process.env.REGISTRY_SERVER_VERSION;
+          delete source.packages;
+          source.remotes = [{
+            type: 'streamable-http',
+            url: process.env.MCP_REMOTE_URL,
+          }];
+          fs.writeFileSync('server.registry.json', `${JSON.stringify(source, null, 2)}\n`);
+          NODE
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+
+      - name: Validate Registry metadata
+        run: ./mcp-publisher validate server.registry.json
+
+  publish:
+    name: Publish hosted surface to Official MCP Registry
+    if: github.event_name == 'push'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build immutable Registry metadata revision
+        env:
+          REGISTRY_SERVER_VERSION: ${{ env.REGISTRY_SERVER_VERSION }}
+          MCP_REMOTE_URL: ${{ env.MCP_REMOTE_URL }}
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const source = JSON.parse(fs.readFileSync('server.json', 'utf8'));
+          source.version = process.env.REGISTRY_SERVER_VERSION;
+          delete source.packages;
+          source.remotes = [{
+            type: 'streamable-http',
+            url: process.env.MCP_REMOTE_URL,
+          }];
+          fs.writeFileSync('server.registry.json', `${JSON.stringify(source, null, 2)}\n`);
+          NODE
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+
+      - name: Log in with GitHub OIDC
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish Registry metadata
+        run: ./mcp-publisher publish server.registry.json

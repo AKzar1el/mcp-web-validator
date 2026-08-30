@@ -27,7 +27,6 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
-
           const manifestPath = 'manifest.json';
           const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
           manifest.manifest_version = '0.3';
@@ -39,9 +38,8 @@ jobs:
 
           const readmePath = 'README.md';
           let readme = fs.readFileSync(readmePath, 'utf8');
-          const oldHeading = '## Privacy and safe use';
-          if (readme.includes(oldHeading)) {
-            readme = readme.replace(oldHeading, '## Privacy Policy');
+          if (readme.includes('## Privacy and safe use')) {
+            readme = readme.replace('## Privacy and safe use', '## Privacy Policy');
           } else if (!readme.includes('## Privacy Policy')) {
             throw new Error('Missing expected README privacy heading');
           }
@@ -54,17 +52,31 @@ jobs:
           npm run build
           npm run sync:manifests
 
-      - name: Verify project and MCPB manifest
+      - name: Capture verification diagnostics
+        shell: bash
         run: |
-          npm run check
-          npx -y @anthropic-ai/mcpb@2.1.2 validate manifest.json
+          set +e
+          npm run check > verification.txt 2>&1
+          CHECK_STATUS=$?
+          npx -y @anthropic-ai/mcpb@2.1.2 validate manifest.json >> verification.txt 2>&1
+          MCPB_STATUS=$?
+          set -e
+          cat verification.txt
+          if [ "$CHECK_STATUS" -ne 0 ] || [ "$MCPB_STATUS" -ne 0 ]; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add verification.txt
+            git commit -m "chore: capture Web Validator MCPB diagnostics"
+            git push origin HEAD:chore/anthropic-mcpb-directory
+            exit 1
+          fi
 
       - name: Commit verified metadata
         run: |
-          rm -f mcpb-validation.txt
+          rm -f verification.txt mcpb-validation.txt
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add manifest.json server.json README.md
-          git add -u mcpb-validation.txt || true
+          git add -u mcpb-validation.txt verification.txt || true
           git commit -m "chore: align Anthropic MCPB directory metadata"
           git push origin HEAD:chore/anthropic-mcpb-directory

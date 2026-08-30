@@ -75,7 +75,7 @@ The hosted app exposes eight tools:
 
 `audit_public_webpage` follows at most three validated redirects, accepts a bounded `text/html` response, and records the final URL. It does not crawl additional pages, execute JavaScript, authenticate, or fetch linked stylesheets and assets. `audit_public_site` first locks the final public origin, reads bounded same-origin `robots.txt` and XML sitemap documents, then audits at most eight eligible sitemap pages in one call. It never follows HTML links, subdomains, external sitemap entries, private/reserved destinations, custom ports, or cross-origin redirects; use `page_offset` when the response says more eligible pages remain. The fetched HTML is sent to `https://html5.validator.nu/`, the same external Nu HTML Checker used by `validate_html` and the report tool. CSS parsing, SEO analysis, and JSON-LD parsing run inside the DigestSEO Worker. Optional link checks make capped `HEAD` requests, with a bounded `GET` fallback where necessary, to eligible public HTTP(S) URLs; link redirects are reported but not followed. The site tool intentionally does not perform site-wide link checking. The hosted app does not retain tool inputs, fetched HTML, or results.
 
-## Privacy and safe use
+## Privacy Policy
 
 Only validate files, markup, and public webpages that you own or are authorized to inspect. Public page URLs can contain sensitive query values, so remove tokens and private identifiers before submitting them. Do not submit passwords, API keys, access tokens, payment data, health data, private source code, or other sensitive personal data.
 

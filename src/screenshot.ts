@@ -29,6 +29,8 @@ const MAX_VIEWPORT_DIMENSION = 7_680;
 const SAFE_VIEWPORT_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 const NAVIGATION_TIMEOUT_MS = 30_000;
 
+export const SCREENSHOT_HEADLESS_MODE = "shell" as const;
+
 interface InterceptedRequest {
   url(): string;
   isInterceptResolutionHandled(): boolean;
@@ -194,9 +196,9 @@ export async function captureScreenshots(
   // Ensure output directory exists
   await fs.mkdir(resolvedOutputDirectory, { recursive: true });
 
-  // Launch browser in headless mode
+  // Launch Puppeteer's bundled headless shell.
   const browser = await puppeteer.launch({
-    headless: true,
+    headless: SCREENSHOT_HEADLESS_MODE,
   });
 
   const results: ScreenshotResult[] = [];

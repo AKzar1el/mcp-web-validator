@@ -27,15 +27,41 @@ const manifestTools = tools.map(({ name, description }) => ({
   ...(description ? { description } : {}),
 }));
 const files = [
-  { name: "manifest.json", tools: manifestTools },
-  { name: "server.json", tools },
+  { name: "manifest.json", tools: manifestTools, isMcpb: true },
+  { name: "server.json", tools, isMcpb: false },
 ];
 const checkOnly = process.argv.includes("--check");
 
-for (const { name, tools: expectedTools } of files) {
+for (const { name, tools: expectedTools, isMcpb } of files) {
   const filePath = path.join(repositoryRoot, name);
   const current = JSON.parse(await readFile(filePath, "utf8"));
-  const expected = { ...current, version: packageJson.version, tools: expectedTools };
+  const expected = {
+    ...current,
+    version: packageJson.version,
+    tools: expectedTools,
+    ...(isMcpb
+      ? {
+          server: {
+            ...current.server,
+            mcp_config: {
+              ...current.server.mcp_config,
+              env: {
+                ...(current.server.mcp_config?.env ?? {}),
+                PUPPETEER_CACHE_DIR: "${__dirname}/.mcpb-browser-cache",
+              },
+            },
+          },
+          compatibility: {
+            ...(current.compatibility ?? {}),
+            platforms: ["darwin", "win32"],
+            runtimes: {
+              ...(current.compatibility?.runtimes ?? {}),
+              node: packageJson.engines.node,
+            },
+          },
+        }
+      : {}),
+  };
 
   if (checkOnly) {
     assert.deepStrictEqual(

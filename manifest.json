@@ -21,7 +21,10 @@
       "command": "node",
       "args": [
         "${__dirname}/dist/index.js"
-      ]
+      ],
+      "env": {
+        "PUPPETEER_CACHE_DIR": "${__dirname}/.mcpb-browser-cache"
+      }
     }
   },
   "tools": [
@@ -62,5 +65,14 @@
   "privacy_policies": [
     "https://digestseo.com/privacy/",
     "https://www.w3.org/policies/privacy/"
-  ]
+  ],
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32"
+    ],
+    "runtimes": {
+      "node": ">=22.12.0"
+    }
+  }
 }

@@ -90,7 +90,7 @@ jobs:
           fi
           zipinfo -l mcp-web-validator-1.1.0.mcpb | grep -E 'chrome-headless-shell-mac-(x64|arm64)/chrome-headless-shell$' | tee mac-browser-modes.txt
           test "$(wc -l < mac-browser-modes.txt)" -eq 2
-          if grep -v '^-rwx' mac-browser-modes.txt; then
+          if grep -vE '^.rwxr-xr-x[[:space:]]' mac-browser-modes.txt; then
             echo 'macOS Headless Shell is missing executable ZIP mode' >&2
             exit 1
           fi

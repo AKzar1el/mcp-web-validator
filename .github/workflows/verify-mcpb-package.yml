@@ -1,0 +1,139 @@
+name: Verify MCPB package
+
+on:
+  push:
+    branches:
+      - chore/web-validator-mcpb-portable-browser
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+          cache: npm
+      - name: Verify source tree
+        run: |
+          npm ci
+          npm run check
+          npx --yes @anthropic-ai/mcpb@2.1.2 validate manifest.json
+      - name: Stage production-only extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .mcpb-stage
+          mkdir .mcpb-stage
+          cp manifest.json icon.png README.md LICENSE package.json package-lock.json .mcpb-stage/
+          for file in SECURITY.md CHANGELOG.md; do
+            if [ -f "$file" ]; then cp "$file" .mcpb-stage/; fi
+          done
+          cp -R dist .mcpb-stage/
+          (
+            cd .mcpb-stage
+            PUPPETEER_SKIP_DOWNLOAD=true npm ci --omit=dev
+          )
+      - name: Add pinned macOS and Windows Headless Shell payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd .mcpb-stage
+          node --input-type=module <<'EOF'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { Browser, BrowserPlatform, computeExecutablePath, install } from '@puppeteer/browsers';
+          import { PUPPETEER_REVISIONS } from 'puppeteer-core/internal/revisions.js';
+
+          const cacheDir = path.resolve('.mcpb-browser-cache');
+          const buildId = PUPPETEER_REVISIONS['chrome-headless-shell'];
+          const targets = [BrowserPlatform.MAC, BrowserPlatform.MAC_ARM, BrowserPlatform.WIN64];
+          for (const platform of targets) {
+            await install({ browser: Browser.CHROMEHEADLESSSHELL, buildId, platform, cacheDir });
+            const executable = computeExecutablePath({ browser: Browser.CHROMEHEADLESSSHELL, buildId, platform, cacheDir });
+            if (!fs.existsSync(executable)) throw new Error(`Missing ${platform} Headless Shell: ${executable}`);
+            if (platform === BrowserPlatform.MAC || platform === BrowserPlatform.MAC_ARM) {
+              fs.chmodSync(executable, 0o755);
+            }
+            console.log(`${platform}: ${executable}`);
+          }
+          console.log(`buildId=${buildId}`);
+          EOF
+          du -sh .mcpb-browser-cache
+      - name: Pack and inspect MCPB
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes @anthropic-ai/mcpb@2.1.2 validate .mcpb-stage/manifest.json
+          npx --yes @anthropic-ai/mcpb@2.1.2 pack .mcpb-stage mcp-web-validator-1.1.0.mcpb
+          test -s mcp-web-validator-1.1.0.mcpb
+          size=$(stat -c %s mcp-web-validator-1.1.0.mcpb)
+          echo "bundle_size=$size"
+          test "$size" -lt 1000000000
+          unzip -t mcp-web-validator-1.1.0.mcpb >/dev/null
+          unzip -l mcp-web-validator-1.1.0.mcpb > archive.txt
+          grep -F 'manifest.json' archive.txt
+          grep -F 'dist/index.js' archive.txt
+          grep -F 'node_modules/puppeteer/' archive.txt
+          grep -F '.mcpb-browser-cache/chrome-headless-shell/mac-' archive.txt
+          grep -F '.mcpb-browser-cache/chrome-headless-shell/mac_arm-' archive.txt
+          grep -F '.mcpb-browser-cache/chrome-headless-shell/win64-' archive.txt
+          if grep -F '.mcpb-browser-cache/chrome-headless-shell/linux-' archive.txt; then
+            echo 'Unexpected Linux browser payload in desktop submission bundle' >&2
+            exit 1
+          fi
+          zipinfo -l mcp-web-validator-1.1.0.mcpb | grep -E 'chrome-headless-shell-mac-(x64|arm64)/chrome-headless-shell$' | tee mac-browser-modes.txt
+          test "$(wc -l < mac-browser-modes.txt)" -eq 2
+          if grep -v '^-rwx' mac-browser-modes.txt; then
+            echo 'macOS Headless Shell is missing executable ZIP mode' >&2
+            exit 1
+          fi
+          sha256sum mcp-web-validator-1.1.0.mcpb | tee SHA256SUMS.txt
+      - name: Extract and smoke-test the packed server
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf extracted
+          mkdir extracted
+          unzip -q mcp-web-validator-1.1.0.mcpb -d extracted
+          node --input-type=module <<'EOF'
+          import fs from 'node:fs';
+          const manifest = JSON.parse(fs.readFileSync('extracted/manifest.json', 'utf8'));
+          if (manifest.server?.mcp_config?.env?.PUPPETEER_CACHE_DIR !== '${__dirname}/.mcpb-browser-cache') {
+            throw new Error('Packed manifest lost package-local Puppeteer cache configuration');
+          }
+          const platforms = [...(manifest.compatibility?.platforms ?? [])].sort();
+          if (JSON.stringify(platforms) !== JSON.stringify(['darwin', 'win32'])) {
+            throw new Error(`Unexpected packed compatibility platforms: ${platforms.join(',')}`);
+          }
+          EOF
+          cat > requests.jsonl <<'EOF'
+          {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"mcpb-package-smoke","version":"1.0.0"}}}
+          {"jsonrpc":"2.0","method":"notifications/initialized"}
+          {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+          EOF
+          timeout 15s env PUPPETEER_CACHE_DIR="$PWD/extracted/.mcpb-browser-cache" node extracted/dist/index.js < requests.jsonl > responses.jsonl || status=$?
+          status=${status:-0}
+          if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then exit "$status"; fi
+          grep -F 'screenshot.capture' responses.jsonl
+          grep -F 'html.local' responses.jsonl
+          if grep -R -E 'sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{20,}' extracted --exclude-dir=node_modules; then
+            echo 'Potential credential-like value found in first-party bundle files' >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcp-web-validator-mcpb-rehearsal
+          path: |
+            mcp-web-validator-1.1.0.mcpb
+            SHA256SUMS.txt
+            archive.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1

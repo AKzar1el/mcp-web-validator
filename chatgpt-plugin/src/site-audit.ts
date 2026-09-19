@@ -31,6 +31,7 @@ export type SiteDiscovery = "sitemap" | "root_only" | "partial";
 export type SiteFindingCategory = "HTML" | "SEO" | "Schema" | "Accessibility";
 
 export interface SiteAuditFinding {
+  code?: string;
   severity: AuditSeverity;
   category: SiteFindingCategory;
   message: string;
@@ -57,6 +58,7 @@ export interface SiteAuditPageSummary {
 }
 
 export interface SiteAuditIssueGroup {
+  code?: string;
   severity: AuditSeverity;
   category: SiteFindingCategory;
   message: string;
@@ -116,6 +118,7 @@ interface DiscoveryResult {
 }
 
 interface GroupAccumulator {
+  code?: string;
   severity: AuditSeverity;
   category: SiteFindingCategory;
   message: string;
@@ -433,11 +436,13 @@ async function auditFetchedPage(fetched: FetchedPublicHtml): Promise<SiteAuditPa
       message: compactMessage(message.message),
     })),
     ...seo.issues.map((issue) => ({
+      code: issue.code,
       severity: issue.severity,
       category: issue.category,
       message: compactMessage(issue.message),
     })),
     ...schema.issues.map((issue) => ({
+      code: issue.code,
       severity: issue.severity,
       category: issue.category,
       message: compactMessage(issue.message),
@@ -534,6 +539,7 @@ function groupFindings(pages: Array<SiteAuditPageSummary & { findings: SiteAudit
           continue;
         }
         group = {
+          code: finding.code,
           severity: finding.severity,
           category: finding.category,
           message: finding.message,
@@ -547,6 +553,7 @@ function groupFindings(pages: Array<SiteAuditPageSummary & { findings: SiteAudit
 
   const issueGroups = Array.from(groups.values())
     .map((group) => ({
+      code: group.code,
       severity: group.severity,
       category: group.category,
       message: group.message,

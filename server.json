@@ -286,6 +286,10 @@
             "items": {
               "type": "object",
               "properties": {
+                "code": {
+                  "type": "string",
+                  "description": "Stable machine-readable audit rule identifier."
+                },
                 "severity": {
                   "type": "string",
                   "enum": [
@@ -311,6 +315,7 @@
                 }
               },
               "required": [
+                "code",
                 "severity",
                 "category",
                 "message"
@@ -468,6 +473,10 @@
             "items": {
               "type": "object",
               "properties": {
+                "code": {
+                  "type": "string",
+                  "description": "Stable machine-readable audit rule identifier."
+                },
                 "severity": {
                   "type": "string",
                   "enum": [
@@ -493,6 +502,7 @@
                 }
               },
               "required": [
+                "code",
                 "severity",
                 "category",
                 "message"
@@ -762,6 +772,10 @@
             "items": {
               "type": "object",
               "properties": {
+                "code": {
+                  "type": "string",
+                  "description": "Stable machine-readable audit rule identifier."
+                },
                 "severity": {
                   "type": "string",
                   "enum": [
@@ -787,6 +801,7 @@
                 }
               },
               "required": [
+                "code",
                 "severity",
                 "category",
                 "message"
@@ -799,6 +814,10 @@
             "items": {
               "type": "object",
               "properties": {
+                "code": {
+                  "type": "string",
+                  "description": "Stable machine-readable audit rule identifier."
+                },
                 "severity": {
                   "type": "string",
                   "enum": [
@@ -824,6 +843,7 @@
                 }
               },
               "required": [
+                "code",
                 "severity",
                 "category",
                 "message"

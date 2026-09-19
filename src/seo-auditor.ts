@@ -15,6 +15,7 @@ const LINK_CHECK_TIMEOUT_MS = 5_000;
 const LINK_CHECK_USER_AGENT = `mcp-web-validator/${PACKAGE_VERSION} (+https://digestseo.com/validator-mcp/)`;
 
 export interface SEOIssue {
+  code: string;
   severity: "error" | "warning" | "info";
   category: "SEO" | "Schema" | "BrokenLinks" | "Accessibility";
   message: string;
@@ -79,6 +80,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   const titleTag = $("title");
   if (titleTag.length === 0) {
     add({
+      code: "seo.title.missing_or_empty",
       severity: "error",
       category: "SEO",
       message: "Missing <title> tag. Add a concise, descriptive title to help represent the page in search results.",
@@ -87,12 +89,14 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     const titleText = titleTag.text().trim();
     if (titleText.length === 0) {
       add({
+        code: "seo.title.missing_or_empty",
         severity: "error",
         category: "SEO",
         message: "The <title> tag is empty.",
       });
     } else if (titleText.length < 30) {
       add({
+        code: "seo.title.length",
         severity: "warning",
         category: "SEO",
         message: `Title is ${titleText.length} characters. This is shorter than the audit's common editorial range; review whether it describes the page clearly.`,
@@ -100,6 +104,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       });
     } else if (titleText.length > 60) {
       add({
+        code: "seo.title.length",
         severity: "warning",
         category: "SEO",
         message: `Title is ${titleText.length} characters. This is longer than the audit's common editorial range; Google title links may be shortened or rewritten depending on context and device.`,
@@ -112,6 +117,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   const metaDescription = $('meta[name="description"]');
   if (metaDescription.length === 0) {
     add({
+      code: "seo.meta_description.missing_or_empty",
       severity: "error",
       category: "SEO",
       message: "Missing <meta name=\"description\">. Add a concise, accurate page summary; Google may use page content or this description to generate a snippet.",
@@ -120,12 +126,14 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     const descText = metaDescription.attr("content")?.trim() || "";
     if (descText.length === 0) {
       add({
+        code: "seo.meta_description.missing_or_empty",
         severity: "error",
         category: "SEO",
         message: "Meta description content attribute is empty.",
       });
     } else if (descText.length < 120) {
       add({
+        code: "seo.meta_description.length",
         severity: "warning",
         category: "SEO",
         message: `Meta description is ${descText.length} characters. This is shorter than the audit's common editorial range; review whether it provides a useful page summary.`,
@@ -133,6 +141,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       });
     } else if (descText.length > 160) {
       add({
+        code: "seo.meta_description.length",
         severity: "warning",
         category: "SEO",
         message: `Meta description is ${descText.length} characters. This is longer than the audit's common editorial range; displayed snippets may be shortened depending on the query and device.`,
@@ -145,6 +154,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   const canonical = $('link[rel="canonical"]');
   if (canonical.length === 0) {
     add({
+      code: "seo.canonical.missing",
       severity: "warning",
       category: "SEO",
       message: "Missing canonical tag (<link rel=\"canonical\">). This helps prevent duplicate content issues.",
@@ -155,6 +165,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   const viewport = $('meta[name="viewport"]');
   if (viewport.length === 0) {
     add({
+      code: "seo.viewport.missing",
       severity: "error",
       category: "SEO",
       message: "Missing <meta name=\"viewport\"> tag. Review mobile rendering; this tag helps browsers size and scale the page on mobile devices.",
@@ -165,12 +176,14 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   const h1Tags = $("h1");
   if (h1Tags.length === 0) {
     add({
+      code: "seo.h1.missing",
       severity: "warning",
       category: "SEO",
       message: "No <h1> heading found. Review whether the page has a clear main heading and a meaningful heading hierarchy.",
     });
   } else if (h1Tags.length > 1) {
     add({
+      code: "seo.h1.multiple",
       severity: "info",
       category: "SEO",
       message: `Found multiple (${h1Tags.length}) <h1> headings. Multiple H1s are not inherently an SEO error; ensure the heading hierarchy is meaningful and the main visual title is clear.`,
@@ -185,6 +198,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
 
     if (alt === undefined) {
       add({
+        code: "accessibility.image_alt.missing",
         severity: "error",
         category: "Accessibility",
         message: "Missing 'alt' attribute on image. This makes it inaccessible to screen readers.",
@@ -193,6 +207,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     } else if (alt.trim() === "") {
       // Empty alt is acceptable for purely decorative images, but worth warning
       add({
+        code: "accessibility.image_alt.empty",
         severity: "info",
         category: "Accessibility",
         message: "Empty 'alt' attribute found. Ensure this image is purely decorative, otherwise add descriptive text.",
@@ -206,6 +221,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   const ogImage = $('meta[property="og:image"]');
   if (ogTitle.length === 0 || ogImage.length === 0) {
     add({
+      code: "seo.open_graph.missing",
       severity: "info",
       category: "SEO",
       message: "Missing Open Graph social metadata (og:title / og:image). Add these to control preview cards on platforms like LinkedIn and X.",
@@ -232,6 +248,7 @@ export function validateSchemaMarkupDetailed(htmlContent: string): AuditDetails 
     const scriptText = $(element).html() || "";
     if (scriptText.trim() === "") {
       add({
+        code: "schema.jsonld.empty",
         severity: "warning",
         category: "Schema",
         message: `JSON-LD block #${index + 1} is empty.`,
@@ -243,6 +260,7 @@ export function validateSchemaMarkupDetailed(htmlContent: string): AuditDetails 
       JSON.parse(scriptText);
     } catch (error: unknown) {
       add({
+        code: "schema.jsonld.invalid_json",
         severity: "error",
         category: "Schema",
         message: `Invalid JSON-LD schema syntax: ${getErrorMessage(error)}`,

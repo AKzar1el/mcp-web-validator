@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-19
+
+### Changed
+
+- Added current Gemini CLI and GitHub Copilot CLI setup guidance for the local stdio package.
+- Migrated the hosted stateless MCP handler to the supported Agents SDK v2 server-factory path and refreshed current minor/patch dependency resolutions.
+
+### Fixed
+
+- Rejected malformed Nu HTML Checker responses that omit the required `messages` member in both local and hosted validation paths.
+- Rejected malformed non-empty W3C CSS Validator JSON that omits the expected `cssvalidation` envelope.
+- Rejected successful non-HTML responses from local URL validation instead of forwarding arbitrary content to the HTML checker.
+- Removed unsupported exact-one-H1 SEO penalties while retaining heading-structure guidance.
+- Resolved relative links from the document's first valid public `<base href>` when no explicit link-check base URL is provided.
+- Recognized parameterized `application/ld+json` media types, including the standards-defined `profile` parameter, in both local and hosted schema scans.
+
 ## [1.2.0] - 2026-09-19
 
 ### Added

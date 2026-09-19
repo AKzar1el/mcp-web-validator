@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-19
+
 ### Added
 
 - Added the hosted `audit_public_site` tool for bounded, sitemap-first, same-origin public-site audits with robots enforcement, page continuation, compact coverage, grouped findings, and a transparent health-score denominator.
@@ -23,6 +25,7 @@ All notable changes to this project are documented here. The project follows [Se
 - Prevented client-controlled MCP session IDs from bypassing coarse rate limiting.
 - Added bounded Nu response handling and a structured final Worker error boundary.
 - Corrected warning-only next-step copy and the JSON-LD syntax-check title.
+- Refreshed production dependency resolutions to remove newly disclosed transitive vulnerabilities before publishing the npm release.
 
 ## [1.1.0] - 2026-07-12
 

@@ -91,7 +91,7 @@ export async function validateHtmlContent(htmlContent: string): Promise<W3CMessa
     const text = await readResponseText(response, MAX_VALIDATOR_RESPONSE_BYTES);
     const data = JSON.parse(text) as { messages?: unknown };
     if (data.messages === undefined) {
-      return [];
+      throw new Error("W3C HTML validator returned an invalid response shape");
     }
     if (!Array.isArray(data.messages)) {
       throw new Error("W3C HTML validator returned an invalid response shape");

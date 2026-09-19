@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validateCssContent, validateHtmlContent } from "../dist/w3c-validator.js";
+test("missing HTML validator messages fail instead of producing a clean result", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({}), { status: 200 });
+
+  try {
+    await assert.rejects(
+      validateHtmlContent("<!doctype html><html><title>Example</title></html>"),
+      /HTML validation failed: W3C HTML validator returned an invalid response shape/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("HTML validator normalizes upstream messages to the advertised contract", async () => {
   const originalFetch = globalThis.fetch;

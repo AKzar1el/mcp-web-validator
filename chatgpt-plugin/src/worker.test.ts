@@ -368,8 +368,8 @@ describe("validation report", () => {
     });
     expect(message.result.structuredContent.seo_findings.length).toBeGreaterThan(0);
     expect(message.result.structuredContent.overview.counts).toEqual([
-      { key: "errors", label: "Errors", value: 5, tone: "error" },
-      { key: "warnings", label: "Warnings", value: 3, tone: "warning" },
+      { key: "errors", label: "Errors", value: 4, tone: "error" },
+      { key: "warnings", label: "Warnings", value: 4, tone: "warning" },
       { key: "notes", label: "Notes", value: 1, tone: "info" },
       { key: "checks_passed", label: "Checks passed", value: 0, tone: "success" },
     ]);

@@ -161,15 +161,15 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   const h1Tags = $("h1");
   if (h1Tags.length === 0) {
     add({
-      severity: "error",
+      severity: "warning",
       category: "SEO",
-      message: "Missing <h1> tag. Every page must have exactly one <h1> representing the main topic.",
+      message: "No <h1> heading found. Review whether the page has a clear main heading and a meaningful heading hierarchy.",
     });
   } else if (h1Tags.length > 1) {
     add({
-      severity: "warning",
+      severity: "info",
       category: "SEO",
-      message: `Found multiple (${h1Tags.length}) <h1> tags. Multiple <h1> tags dilutes topic keyword focus.`,
+      message: `Found multiple (${h1Tags.length}) <h1> headings. Multiple H1s are not inherently an SEO error; ensure the heading hierarchy is meaningful and the main visual title is clear.`,
     });
   }
 

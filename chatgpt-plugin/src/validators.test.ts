@@ -97,6 +97,17 @@ describe("bounded audits", () => {
     expect(result.truncated).toBe(true);
     expect(result.blocksChecked).toBe(120);
   });
+
+  it("recognizes JSON-LD media-type parameters without matching unrelated script types", () => {
+    const html = [
+      '<script type="Application/LD+JSON; profile=https://www.w3.org/ns/json-ld#frame">{</script>',
+      '<script type="application/ld+jsonish">{</script>',
+    ].join("");
+    const result = validateSchemaMarkup(html);
+    expect(result.blocksChecked).toBe(1);
+    expect(result.total).toBe(1);
+    expect(result.issues).toHaveLength(1);
+  });
 });
 
 describe("link checks", () => {

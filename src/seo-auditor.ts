@@ -63,6 +63,10 @@ function createIssueCollector(): {
   };
 }
 
+function isJsonLdScriptType(type: string | undefined): boolean {
+  return type?.split(";", 1)[0].trim().toLowerCase() === "application/ld+json";
+}
+
 /**
  * Audits technical SEO and accessibility basics on HTML content using Cheerio
  */
@@ -222,8 +226,9 @@ export function validateSchemaMarkupDetailed(htmlContent: string): AuditDetails 
   const $ = cheerio.load(htmlContent);
   const collector = createIssueCollector();
   const { add } = collector;
+  const blocks = $("script[type]").filter((_, element) => isJsonLdScriptType($(element).attr("type")));
 
-  $('script[type="application/ld+json"]').each((index, element) => {
+  blocks.each((index, element) => {
     const scriptText = $(element).html() || "";
     if (scriptText.trim() === "") {
       add({

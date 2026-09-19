@@ -49,6 +49,12 @@ describe("validateHtml", () => {
 
     await expect(validateHtmlDetailed("<html></html>")).rejects.toThrow("invalid messages payload");
   });
+
+  it("rejects a Nu payload that omits messages instead of reporting a clean result", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({})));
+
+    await expect(validateHtmlDetailed("<html></html>")).rejects.toThrow("invalid messages payload");
+  });
 });
 
 describe("public URL filtering", () => {

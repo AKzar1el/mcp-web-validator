@@ -17,16 +17,16 @@
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
-    "agents": "^0.21.0",
+    "agents": "^0.23.0",
     "cheerio": "^1.0.0",
     "ipaddr.js": "^2.5.0",
-    "postcss": "^8.5.26",
-    "zod": "^4.4.3"
+    "postcss": "^8.5.28",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11",
-    "wrangler": "^4.110.0"
+    "wrangler": "^4.133.0"
   }
 }

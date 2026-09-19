@@ -52,6 +52,29 @@ Then restart Cursor or reload its window. The plugin starts the published
 package with `npx -y mcp-web-validator`; no API keys or environment variables
 are required.
 
+## Gemini CLI
+
+Gemini CLI can add the published stdio package directly:
+
+```bash
+gemini mcp add mcp-web-validator npx -y mcp-web-validator
+```
+
+This uses the same `npx -y mcp-web-validator` command as the other local
+clients and requires no Web Validator API keys or environment variables.
+
+## GitHub Copilot CLI
+
+GitHub Copilot CLI can add the published stdio package directly:
+
+```bash
+copilot mcp add mcp-web-validator -- npx -y mcp-web-validator
+```
+
+For repository-local use, Copilot CLI also discovers `.mcp.json` while
+walking up to the repository root. This repository already ships a compatible
+root `.mcp.json` that runs `npx -y mcp-web-validator`.
+
 ## Verify
 
 Run the repository checks before enabling the server:
@@ -73,4 +96,4 @@ The local server exposes these tools over stdio:
 The local tools may read selected files, contact W3C validators or eligible
 public URLs, and write screenshot PNGs when explicitly called. Use only inputs
 the user is authorized to inspect. The repository also documents a separate
-hosted HTTP app; that hosted app is not required for this local Cline setup.
+hosted HTTP app; that hosted app is not required for these local stdio setups.

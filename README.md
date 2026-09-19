@@ -119,6 +119,29 @@ Marketplace or add the repository from Cursor's plugin UI. The plugin bundles
 the same local stdio server and does not require API keys or environment
 variables.
 
+### Gemini CLI
+
+Gemini CLI supports local stdio MCP servers. Add the published package with:
+
+```bash
+gemini mcp add mcp-web-validator npx -y mcp-web-validator
+```
+
+This writes the server definition to Gemini CLI's MCP configuration. No API
+keys or environment variables are required by Web Validator.
+
+### GitHub Copilot CLI
+
+Add the published local stdio server with:
+
+```bash
+copilot mcp add mcp-web-validator -- npx -y mcp-web-validator
+```
+
+When Copilot CLI is started inside a clone of this repository, it can also
+discover the checked-in root `.mcp.json`, which already points
+`mcp-web-validator` at `npx -y mcp-web-validator`.
+
 ### Kiro
 
 [![Add to Kiro](https://kiro.dev/images/add-to-kiro.svg)](https://kiro.dev/launch/mcp/add?name=mcp-web-validator&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22mcp-web-validator%22%5D%2C%22disabled%22%3Afalse%2C%22autoApprove%22%3A%5B%5D%7D)

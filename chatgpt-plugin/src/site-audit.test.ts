@@ -28,6 +28,33 @@ describe("robots rules", () => {
 });
 
 describe("auditPublicSite", () => {
+  it("carries stable audit rule codes into page findings and site issue groups", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (target: RequestInfo | URL) => {
+        const url = String(target);
+        if (url === "https://example.com/") {
+          return htmlResponse("<!doctype html><html><head><title>Short title</title><meta name=description content='A useful description with enough characters to meet the normal metadata target for this focused test page.'><meta name=viewport content='width=device-width'><link rel=canonical href='https://example.com/'></head><body><h1>Example</h1></body></html>");
+        }
+        if (url === "https://example.com/robots.txt") {
+          return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+        }
+        if (url === "https://example.com/sitemap.xml") {
+          return new Response("<urlset><url><loc>https://example.com/</loc></url></urlset>", {
+            headers: { "content-type": "application/xml" },
+          });
+        }
+        if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+        throw new Error(`Unexpected fetch target: ${url}`);
+      }),
+    );
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 1, pageOffset: 0 });
+
+    expect(result.pages[0]?.top_findings).toContainEqual(expect.objectContaining({ code: "seo.title.length" }));
+    expect(result.issue_groups).toContainEqual(expect.objectContaining({ code: "seo.title.length" }));
+  });
+
   it("uses same-origin sitemap URLs, honors robots exclusions, and returns a continuation offset", async () => {
     const privateMarker = "private-page-marker-that-must-not-leak";
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {

@@ -5,6 +5,7 @@ import { HOSTED_MAX_LINKS, SERVICE_USER_AGENT } from "./constants";
 export type AuditSeverity = "error" | "warning" | "info";
 
 export interface AuditIssue {
+  code: string;
   severity: AuditSeverity;
   category: "SEO" | "Schema" | "Accessibility";
   message: string;
@@ -58,12 +59,14 @@ export function auditSeoMetadata(html: string): AuditResult {
   const title = $("title").first().text().trim();
   if (!title) {
     collector.add({
+      code: "seo.title.missing_or_empty",
       severity: "error",
       category: "SEO",
       message: "Missing or empty <title> tag.",
     });
   } else if (title.length < 30 || title.length > 60) {
     collector.add({
+      code: "seo.title.length",
       severity: "warning",
       category: "SEO",
       message: `Title length is ${title.length} characters; aim for roughly 30–60 characters.`,
@@ -73,12 +76,14 @@ export function auditSeoMetadata(html: string): AuditResult {
   const description = $('meta[name="description"]').first().attr("content")?.trim() ?? "";
   if (!description) {
     collector.add({
+      code: "seo.meta_description.missing_or_empty",
       severity: "error",
       category: "SEO",
       message: "Missing or empty meta description.",
     });
   } else if (description.length < 120 || description.length > 160) {
     collector.add({
+      code: "seo.meta_description.length",
       severity: "warning",
       category: "SEO",
       message: `Meta description length is ${description.length} characters; aim for roughly 120–160 characters.`,
@@ -87,6 +92,7 @@ export function auditSeoMetadata(html: string): AuditResult {
 
   if ($('link[rel="canonical"]').length === 0) {
     collector.add({
+      code: "seo.canonical.missing",
       severity: "warning",
       category: "SEO",
       message: "Missing canonical link tag.",
@@ -95,6 +101,7 @@ export function auditSeoMetadata(html: string): AuditResult {
 
   if ($('meta[name="viewport"]').length === 0) {
     collector.add({
+      code: "seo.viewport.missing",
       severity: "error",
       category: "SEO",
       message: "Missing viewport meta tag.",
@@ -104,12 +111,14 @@ export function auditSeoMetadata(html: string): AuditResult {
   const h1Count = $("h1").length;
   if (h1Count === 0) {
     collector.add({
+      code: "seo.h1.missing",
       severity: "warning",
       category: "SEO",
       message: "No <h1> heading found. Review whether the page has a clear main heading and a meaningful heading hierarchy.",
     });
   } else if (h1Count > 1) {
     collector.add({
+      code: "seo.h1.multiple",
       severity: "info",
       category: "SEO",
       message: `Found multiple (${h1Count}) <h1> headings. Multiple H1s are not inherently an SEO error; ensure the heading hierarchy is meaningful and the main visual title is clear.`,
@@ -120,12 +129,14 @@ export function auditSeoMetadata(html: string): AuditResult {
     const alt = $(element).attr("alt");
     if (alt === undefined) {
       collector.add({
+        code: "accessibility.image_alt.missing",
         severity: "error",
         category: "Accessibility",
         message: "An image is missing its alt attribute.",
       });
     } else if (alt.trim() === "") {
       collector.add({
+        code: "accessibility.image_alt.empty",
         severity: "info",
         category: "Accessibility",
         message: "An image has an empty alt attribute; confirm that it is decorative.",
@@ -135,6 +146,7 @@ export function auditSeoMetadata(html: string): AuditResult {
 
   if ($('meta[property="og:title"]').length === 0 || $('meta[property="og:image"]').length === 0) {
     collector.add({
+      code: "seo.open_graph.missing",
       severity: "info",
       category: "SEO",
       message: "Open Graph title or image metadata is missing.",
@@ -154,6 +166,7 @@ export function validateSchemaMarkup(html: string): AuditResult & { blocksChecke
     const value = $(element).html()?.trim() ?? "";
     if (!value) {
       collector.add({
+        code: "schema.jsonld.empty",
         severity: "warning",
         category: "Schema",
         message: `JSON-LD block #${index + 1} is empty.`,
@@ -165,6 +178,7 @@ export function validateSchemaMarkup(html: string): AuditResult & { blocksChecke
       JSON.parse(value);
     } catch {
       collector.add({
+        code: "schema.jsonld.invalid_json",
         severity: "error",
         category: "Schema",
         message: `JSON-LD block #${index + 1} is not valid JSON.`,

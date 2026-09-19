@@ -72,6 +72,7 @@ const cssMessageSchema = z.object({
 });
 
 const seoIssueSchema = z.object({
+  code: z.string().describe("Stable machine-readable audit rule identifier."),
   severity: z.enum(["error", "warning", "info"]),
   category: z.enum(["SEO", "Schema", "BrokenLinks", "Accessibility"]),
   message: z.string(),

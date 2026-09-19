@@ -85,6 +85,7 @@ describe("bounded audits", () => {
     const missing = auditSeoMetadata("<html><head></head><body></body></html>");
     const missingH1 = missing.issues.find((issue) => /h1/i.test(issue.message));
     expect(missingH1).toEqual({
+      code: "seo.h1.missing",
       severity: "warning",
       category: "SEO",
       message: "No <h1> heading found. Review whether the page has a clear main heading and a meaningful heading hierarchy.",
@@ -93,6 +94,7 @@ describe("bounded audits", () => {
     const multiple = auditSeoMetadata("<html><head></head><body><h1>One</h1><h1>Two</h1></body></html>");
     const multipleH1 = multiple.issues.find((issue) => /h1/i.test(issue.message));
     expect(multipleH1).toEqual({
+      code: "seo.h1.multiple",
       severity: "info",
       category: "SEO",
       message: "Found multiple (2) <h1> headings. Multiple H1s are not inherently an SEO error; ensure the heading hierarchy is meaningful and the main visual title is clear.",
@@ -125,6 +127,7 @@ describe("bounded audits", () => {
     expect(result.blocksChecked).toBe(1);
     expect(result.total).toBe(1);
     expect(result.issues).toHaveLength(1);
+    expect(result.issues[0]?.code).toBe("schema.jsonld.invalid_json");
   });
 });
 

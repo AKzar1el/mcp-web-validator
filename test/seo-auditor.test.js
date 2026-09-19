@@ -52,6 +52,28 @@ test("JSON-LD audit recognizes media-type parameters without matching unrelated 
   assert.match(detailed.issues[0].message, /Invalid JSON-LD schema syntax/);
 });
 
+test("audit findings expose stable machine-readable rule codes", () => {
+  const html = [
+    "<html><head>",
+    '<meta name="description" content="short">',
+    '<meta name="viewport" content="width=device-width">',
+    '<link rel="canonical" href="https://example.com/">',
+    '<meta property="og:title" content="Example">',
+    '<meta property="og:image" content="https://example.com/image.png">',
+    "</head><body><h2>Page heading</h2><img src=hero.png>",
+    '<script type="application/ld+json">{</script>',
+    "</body></html>",
+  ].join("");
+
+  const seo = auditSeoMetadata(html);
+  assert.equal(seo.find((issue) => issue.message.includes("<title>"))?.code, "seo.title.missing_or_empty");
+  assert.equal(seo.find((issue) => issue.message.includes("<h1>"))?.code, "seo.h1.missing");
+  assert.equal(seo.find((issue) => issue.category === "Accessibility")?.code, "accessibility.image_alt.missing");
+
+  const schema = validateSchemaMarkup(html);
+  assert.equal(schema[0]?.code, "schema.jsonld.invalid_json");
+});
+
 test("title-length warnings keep the editorial thresholds without claiming a fixed Google limit", () => {
   const shortTitle = "s".repeat(29);
   const longTitle = "l".repeat(61);
@@ -59,12 +81,14 @@ test("title-length warnings keep the editorial thresholds without claiming a fix
   const longIssue = lengthIssue(`<title>${longTitle}</title>`, "Title is");
 
   assert.deepEqual(shortIssue, {
+    code: "seo.title.length",
     severity: "warning",
     category: "SEO",
     message: "Title is 29 characters. This is shorter than the audit's common editorial range; review whether it describes the page clearly.",
     element: `<title>${shortTitle}</title>`,
   });
   assert.deepEqual(longIssue, {
+    code: "seo.title.length",
     severity: "warning",
     category: "SEO",
     message: "Title is 61 characters. This is longer than the audit's common editorial range; Google title links may be shortened or rewritten depending on context and device.",
@@ -83,12 +107,14 @@ test("meta-description warnings keep the editorial thresholds without claiming a
   const longIssue = lengthIssue(`<meta name="description" content="${longDescription}">`, "Meta description is");
 
   assert.deepEqual(shortIssue, {
+    code: "seo.meta_description.length",
     severity: "warning",
     category: "SEO",
     message: "Meta description is 119 characters. This is shorter than the audit's common editorial range; review whether it provides a useful page summary.",
     element: `<meta name="description" content="${shortDescription}">`,
   });
   assert.deepEqual(longIssue, {
+    code: "seo.meta_description.length",
     severity: "warning",
     category: "SEO",
     message: "Meta description is 161 characters. This is longer than the audit's common editorial range; displayed snippets may be shortened depending on the query and device.",
@@ -112,6 +138,7 @@ test("heading-count findings avoid unsupported exact-one-H1 SEO penalties", () =
   const missing = auditSeoMetadata(`<html>${head}<body><h2>Page title</h2></body></html>`)
     .find((issue) => issue.message.includes("<h1>"));
   assert.deepEqual(missing, {
+    code: "seo.h1.missing",
     severity: "warning",
     category: "SEO",
     message: "No <h1> heading found. Review whether the page has a clear main heading and a meaningful heading hierarchy.",
@@ -120,6 +147,7 @@ test("heading-count findings avoid unsupported exact-one-H1 SEO penalties", () =
   const multiple = auditSeoMetadata(`<html>${head}<body><h1>Primary</h1><h1>Secondary</h1></body></html>`)
     .find((issue) => issue.message.includes("<h1>"));
   assert.deepEqual(multiple, {
+    code: "seo.h1.multiple",
     severity: "info",
     category: "SEO",
     message: "Found multiple (2) <h1> headings. Multiple H1s are not inherently an SEO error; ensure the heading hierarchy is meaningful and the main visual title is clear.",

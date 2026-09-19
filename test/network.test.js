@@ -208,6 +208,69 @@ test("link checker resolves relative links, deduplicates, and caps requests", as
   }
 });
 
+test("link checker resolves relative links from the first public base element", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input, init) => {
+    requested.push({ url: String(input), method: init?.method });
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const links = await checkBrokenLinks(
+      '<base href="https://1.1.1.1/docs/"><a href="guide">Guide</a>',
+      undefined,
+      1,
+    );
+    assert.deepEqual(links.map((link) => link.url), ["https://1.1.1.1/docs/guide"]);
+    assert.deepEqual(requested, [{ url: "https://1.1.1.1/docs/guide", method: "HEAD" }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("explicit link-check base URL takes precedence over the document base element", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input, init) => {
+    requested.push({ url: String(input), method: init?.method });
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const links = await checkBrokenLinks(
+      '<base href="https://8.8.8.8/ignored/"><a href="guide">Guide</a>',
+      "https://1.1.1.1/explicit/",
+      1,
+    );
+    assert.deepEqual(links.map((link) => link.url), ["https://1.1.1.1/explicit/guide"]);
+    assert.deepEqual(requested, [{ url: "https://1.1.1.1/explicit/guide", method: "HEAD" }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("unsafe document base elements are ignored for relative link checks", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const links = await checkBrokenLinks(
+      '<base href="http://127.0.0.1/private/"><a href="secret">Secret</a>',
+      undefined,
+      1,
+    );
+    assert.deepEqual(links, []);
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker reports redirects as reachable without following their targets", async () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;

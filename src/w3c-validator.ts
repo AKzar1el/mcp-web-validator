@@ -158,7 +158,11 @@ export async function validateCssContent(cssContent: string): Promise<CSSMessage
       };
     };
 
-    const errors = data.cssvalidation?.errors || [];
+    if (!data.cssvalidation || typeof data.cssvalidation !== "object") {
+      throw new Error("W3C CSS validator returned an invalid response shape");
+    }
+
+    const errors = data.cssvalidation.errors || [];
     return errors.slice(0, MAX_VALIDATION_MESSAGES).map(err => ({
       line: err.line || 0,
       type: "error",

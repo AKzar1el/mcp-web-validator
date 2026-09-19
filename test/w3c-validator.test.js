@@ -70,3 +70,17 @@ test("empty CSS validator responses fail instead of producing a clean result", a
     globalThis.fetch = originalFetch;
   }
 });
+
+test("missing CSS validator envelope fails instead of producing a clean result", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({}), { status: 200 });
+
+  try {
+    await assert.rejects(
+      validateCssContent("body { color: black; }"),
+      /CSS validation failed: W3C CSS validator returned an invalid response shape/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

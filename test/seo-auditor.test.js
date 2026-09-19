@@ -93,3 +93,23 @@ test("meta-description warnings keep the editorial thresholds without claiming a
     undefined,
   );
 });
+
+test("heading-count findings avoid unsupported exact-one-H1 SEO penalties", () => {
+  const head = `<head><title>${"T".repeat(40)}</title><meta name="description" content="${"D".repeat(140)}"><meta name="viewport" content="width=device-width"><link rel="canonical" href="https://example.com/"><meta property="og:title" content="Example"><meta property="og:image" content="https://example.com/image.png"></head>`;
+
+  const missing = auditSeoMetadata(`<html>${head}<body><h2>Page title</h2></body></html>`)
+    .find((issue) => issue.message.includes("<h1>"));
+  assert.deepEqual(missing, {
+    severity: "warning",
+    category: "SEO",
+    message: "No <h1> heading found. Review whether the page has a clear main heading and a meaningful heading hierarchy.",
+  });
+
+  const multiple = auditSeoMetadata(`<html>${head}<body><h1>Primary</h1><h1>Secondary</h1></body></html>`)
+    .find((issue) => issue.message.includes("<h1>"));
+  assert.deepEqual(multiple, {
+    severity: "info",
+    category: "SEO",
+    message: "Found multiple (2) <h1> headings. Multiple H1s are not inherently an SEO error; ensure the heading hierarchy is meaningful and the main visual title is clear.",
+  });
+});

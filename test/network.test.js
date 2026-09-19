@@ -5,7 +5,7 @@ import * as path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import puppeteer from "puppeteer";
-import { assertPublicHttpUrl, readResponseText } from "../dist/network.js";
+import { assertPublicHttpUrl, fetchPublicText, readResponseText } from "../dist/network.js";
 import { captureScreenshots } from "../dist/screenshot.js";
 import { checkBrokenLinks } from "../dist/seo-auditor.js";
 import { validateCssContent, validateHtmlContent } from "../dist/w3c-validator.js";
@@ -134,6 +134,51 @@ test("bounded response reader rejects a body beyond the configured cap", async (
     readResponseText(new Response("123456", { headers: { "content-length": "6" } }), 5),
     /exceeds the 5-byte limit/,
   );
+});
+
+test("bounded public text fetch rejects disallowed response content types", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response('{"ok":true}', {
+    status: 200,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+
+  try {
+    await assert.rejects(
+      fetchPublicText("https://1.1.1.1/data", {
+        acceptedContentTypes: ["text/html", "application/xhtml+xml"],
+      }),
+      /unsupported content type application\/json/i,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("bounded public text fetch accepts configured HTML media types with parameters", async () => {
+  const originalFetch = globalThis.fetch;
+  const responses = [
+    new Response("<!doctype html><title>HTML</title>", {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    }),
+    new Response("<html xmlns=\"http://www.w3.org/1999/xhtml\"></html>", {
+      status: 200,
+      headers: { "content-type": "application/xhtml+xml; charset=utf-8" },
+    }),
+  ];
+  globalThis.fetch = async () => responses.shift();
+
+  try {
+    const options = { acceptedContentTypes: ["text/html", "application/xhtml+xml"] };
+    assert.equal((await fetchPublicText("https://1.1.1.1/html", options)).contentType, "text/html; charset=utf-8");
+    assert.equal(
+      (await fetchPublicText("https://1.1.1.1/xhtml", options)).contentType,
+      "application/xhtml+xml; charset=utf-8",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("link checker resolves relative links, deduplicates, and caps requests", async () => {

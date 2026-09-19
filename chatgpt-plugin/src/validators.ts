@@ -75,7 +75,7 @@ async function validateHtmlDetailedWithSignal(
     throw new Error("The Nu HTML Checker returned an invalid JSON payload.");
   }
 
-  const rawMessages = (data as { messages?: unknown }).messages ?? [];
+  const rawMessages = (data as { messages?: unknown }).messages;
   if (!Array.isArray(rawMessages)) {
     throw new Error("The Nu HTML Checker returned an invalid messages payload.");
   }

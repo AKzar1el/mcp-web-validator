@@ -40,6 +40,18 @@ test("JSON-LD audit reports the full total while bounding returned findings", ()
   assert.equal(validateSchemaMarkup(html).length, MAX_AUDIT_ISSUES);
 });
 
+test("JSON-LD audit recognizes media-type parameters without matching unrelated script types", () => {
+  const html = [
+    '<script type="application/ld+json;profile=https://www.w3.org/ns/json-ld#frame">{</script>',
+    '<script type="application/ld+jsonish">{</script>',
+  ].join("");
+
+  const detailed = validateSchemaMarkupDetailed(html);
+  assert.equal(detailed.totalIssues, 1);
+  assert.equal(detailed.issues.length, 1);
+  assert.match(detailed.issues[0].message, /Invalid JSON-LD schema syntax/);
+});
+
 test("title-length warnings keep the editorial thresholds without claiming a fixed Google limit", () => {
   const shortTitle = "s".repeat(29);
   const longTitle = "l".repeat(61);

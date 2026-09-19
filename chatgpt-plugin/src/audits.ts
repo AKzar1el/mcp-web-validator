@@ -43,6 +43,10 @@ function createAuditCollector() {
   };
 }
 
+function isJsonLdScriptType(type: string | undefined): boolean {
+  return type?.split(";", 1)[0].trim().toLowerCase() === "application/ld+json";
+}
+
 /**
  * Checks on-page metadata and accessibility signals without fetching or storing
  * any external content.
@@ -144,7 +148,7 @@ export function auditSeoMetadata(html: string): AuditResult {
 export function validateSchemaMarkup(html: string): AuditResult & { blocksChecked: number } {
   const $ = cheerio.load(html);
   const collector = createAuditCollector();
-  const blocks = $('script[type="application/ld+json"]');
+  const blocks = $("script[type]").filter((_, element) => isJsonLdScriptType($(element).attr("type")));
 
   blocks.each((index, element) => {
     const value = $(element).html()?.trim() ?? "";

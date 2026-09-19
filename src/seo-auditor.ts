@@ -266,7 +266,19 @@ export async function checkBrokenLinks(
   }
   const linkLimit = Math.min(maxLinks, MAX_LINKS_TO_CHECK);
   const $ = cheerio.load(htmlContent);
-  const parsedBaseUrl = baseUrl ? await assertPublicHttpUrl(baseUrl) : undefined;
+  let parsedBaseUrl = baseUrl ? await assertPublicHttpUrl(baseUrl) : undefined;
+  if (!parsedBaseUrl) {
+    const documentBaseHref = $("base[href]").first().attr("href")?.trim();
+    if (documentBaseHref) {
+      try {
+        parsedBaseUrl = await assertPublicHttpUrl(documentBaseHref);
+      } catch (error: unknown) {
+        if (!(error instanceof PublicUrlError)) {
+          throw error;
+        }
+      }
+    }
+  }
   const urls: string[] = [];
   const seenUrls = new Set<string>();
 

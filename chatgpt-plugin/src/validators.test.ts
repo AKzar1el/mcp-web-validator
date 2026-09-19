@@ -81,6 +81,24 @@ describe("public URL filtering", () => {
 });
 
 describe("bounded audits", () => {
+  it("uses evidence-correct H1 guidance without exact-one-heading penalties", () => {
+    const missing = auditSeoMetadata("<html><head></head><body></body></html>");
+    const missingH1 = missing.issues.find((issue) => /h1/i.test(issue.message));
+    expect(missingH1).toEqual({
+      severity: "warning",
+      category: "SEO",
+      message: "No <h1> heading found. Review whether the page has a clear main heading and a meaningful heading hierarchy.",
+    });
+
+    const multiple = auditSeoMetadata("<html><head></head><body><h1>One</h1><h1>Two</h1></body></html>");
+    const multipleH1 = multiple.issues.find((issue) => /h1/i.test(issue.message));
+    expect(multipleH1).toEqual({
+      severity: "info",
+      category: "SEO",
+      message: "Found multiple (2) <h1> headings. Multiple H1s are not inherently an SEO error; ensure the heading hierarchy is meaningful and the main visual title is clear.",
+    });
+  });
+
   it("caps SEO findings while retaining the total", () => {
     const html = `<html><head><title>${"A".repeat(40)}</title><meta name="description" content="${"D".repeat(140)}"><meta name="viewport" content="width=device-width"><link rel="canonical" href="https://example.com"><meta property="og:title" content="x"><meta property="og:image" content="x"></head><body><h1>Title</h1>${"<img src=x>".repeat(150)}</body></html>`;
     const result = auditSeoMetadata(html);

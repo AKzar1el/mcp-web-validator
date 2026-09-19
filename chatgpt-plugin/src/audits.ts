@@ -104,15 +104,15 @@ export function auditSeoMetadata(html: string): AuditResult {
   const h1Count = $("h1").length;
   if (h1Count === 0) {
     collector.add({
-      severity: "error",
+      severity: "warning",
       category: "SEO",
-      message: "Missing an H1 heading.",
+      message: "No <h1> heading found. Review whether the page has a clear main heading and a meaningful heading hierarchy.",
     });
   } else if (h1Count > 1) {
     collector.add({
-      severity: "warning",
+      severity: "info",
       category: "SEO",
-      message: `Found ${h1Count} H1 headings; use one primary H1 unless there is a clear structural reason not to.`,
+      message: `Found multiple (${h1Count}) <h1> headings. Multiple H1s are not inherently an SEO error; ensure the heading hierarchy is meaningful and the main visual title is clear.`,
     });
   }
 

@@ -1,10 +1,10 @@
-import { createMcpHandler } from "agents/mcp";
+import { createMcpHandler } from "agents/mcp/server";
 import {
   registerAppResource,
   registerAppTool,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { auditSeoMetadata, checkBrokenLinks, validateSchemaMarkup } from "./audits";
 import {
@@ -1428,7 +1428,7 @@ export default {
         return jsonRpcHttpError(413, "MCP request body exceeds the 2 MiB limit.", origin);
       }
 
-      const handler = createMcpHandler(createServer(env, siteAuditRateLimitKey), {
+      const handler = createMcpHandler(() => createServer(env, siteAuditRateLimitKey), {
         corsOptions: {
           origin: origin ?? "https://chatgpt.com",
           headers:

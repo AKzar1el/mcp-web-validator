@@ -15,8 +15,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@modelcontextprotocol/ext-apps": "^1.7.4",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/ext-apps": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "agents": "^0.21.0",
     "cheerio": "^1.0.0",
     "ipaddr.js": "^2.5.0",

@@ -75,6 +75,7 @@ export interface PublicFetchOptions {
 
 export interface PublicTextOptions extends PublicFetchOptions {
   maxBytes?: number;
+  acceptedContentTypes?: readonly string[];
 }
 
 export interface PublicTextResult {
@@ -326,11 +327,21 @@ export async function fetchPublicText(
     throw new Error(`URL returned HTTP status ${status}`);
   }
 
+  const contentTypeHeader = response.headers.get("content-type");
+  const contentType = contentTypeHeader?.split(";", 1)[0]?.trim().toLowerCase() || null;
+  if (
+    options.acceptedContentTypes
+    && !options.acceptedContentTypes.some((accepted) => accepted.trim().toLowerCase() === contentType)
+  ) {
+    await cancelResponseBody(response);
+    throw new Error(`URL returned unsupported content type ${contentType ?? "missing"}`);
+  }
+
   return {
     text: await readResponseText(response, maxBytes),
     url: url.href,
     status: response.status,
-    contentType: response.headers.get("content-type"),
+    contentType: contentTypeHeader,
   };
 }
 

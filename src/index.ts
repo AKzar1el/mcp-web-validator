@@ -309,8 +309,9 @@ export function createServer(): McpServer {
           maxBytes: HTML_MAX_BYTES,
           timeoutMs: 15_000,
           maxRedirects: 3,
+          acceptedContentTypes: ["text/html", "application/xhtml+xml"],
           headers: {
-            accept: "text/html,application/xhtml+xml;q=0.9,text/plain;q=0.5",
+            accept: "text/html,application/xhtml+xml;q=0.9",
             "user-agent": `DigestSEO-Web-Validator/${SERVER_VERSION} (+https://digestseo.com/validator-mcp/)`,
           },
         });

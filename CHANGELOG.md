@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-09-20
+
+### Fixed
+
+- Rejected mismatched explicit HTTP/HTTPS port pairs in the local public-URL boundary while preserving normalized default ports.
+- Matched the standard `meta name="description"` keyword ASCII case-insensitively in both local and hosted SEO audits, preventing valid mixed-case metadata from being reported missing.
+- Matched hosted robots.txt crawler groups to the exact case-insensitive product token instead of accepting prefix-only groups.
+- Normalized robots.txt percent encoding according to RFC 9309 comparison rules, including unreserved-octet decoding while preserving reserved escapes.
+
 ## [1.3.3] - 2026-09-20
 
 ### Fixed

@@ -175,14 +175,32 @@ function addUniqueUrl(target: URL[], seen: Set<string>, url: URL): boolean {
   return true;
 }
 
+function normalizeRobotsComparisonValue(value: string): string {
+  const unreserved = /^[A-Za-z0-9._~-]$/;
+  // RFC 9309 decodes percent-encoded ASCII unreserved octets, but keeps
+  // reserved/non-ASCII octets encoded for the robots path comparison.
+  const withCanonicalEscapes = value.replace(/%([0-9A-Fa-f]{2})/g, (_match, hex: string) => {
+    const decoded = String.fromCharCode(Number.parseInt(hex, 16));
+    return unreserved.test(decoded) ? decoded : `%${hex.toUpperCase()}`;
+  });
+
+  return withCanonicalEscapes.replace(/[^\x00-\x7F]/gu, (character) =>
+    Array.from(new TextEncoder().encode(character), (byte) =>
+      `%${byte.toString(16).toUpperCase().padStart(2, "0")}`,
+    ).join(""),
+  );
+}
+
 function robotsPatternMatches(path: string, rule: string): boolean {
   if (!rule) return false;
-  const anchored = rule.endsWith("$");
-  const source = anchored ? rule.slice(0, -1) : rule;
+  const normalizedPath = normalizeRobotsComparisonValue(path);
+  const normalizedRule = normalizeRobotsComparisonValue(rule);
+  const anchored = normalizedRule.endsWith("$");
+  const source = anchored ? normalizedRule.slice(0, -1) : normalizedRule;
   const escaped = source
     .replace(/[|\\{}()[\]^$+?.]/g, "\\$&")
     .replaceAll("*", ".*");
-  return new RegExp(`^${escaped}${anchored ? "$" : ""}`).test(path);
+  return new RegExp(`^${escaped}${anchored ? "$" : ""}`).test(normalizedPath);
 }
 
 /** Parses the supported, public robots directives without interpreting arbitrary content. */

@@ -113,6 +113,14 @@ describe("bounded audits", () => {
       message: "Missing or empty canonical link target. Add a non-empty href to <link rel=\"canonical\"> when this page needs an explicit canonical signal.",
     });
   });
+
+  it("matches the standard meta description name ASCII case-insensitively", () => {
+    const description = "D".repeat(140);
+    const result = auditSeoMetadata(`<meta name="Description" content="${description}">`);
+
+    expect(result.issues.find((issue) => issue.code === "seo.meta_description.missing_or_empty")).toBeUndefined();
+    expect(result.issues.find((issue) => issue.code === "seo.meta_description.length")).toBeUndefined();
+  });
   it("caps SEO findings while retaining the total", () => {
     const html = `<html><head><title>${"A".repeat(40)}</title><meta name="description" content="${"D".repeat(140)}"><meta name="viewport" content="width=device-width"><link rel="canonical" href="https://example.com"><meta property="og:title" content="x"><meta property="og:image" content="x"></head><body><h1>Title</h1>${"<img src=x>".repeat(150)}</body></html>`;
     const result = auditSeoMetadata(html);

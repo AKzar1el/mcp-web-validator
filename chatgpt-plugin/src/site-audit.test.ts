@@ -25,6 +25,18 @@ describe("robots rules", () => {
     expect(isAllowedByRobots(new URL("https://example.com/private/public"), rules.rules)).toBe(true);
     expect(isAllowedByRobots(new URL("https://example.com/other"), rules.rules)).toBe(true);
   });
+
+  it("falls back to wildcard rules when only a prefix of the crawler product token is named", () => {
+    const rules = parseRobotsTxt([
+      "User-agent: DigestSEO",
+      "Allow: /",
+      "",
+      "User-agent: *",
+      "Disallow: /",
+    ].join("\n"), "https://example.com");
+
+    expect(isAllowedByRobots(new URL("https://example.com/private"), rules.rules)).toBe(false);
+  });
 });
 
 describe("auditPublicSite", () => {

@@ -122,10 +122,14 @@ test("public URL policy blocks local, reserved, credentialed, and custom-port ta
     "http://[::1]/",
     "https://user:password@1.1.1.1/",
     "https://1.1.1.1:8443/",
+    "http://1.1.1.1:443/",
+    "https://1.1.1.1:80/",
   ]) {
     await assert.rejects(assertPublicHttpUrl(url), /not public|credentials|ports|address/i);
   }
 
+  assert.equal((await assertPublicHttpUrl("http://1.1.1.1:80/")).href, "http://1.1.1.1/");
+  assert.equal((await assertPublicHttpUrl("https://1.1.1.1:443/")).href, "https://1.1.1.1/");
   assert.equal((await assertPublicHttpUrl("https://1.1.1.1/path#fragment")).href, "https://1.1.1.1/path");
 });
 

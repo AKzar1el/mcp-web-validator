@@ -62,10 +62,10 @@ jobs:
             | tar xz -C "$RUNNER_TEMP" mcp-publisher
 
       - name: Validate Registry metadata
-        run: "$RUNNER_TEMP/mcp-publisher" validate registry/server.json
+        run: '"$RUNNER_TEMP/mcp-publisher" validate registry/server.json'
 
       - name: Authenticate with GitHub OIDC
-        run: "$RUNNER_TEMP/mcp-publisher" login github-oidc
+        run: '"$RUNNER_TEMP/mcp-publisher" login github-oidc'
 
       - name: Publish to Official MCP Registry
-        run: "$RUNNER_TEMP/mcp-publisher" publish registry/server.json
+        run: '"$RUNNER_TEMP/mcp-publisher" publish registry/server.json'

@@ -293,6 +293,18 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+/** Resolves the first document <base href> against a known public fallback URL. */
+export function resolveDocumentBaseUrl(html: string, fallbackBaseUrl: string): string {
+  const safeFallback = toPublicHttpUrl(fallbackBaseUrl)?.toString();
+  if (!safeFallback) {
+    throw new Error("fallback base URL must be a public HTTP(S) URL on port 80 or 443.");
+  }
+
+  const $ = cheerio.load(html);
+  const href = $("base[href]").first().attr("href")?.trim();
+  if (!href) return safeFallback;
+  return toPublicHttpUrl(href, safeFallback)?.toString() ?? safeFallback;
+}
 /**
  * Checks a capped set of public HTTP(S) links. It does not follow redirects,
  * request custom ports, or return response bodies.

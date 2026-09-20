@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import dns from "node:dns";
+import { syncBuiltinESMExports } from "node:module";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -131,6 +133,42 @@ test("public URL policy blocks local, reserved, credentialed, and custom-port ta
   assert.equal((await assertPublicHttpUrl("http://1.1.1.1:80/")).href, "http://1.1.1.1/");
   assert.equal((await assertPublicHttpUrl("https://1.1.1.1:443/")).href, "https://1.1.1.1/");
   assert.equal((await assertPublicHttpUrl("https://1.1.1.1/path#fragment")).href, "https://1.1.1.1/path");
+});
+
+test("public fetch pins validated hostname resolution before transport", async () => {
+  const originalLookup = dns.promises.lookup;
+  const originalFetch = globalThis.fetch;
+  let lookupCalls = 0;
+  let dispatcherSeen = false;
+
+  dns.promises.lookup = async (_hostname, options) => {
+    lookupCalls += 1;
+    const address = lookupCalls === 1 ? "1.1.1.1" : "127.0.0.1";
+    const record = { address, family: 4 };
+    return options?.all ? [record] : record;
+  };
+  syncBuiltinESMExports();
+
+  globalThis.fetch = async (input, init) => {
+    dispatcherSeen = Boolean(init?.dispatcher);
+    if (!dispatcherSeen) {
+      await dns.promises.lookup(new URL(String(input)).hostname, { all: true, verbatim: true });
+    }
+    return new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
+  };
+
+  try {
+    const result = await fetchPublicText("https://rebind.example.org/", {
+      acceptedContentTypes: ["text/plain"],
+    });
+    assert.equal(result.text, "ok");
+    assert.equal(dispatcherSeen, true, "validated DNS answers must be pinned into the HTTP transport");
+    assert.equal(lookupCalls, 1, "transport must not perform an independent hostname lookup after validation");
+  } finally {
+    globalThis.fetch = originalFetch;
+    dns.promises.lookup = originalLookup;
+    syncBuiltinESMExports();
+  }
 });
 
 test("bounded response reader rejects a body beyond the configured cap", async () => {

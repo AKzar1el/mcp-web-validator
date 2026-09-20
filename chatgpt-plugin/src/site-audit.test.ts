@@ -37,6 +37,18 @@ describe("robots rules", () => {
 
     expect(isAllowedByRobots(new URL("https://example.com/private"), rules.rules)).toBe(false);
   });
+
+  it("normalizes percent-encoded unreserved octets while preserving reserved encodings", () => {
+    const rules = parseRobotsTxt([
+      "User-agent: DigestSEO-Web-Validator",
+      "Disallow: /foo/bar/%62%61%7A",
+      "Disallow: /encoded-slash/%2Fprivate",
+    ].join("\n"), "https://example.com");
+
+    expect(isAllowedByRobots(new URL("https://example.com/foo/bar/baz"), rules.rules)).toBe(false);
+    expect(isAllowedByRobots(new URL("https://example.com/encoded-slash/%2Fprivate"), rules.rules)).toBe(false);
+    expect(isAllowedByRobots(new URL("https://example.com/encoded-slash//private"), rules.rules)).toBe(true);
+  });
 });
 
 describe("auditPublicSite", () => {

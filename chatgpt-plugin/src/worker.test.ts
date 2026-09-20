@@ -641,6 +641,74 @@ describe("public webpage audit", () => {
       .toBe(true);
   });
 
+  it("uses the first safe document base href to resolve optional relative links", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(target);
+      if (url === "https://example.com/folder/page") {
+        return new Response(
+          '<!doctype html><head><base href="https://assets.example.org/docs/"></head><body><a href="child">Child</a></body>',
+          { headers: { "content-type": "text/html" } },
+        );
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      if (url === "https://assets.example.org/docs/child" && init?.method === "HEAD") {
+        return new Response(null, { status: 200 });
+      }
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callTool("audit_public_webpage", {
+      url: "https://example.com/folder/page",
+      check_links: true,
+      max_links: 1,
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      fetched_url: "https://example.com/folder/page",
+      links_requested: true,
+      links_checked: 1,
+      healthy_links: 1,
+      unreachable_links: 0,
+    });
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://assets.example.org/docs/child"))
+      .toBe(true);
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/folder/child"))
+      .toBe(false);
+  });
+  it("falls back to the fetched URL when the first document base href is not public", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(target);
+      if (url === "https://example.com/folder/page") {
+        return new Response(
+          '<!doctype html><head><base href="http://127.0.0.1/private/"></head><body><a href="child">Child</a></body>',
+          { headers: { "content-type": "text/html" } },
+        );
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      if (url === "https://example.com/folder/child" && init?.method === "HEAD") {
+        return new Response(null, { status: 200 });
+      }
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callTool("audit_public_webpage", {
+      url: "https://example.com/folder/page",
+      check_links: true,
+      max_links: 1,
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      links_checked: 1,
+      healthy_links: 1,
+      unreachable_links: 0,
+    });
+    expect(fetchMock.mock.calls.some(([target]) => String(target).startsWith("http://127.0.0.1/")))
+      .toBe(false);
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/folder/child"))
+      .toBe(true);
+  });
   it("returns a clear failure and performs no validation for a blocked URL", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

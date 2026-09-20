@@ -230,7 +230,7 @@ export function parseRobotsTxt(value: string, origin: string): ParsedRobots {
   for (const group of groups) {
     const specificity = group.agents.reduce((best, agent) => {
       if (agent === "*") return Math.max(best, 0);
-      return SITE_AUDIT_USER_AGENT.startsWith(agent) ? Math.max(best, agent.length) : best;
+      return SITE_AUDIT_USER_AGENT === agent ? Math.max(best, agent.length) : best;
     }, -1);
     if (specificity > bestSpecificity) {
       bestSpecificity = specificity;

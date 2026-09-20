@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-09-20
+
+### Fixed
+
+- Preserved W3C Jigsaw's `@container` diagnostic while marking its known parser limitation and withholding misleading CSS/overall heuristic scores when that limitation is present.
+
 ## [1.3.0] - 2026-09-20
 
 ### Added

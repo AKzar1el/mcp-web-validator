@@ -170,8 +170,10 @@ export async function assertPublicHttpUrl(input: string | URL): Promise<URL> {
   if (parsed.username || parsed.password) {
     throw new PublicUrlError("URLs containing credentials are not allowed");
   }
-  if (parsed.port && parsed.port !== "80" && parsed.port !== "443") {
-    throw new PublicUrlError("Only standard HTTP ports 80 and 443 are allowed");
+  // URL normalizes matching defaults (HTTP :80 / HTTPS :443) to an empty port.
+  // Any remaining port is custom or mismatched to the scheme and must be rejected.
+  if (parsed.port) {
+    throw new PublicUrlError("Only default HTTP and HTTPS ports are allowed");
   }
 
   parsed.hash = "";

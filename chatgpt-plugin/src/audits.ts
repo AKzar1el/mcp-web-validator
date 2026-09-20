@@ -73,7 +73,7 @@ export function auditSeoMetadata(html: string): AuditResult {
     });
   }
 
-  const description = $('meta[name="description"]').first().attr("content")?.trim() ?? "";
+  const description = $('meta[name="description" i]').first().attr("content")?.trim() ?? "";
   if (!description) {
     collector.add({
       code: "seo.meta_description.missing_or_empty",

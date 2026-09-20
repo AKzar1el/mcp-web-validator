@@ -87,6 +87,17 @@ test("canonical detection follows HTML rel token semantics and requires a non-em
     message: "Missing or empty canonical link target. Add a non-empty href to <link rel=\"canonical\"> when this page needs an explicit canonical signal.",
   });
 });
+
+test("meta description name matching follows HTML ASCII case-insensitive semantics", () => {
+  const description = "D".repeat(140);
+  const issues = auditSeoMetadata(`<meta name="Description" content="${description}">`);
+
+  assert.equal(
+    issues.find((issue) => issue.code === "seo.meta_description.missing_or_empty"),
+    undefined,
+  );
+  assert.equal(issues.find((issue) => issue.code === "seo.meta_description.length"), undefined);
+});
 test("title-length warnings keep the editorial thresholds without claiming a fixed Google limit", () => {
   const shortTitle = "s".repeat(29);
   const longTitle = "l".repeat(61);

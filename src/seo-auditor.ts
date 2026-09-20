@@ -114,7 +114,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   }
 
   // --- Meta Description Audits ---
-  const metaDescription = $('meta[name="description"]');
+  const metaDescription = $('meta[name="description" i]');
   if (metaDescription.length === 0) {
     add({
       code: "seo.meta_description.missing_or_empty",

@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-09-20
+
+### Fixed
+
+- Aligned local and hosted canonical-link detection with HTML `rel` token semantics and now flags canonical links with an empty target instead of treating them as valid.
+
 ## [1.3.2] - 2026-09-20
 
 ### Fixed

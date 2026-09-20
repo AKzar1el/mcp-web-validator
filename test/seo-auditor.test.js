@@ -74,6 +74,19 @@ test("audit findings expose stable machine-readable rule codes", () => {
   assert.equal(schema[0]?.code, "schema.jsonld.invalid_json");
 });
 
+
+test("canonical detection follows HTML rel token semantics and requires a non-empty href", () => {
+  const valid = auditSeoMetadata('<link rel="Alternate CANONICAL" href="https://example.com/page">');
+  assert.equal(valid.find((issue) => issue.code === "seo.canonical.missing"), undefined);
+
+  const empty = auditSeoMetadata('<link rel="canonical" href="   ">');
+  assert.deepEqual(empty.find((issue) => issue.code === "seo.canonical.missing"), {
+    code: "seo.canonical.missing",
+    severity: "warning",
+    category: "SEO",
+    message: "Missing or empty canonical link target. Add a non-empty href to <link rel=\"canonical\"> when this page needs an explicit canonical signal.",
+  });
+});
 test("title-length warnings keep the editorial thresholds without claiming a fixed Google limit", () => {
   const shortTitle = "s".repeat(29);
   const longTitle = "l".repeat(61);

@@ -101,6 +101,18 @@ describe("bounded audits", () => {
     });
   });
 
+  it("recognizes canonical rel tokens case-insensitively and rejects empty href values", () => {
+    const valid = auditSeoMetadata('<link rel="alternate CANONICAL" href="https://example.com/page">');
+    expect(valid.issues.find((issue) => issue.code === "seo.canonical.missing")).toBeUndefined();
+
+    const empty = auditSeoMetadata('<link rel="canonical" href="   ">');
+    expect(empty.issues.find((issue) => issue.code === "seo.canonical.missing")).toEqual({
+      code: "seo.canonical.missing",
+      severity: "warning",
+      category: "SEO",
+      message: "Missing or empty canonical link target. Add a non-empty href to <link rel=\"canonical\"> when this page needs an explicit canonical signal.",
+    });
+  });
   it("caps SEO findings while retaining the total", () => {
     const html = `<html><head><title>${"A".repeat(40)}</title><meta name="description" content="${"D".repeat(140)}"><meta name="viewport" content="width=device-width"><link rel="canonical" href="https://example.com"><meta property="og:title" content="x"><meta property="og:image" content="x"></head><body><h1>Title</h1>${"<img src=x>".repeat(150)}</body></html>`;
     const result = auditSeoMetadata(html);

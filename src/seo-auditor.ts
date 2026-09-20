@@ -151,13 +151,20 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   }
 
   // --- Canonical Link ---
-  const canonical = $('link[rel="canonical"]');
+  const canonical = $("link[rel]").filter((_, element) => {
+    const rel = $(element).attr("rel") ?? "";
+    const hasCanonicalToken = rel
+      .trim()
+      .split(/[\t\n\f\r ]+/)
+      .some((token) => token.toLowerCase() === "canonical");
+    return hasCanonicalToken && Boolean($(element).attr("href")?.trim());
+  });
   if (canonical.length === 0) {
     add({
       code: "seo.canonical.missing",
       severity: "warning",
       category: "SEO",
-      message: "Missing canonical tag (<link rel=\"canonical\">). This helps prevent duplicate content issues.",
+      message: "Missing or empty canonical link target. Add a non-empty href to <link rel=\"canonical\"> when this page needs an explicit canonical signal.",
     });
   }
 

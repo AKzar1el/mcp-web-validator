@@ -229,6 +229,10 @@
                 },
                 "context": {
                   "type": "string"
+                },
+                "compatibility": {
+                  "type": "string",
+                  "const": "known-validator-limitation"
                 }
               },
               "required": [
@@ -654,6 +658,11 @@
                 "minimum": 0,
                 "maximum": 9007199254740991
               },
+              "cssCompatibilityLimitations": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
               "seoErrors": {
                 "type": "integer",
                 "minimum": 0,
@@ -689,6 +698,7 @@
               "htmlErrors",
               "htmlWarnings",
               "cssErrors",
+              "cssCompatibilityLimitations",
               "seoErrors",
               "seoWarnings",
               "schemaErrors",
@@ -757,6 +767,10 @@
                 },
                 "context": {
                   "type": "string"
+                },
+                "compatibility": {
+                  "type": "string",
+                  "const": "known-validator-limitation"
                 }
               },
               "required": [

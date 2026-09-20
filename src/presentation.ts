@@ -138,16 +138,28 @@ export function cssValidationContent(messages: CSSMessage[]): string {
     });
   }
 
+  const compatibilityLimitations = messages.filter(
+    (message) => message.compatibility === "known-validator-limitation",
+  );
+  const actionableErrors = messages.length - compatibilityLimitations.length;
+
   return toolContent({
     title: "CSS validation",
-    status: "attention needed",
-    outcome: `The W3C validator returned ${countLabel(messages.length, "CSS error")}.`,
+    status: actionableErrors > 0 ? "attention needed" : "review suggested",
+    outcome: compatibilityLimitations.length > 0
+      ? `The W3C validator returned ${countLabel(messages.length, "CSS error")}; ${countLabel(compatibilityLimitations.length, "diagnostic")} ${compatibilityLimitations.length === 1 ? "matches" : "match"} a known validator limitation.`
+      : `The W3C validator returned ${countLabel(messages.length, "CSS error")}.`,
     actions: messages.map((message) => ({
-      priority: 0,
+      priority: message.compatibility === "known-validator-limitation" ? 2 : 0,
       message: message.context ? `${message.message} Context: ${message.context}` : message.message,
       location: formatLocation(message.line),
     })),
-    nextStep: "Correct the first errors, then rerun CSS validation because one syntax issue can cause later diagnostics.",
+    nextStep: actionableErrors > 0
+      ? "Correct the actionable errors, then rerun CSS validation because one syntax issue can cause later diagnostics."
+      : "Review the marked @container diagnostic against current CSS specifications; do not treat it as invalid CSS by itself.",
+    note: compatibilityLimitations.length > 0
+      ? "Jigsaw currently does not recognize the standards-defined @container rule. The upstream diagnostic is preserved and marked as a known validator limitation."
+      : undefined,
   });
 }
 
@@ -308,7 +320,7 @@ function reportActionItems(reportData: ValidationReportResult): ActionItem[] {
       location: formatLocation(message.lastLine ?? message.firstLine, message.lastColumn ?? message.firstColumn),
     })),
     ...reportData.cssMessages.map((message) => ({
-      priority: 0 as const,
+      priority: message.compatibility === "known-validator-limitation" ? 2 as const : 0 as const,
       message: `CSS: ${message.message}`,
       location: formatLocation(message.line),
     })),
@@ -335,18 +347,23 @@ export function reportContent(reportData: ValidationReportResult): string {
   const { summary } = reportData;
   const actions = reportActionItems(reportData);
   const partial = reportData.failedChecks.length > 0;
+  const compatibilityLimited = summary.cssCompatibilityLimitations > 0;
   const hasActionableFinding = actions.some((action) => action.priority < 2);
   const status = partial
     ? "partial"
-    : actions.length === 0
-    ? "clean across completed checks"
-    : hasActionableFinding
-      ? "attention needed"
-      : "review suggested";
+    : compatibilityLimited
+      ? "compatibility-limited"
+      : actions.length === 0
+        ? "clean across completed checks"
+        : hasActionableFinding
+          ? "attention needed"
+          : "review suggested";
   const cssSummary = summary.cssScore === null
     ? reportData.failedChecks.includes("css")
       ? "CSS validation unavailable"
-      : "CSS not audited"
+      : compatibilityLimited
+        ? `${countLabel(summary.cssErrors, "CSS error")}, including ${countLabel(summary.cssCompatibilityLimitations, "known validator limitation")}`
+        : "CSS not audited"
     : countLabel(summary.cssErrors, "CSS error");
   const redirects = reportData.links.filter(isRedirect).length;
   const linkSummary = summary.linkScore === null
@@ -370,16 +387,22 @@ export function reportContent(reportData: ValidationReportResult): string {
     status,
     outcome: partial
       ? `Partial validation report: ${unavailableChecks.join(", ")} ${unavailableChecks.length === 1 ? "was" : "were"} unavailable; remaining checks completed. HTML has ${countLabel(summary.htmlErrors, "error")}; ${cssSummary}; SEO has ${countLabel(summary.seoErrors, "error")}; JSON-LD has ${countLabel(summary.schemaErrors, "syntax error")}; ${linkSummary}.`
-      : `The report's heuristic overall score is **${summary.overallScore}/100**. HTML has ${countLabel(summary.htmlErrors, "error")} and ${countLabel(summary.htmlWarnings, "other diagnostic")}; ${cssSummary}; SEO has ${countLabel(summary.seoErrors, "error")} and ${countLabel(summary.seoWarnings, "warning")}; JSON-LD has ${countLabel(summary.schemaErrors, "syntax error")}; ${linkSummary}.`,
+      : compatibilityLimited
+        ? `The overall heuristic score is withheld because CSS validation includes ${countLabel(summary.cssCompatibilityLimitations, "known validator limitation")}. HTML has ${countLabel(summary.htmlErrors, "error")} and ${countLabel(summary.htmlWarnings, "other diagnostic")}; ${cssSummary}; SEO has ${countLabel(summary.seoErrors, "error")} and ${countLabel(summary.seoWarnings, "warning")}; JSON-LD has ${countLabel(summary.schemaErrors, "syntax error")}; ${linkSummary}.`
+        : `The report's heuristic overall score is **${summary.overallScore}/100**. HTML has ${countLabel(summary.htmlErrors, "error")} and ${countLabel(summary.htmlWarnings, "other diagnostic")}; ${cssSummary}; SEO has ${countLabel(summary.seoErrors, "error")} and ${countLabel(summary.seoWarnings, "warning")}; JSON-LD has ${countLabel(summary.schemaErrors, "syntax error")}; ${linkSummary}.`,
     actions,
     nextStep: partial
       ? "Review the completed findings, then retry the unavailable checks."
-      : actions.length === 0
-      ? "Use the full Markdown report as the audit record and rerun it after meaningful page changes."
-      : "Work through these priorities, then regenerate the report to compare the heuristic score.",
+      : compatibilityLimited
+        ? "Review actionable findings normally, and treat the marked @container diagnostic as an upstream validator limitation rather than proof of invalid CSS."
+        : actions.length === 0
+          ? "Use the full Markdown report as the audit record and rerun it after meaningful page changes."
+          : "Work through these priorities, then regenerate the report to compare the heuristic score.",
     note: partial
       ? "No overall score is shown while one or more checks are unavailable."
-      : "The score is a triage heuristic based on these checks, not a Lighthouse score or a search-ranking prediction.",
+      : compatibilityLimited
+        ? "CSS and overall scores are withheld while a known Jigsaw parser limitation is present; the original upstream diagnostic remains visible."
+        : "The score is a triage heuristic based on these checks, not a Lighthouse score or a search-ranking prediction.",
   });
 }
 

@@ -20,6 +20,7 @@ export interface CSSMessage {
   type: string;
   message: string;
   context?: string;
+  compatibility?: "known-validator-limitation";
 }
 
 const VALIDATOR_TIMEOUT_MS = 20_000;
@@ -28,6 +29,12 @@ export const MAX_CSS_VALIDATION_BYTES = 128_000;
 const MAX_VALIDATOR_RESPONSE_BYTES = 5_000_000;
 const USER_AGENT = `mcp-web-validator/${PACKAGE_VERSION} (+https://digestseo.com/validator-mcp/)`;
 export const MAX_VALIDATION_MESSAGES = 200;
+
+function isKnownCssValidatorLimitation(type: string | undefined, message: string): boolean {
+  if (type?.trim().toLowerCase() !== "at-rule") return false;
+  const normalized = message.trim().toLowerCase().replace(/[“”"'‘’]/g, "");
+  return normalized === "unrecognized at-rule @container";
+}
 
 function assertContentSize(content: string, maxBytes: number, label: string): void {
   const size = Buffer.byteLength(content, "utf8");
@@ -163,12 +170,18 @@ export async function validateCssContent(cssContent: string): Promise<CSSMessage
     }
 
     const errors = data.cssvalidation.errors || [];
-    return errors.slice(0, MAX_VALIDATION_MESSAGES).map(err => ({
-      line: err.line || 0,
-      type: "error",
-      message: err.message ? err.message.trim() : "Unknown CSS validation error",
-      context: err.context || undefined
-    }));
+    return errors.slice(0, MAX_VALIDATION_MESSAGES).map((err) => {
+      const message = err.message ? err.message.trim() : "Unknown CSS validation error";
+      return {
+        line: err.line || 0,
+        type: "error",
+        message,
+        context: err.context || undefined,
+        ...(isKnownCssValidatorLimitation(err.type, message)
+          ? { compatibility: "known-validator-limitation" as const }
+          : {}),
+      };
+    });
   } catch (error: unknown) {
     throw new Error(`CSS validation failed: ${getErrorMessage(error)}`);
   }

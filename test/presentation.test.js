@@ -60,6 +60,23 @@ test("all action-based narrations use the shared escaping boundary", () => {
   }
 });
 
+test("CSS narration treats known Jigsaw parser gaps as review items while preserving the diagnostic", () => {
+  const output = cssValidationContent([
+    {
+      type: "error",
+      line: 1,
+      message: "Unrecognized at-rule “@container”",
+      compatibility: "known-validator-limitation",
+    },
+  ]);
+
+  assert.match(output, /^### CSS validation: review suggested/m);
+  assert.match(output, /known validator limitation/i);
+  assert.match(output, /Unrecognized/);
+  assert.match(output, /\*\*Check\*\*/);
+  assert.doesNotMatch(output, /\*\*Error\*\*/);
+});
+
 test("link narration treats redirects as review items instead of broken links", () => {
   const output = linkCheckContent([
     { url: "https://example.test/redirect", status: 301, ok: true, message: "Redirect not followed" },

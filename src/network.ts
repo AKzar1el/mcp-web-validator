@@ -2,6 +2,7 @@ import { lookup } from "node:dns/promises";
 import * as fs from "node:fs/promises";
 import { BlockList, isIP } from "node:net";
 import * as path from "node:path";
+import { Agent } from "undici";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_REDIRECTS = 5;
@@ -90,6 +91,11 @@ export interface PublicHttpResult {
   url: URL;
 }
 
+interface ResolvedPublicHttpUrl {
+  url: URL;
+  addresses: Array<{ address: string; family: number }>;
+}
+
 export class PublicUrlError extends Error {
   override readonly name = "PublicUrlError";
 }
@@ -151,7 +157,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
  * Parses an HTTP(S) URL and rejects hostnames that resolve to local, private,
  * documentation, multicast, or otherwise non-public address space.
  */
-export async function assertPublicHttpUrl(input: string | URL): Promise<URL> {
+async function resolvePublicHttpUrl(input: string | URL): Promise<ResolvedPublicHttpUrl> {
   const rawUrl = input instanceof URL ? input.href : input;
   if (typeof rawUrl !== "string" || rawUrl.length === 0 || rawUrl.length > MAX_URL_LENGTH) {
     throw new PublicUrlError(`URL must contain between 1 and ${MAX_URL_LENGTH} characters`);
@@ -209,7 +215,11 @@ export async function assertPublicHttpUrl(input: string | URL): Promise<URL> {
     }
   }
 
-  return parsed;
+  return { url: parsed, addresses: resolvedAddresses };
+}
+
+export async function assertPublicHttpUrl(input: string | URL): Promise<URL> {
+  return (await resolvePublicHttpUrl(input)).url;
 }
 
 export async function cancelResponseBody(response: Response): Promise<void> {
@@ -263,6 +273,41 @@ export async function readResponseText(response: Response, maxBytes: number): Pr
   }
 }
 
+function createPinnedDispatcher(
+  resolvedAddresses: ReadonlyArray<{ address: string; family: number }>,
+): Agent {
+  const addresses = resolvedAddresses.map((record) => ({ ...record }));
+
+  return new Agent({
+    // Every validated request gets its own non-reused connection so a later DNS
+    // answer cannot replace the address set approved for this hop.
+    pipelining: 0,
+    connect: {
+      lookup: (_hostname, options, callback) => {
+        const requestedFamily = options.family === 4 || options.family === 6 ? options.family : 0;
+        const candidates = requestedFamily
+          ? addresses.filter((record) => record.family === requestedFamily)
+          : addresses;
+
+        if (candidates.length === 0) {
+          const error = new Error("No validated address is available for the requested IP family") as NodeJS.ErrnoException;
+          error.code = "ENOTFOUND";
+          callback(error, []);
+          return;
+        }
+
+        if (options.all) {
+          callback(null, candidates);
+          return;
+        }
+
+        const selected = candidates[0];
+        callback(null, selected.address, selected.family);
+      },
+    },
+  });
+}
+
 /** Fetches a public HTTP(S) URL while validating every redirect target. */
 export async function fetchPublicHttp(
   input: string | URL,
@@ -275,36 +320,45 @@ export async function fetchPublicHttp(
     throw new Error("maxRedirects must be an integer between 0 and 10");
   }
 
-  let currentUrl = await assertPublicHttpUrl(input);
+  let currentTarget = await resolvePublicHttpUrl(input);
   for (let redirectCount = 0; ; redirectCount += 1) {
-    const response = await fetch(currentUrl, {
-      method: options.method ?? "GET",
-      headers: options.headers,
-      redirect: "manual",
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    const dispatcher = createPinnedDispatcher(currentTarget.addresses);
+    let response: Response;
+    try {
+      response = await fetch(currentTarget.url, {
+        method: options.method ?? "GET",
+        headers: options.headers,
+        redirect: "manual",
+        signal: AbortSignal.timeout(timeoutMs),
+        dispatcher,
+      } as RequestInit & { dispatcher: Agent });
+    } catch (error) {
+      await dispatcher.close();
+      throw error;
+    }
 
     if (!redirectStatuses.has(response.status)) {
-      return { response, url: currentUrl };
+      return { response, url: currentTarget.url };
     }
 
     const location = response.headers.get("location");
     if (!location) {
-      return { response, url: currentUrl };
+      return { response, url: currentTarget.url };
     }
 
     if (redirectCount >= maxRedirects) {
-      return { response, url: currentUrl };
+      return { response, url: currentTarget.url };
     }
 
     await cancelResponseBody(response);
+    await dispatcher.close();
     let redirectUrl: URL;
     try {
-      redirectUrl = new URL(location, currentUrl);
+      redirectUrl = new URL(location, currentTarget.url);
     } catch {
       throw new PublicUrlError("Redirect target is not a valid URL");
     }
-    currentUrl = await assertPublicHttpUrl(redirectUrl);
+    currentTarget = await resolvePublicHttpUrl(redirectUrl);
   }
 }
 

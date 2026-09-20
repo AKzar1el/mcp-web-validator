@@ -43,14 +43,14 @@ function assertContentSize(content: string, maxBytes: number, label: string): vo
   }
 }
 
-function normalizeW3CMessage(message: unknown): W3CMessage | null {
+function normalizeW3CMessage(message: unknown): W3CMessage {
   if (typeof message !== "object" || message === null) {
-    return null;
+    throw new Error("W3C HTML validator returned a malformed message");
   }
 
   const candidate = message as Record<string, unknown>;
   if (typeof candidate.type !== "string" || typeof candidate.message !== "string") {
-    return null;
+    throw new Error("W3C HTML validator returned a malformed message");
   }
 
   const normalized: W3CMessage = {
@@ -105,7 +105,6 @@ export async function validateHtmlContent(htmlContent: string): Promise<W3CMessa
     }
     return data.messages
       .map(normalizeW3CMessage)
-      .filter((message): message is W3CMessage => message !== null)
       .slice(0, MAX_VALIDATION_MESSAGES);
   } catch (error: unknown) {
     throw new Error(`HTML validation failed: ${getErrorMessage(error)}`);

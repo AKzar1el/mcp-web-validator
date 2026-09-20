@@ -15,6 +15,28 @@ test("missing HTML validator messages fail instead of producing a clean result",
   }
 });
 
+test("malformed HTML validator messages fail instead of being silently dropped", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(
+    JSON.stringify({
+      messages: [
+        { type: "error", message: "Bad element" },
+        { type: "error" },
+      ],
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+
+  try {
+    await assert.rejects(
+      validateHtmlContent("<!doctype html><html><body></body></html>"),
+      /HTML validation failed: W3C HTML validator returned a malformed message/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("HTML validator normalizes upstream messages to the advertised contract", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(

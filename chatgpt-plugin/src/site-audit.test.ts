@@ -81,6 +81,41 @@ describe("auditPublicSite", () => {
     expect(result.issue_groups).toContainEqual(expect.objectContaining({ code: "seo.title.length" }));
   });
 
+  it("keeps sitemap URLs that differ only by a trailing slash as distinct crawl targets", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /sitemap.xml\n", {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response([
+          "<urlset>",
+          "<url><loc>https://example.com/docs</loc></url>",
+          "<url><loc>https://example.com/docs/</loc></url>",
+          "</urlset>",
+        ].join(""), { headers: { "content-type": "application/xml" } });
+      }
+      if (url === "https://example.com/docs" || url === "https://example.com/docs/") return htmlResponse();
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 3, pageOffset: 0 });
+
+    expect(result.pages_discovered).toBe(3);
+    expect(result.pages.map((page) => page.url)).toEqual([
+      "https://example.com/",
+      "https://example.com/docs",
+      "https://example.com/docs/",
+    ]);
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/docs")).toBe(true);
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/docs/")).toBe(true);
+  });
+
   it("uses same-origin sitemap URLs, honors robots exclusions, and returns a continuation offset", async () => {
     const privateMarker = "private-page-marker-that-must-not-leak";
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {

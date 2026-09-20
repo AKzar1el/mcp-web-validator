@@ -75,6 +75,12 @@ jobs:
       - name: Run checks
         run: npm run check
 
+      - name: Install pinned screenshot browser
+        run: npx puppeteer browsers install chrome-headless-shell
+
+      - name: Smoke-test screenshot browser
+        run: node test/screenshot-browser-smoke.mjs
+
       - name: Inspect package contents
         run: npm pack --dry-run
 

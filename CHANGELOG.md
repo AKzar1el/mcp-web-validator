@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-09-20
+
+### Fixed
+
+- Rejected malformed Nu HTML Checker message objects instead of silently dropping them from local validation results.
+- Withheld the validation report SEO score when JSON-LD/schema analysis is unavailable, preventing partial reports from treating missing schema evidence as clean.
+
 ## [1.3.4] - 2026-09-20
 
 ### Fixed

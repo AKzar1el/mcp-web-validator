@@ -90,12 +90,20 @@ export function auditSeoMetadata(html: string): AuditResult {
     });
   }
 
-  if ($('link[rel="canonical"]').length === 0) {
+  const canonical = $("link[rel]").filter((_, element) => {
+    const rel = $(element).attr("rel") ?? "";
+    const hasCanonicalToken = rel
+      .trim()
+      .split(/[\t\n\f\r ]+/)
+      .some((token) => token.toLowerCase() === "canonical");
+    return hasCanonicalToken && Boolean($(element).attr("href")?.trim());
+  });
+  if (canonical.length === 0) {
     collector.add({
       code: "seo.canonical.missing",
       severity: "warning",
       category: "SEO",
-      message: "Missing canonical link tag.",
+      message: "Missing or empty canonical link target. Add a non-empty href to <link rel=\"canonical\"> when this page needs an explicit canonical signal.",
     });
   }
 

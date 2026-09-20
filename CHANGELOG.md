@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.6] - 2026-09-21
+
+### Fixed
+
+- Pinned each public HTTP(S) fetch hop to the DNS addresses already validated as public, closing a DNS-rebinding/TOCTOU gap between URL validation and connection establishment while preserving hostname-based TLS/SNI and redirect revalidation.
+
 ## [1.3.5] - 2026-09-20
 
 ### Fixed

@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-09-20
+
+### Fixed
+
+- Pinned the locally bundled Puppeteer browser line to the verified Chrome 152 headless shell after reproducing a Windows launch failure on the newer Chrome 153 line, and added a real Windows screenshot smoke test to guard the runtime path.
+
 ## [1.3.1] - 2026-09-20
 
 ### Fixed

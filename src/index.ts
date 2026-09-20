@@ -69,6 +69,7 @@ const cssMessageSchema = z.object({
   type: z.string(),
   message: z.string(),
   context: z.string().optional(),
+  compatibility: z.literal("known-validator-limitation").optional(),
 });
 
 const seoIssueSchema = z.object({
@@ -102,6 +103,7 @@ const reportSummarySchema = z.object({
   htmlErrors: z.number().int().nonnegative(),
   htmlWarnings: z.number().int().nonnegative(),
   cssErrors: z.number().int().nonnegative(),
+  cssCompatibilityLimitations: z.number().int().nonnegative(),
   seoErrors: z.number().int().nonnegative(),
   seoWarnings: z.number().int().nonnegative(),
   schemaErrors: z.number().int().nonnegative(),
@@ -153,6 +155,7 @@ function failedReport(filePath: string, error: string): ValidationReport {
       htmlErrors: 0,
       htmlWarnings: 0,
       cssErrors: 0,
+      cssCompatibilityLimitations: 0,
       seoErrors: 0,
       seoWarnings: 0,
       schemaErrors: 0,

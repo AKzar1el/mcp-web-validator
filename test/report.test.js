@@ -101,3 +101,30 @@ test("report keeps redirects visible without counting them as broken links", () 
   assert.equal(redirectsOnly.summary.brokenLinks, 0);
   assert.equal(redirectsOnly.summary.linkScore, 100);
 });
+
+test("report withholds CSS and overall scores for known upstream validator limitations", () => {
+  const result = createValidationReport({
+    htmlFilePath: "index.html",
+    cssAudited: true,
+    htmlMessages: [],
+    cssMessages: [
+      {
+        type: "error",
+        line: 1,
+        message: "Unrecognized at-rule “@container”",
+        compatibility: "known-validator-limitation",
+      },
+    ],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/ok", status: 200, ok: true }],
+  });
+
+  assert.equal(result.summary.cssErrors, 1);
+  assert.equal(result.summary.cssCompatibilityLimitations, 1);
+  assert.equal(result.summary.cssScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /CSS validation \| Compatibility-limited \| N\/A/);
+  assert.match(result.report, /1 known validator limitation/);
+  assert.match(result.report, /original Jigsaw diagnostic is preserved/i);
+});

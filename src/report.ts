@@ -14,6 +14,7 @@ export interface ValidationReportSummary {
   htmlErrors: number;
   htmlWarnings: number;
   cssErrors: number;
+  cssCompatibilityLimitations: number;
   seoErrors: number;
   seoWarnings: number;
   schemaErrors: number;
@@ -76,6 +77,9 @@ export function createValidationReport(input: ValidationReportInput): Validation
   const htmlErrors = input.htmlMessages.filter((message) => message.type === "error").length;
   const htmlWarnings = input.htmlMessages.length - htmlErrors;
   const cssErrors = input.cssMessages.length;
+  const cssCompatibilityLimitations = input.cssMessages.filter(
+    (message) => message.compatibility === "known-validator-limitation",
+  ).length;
   const seoErrors = input.seoIssues.filter((issue) => issue.severity === "error").length;
   const seoWarnings = input.seoIssues.filter((issue) => issue.severity === "warning").length;
   const schemaErrors = input.schemaIssues.filter((issue) => issue.severity === "error").length;
@@ -83,7 +87,9 @@ export function createValidationReport(input: ValidationReportInput): Validation
   const redirectLinks = input.links.filter(isRedirect).length;
 
   const htmlScore = checkFailed("html") ? null : clampScore(100 - htmlErrors * 15 - htmlWarnings * 2);
-  const cssScore = checkFailed("css") || !input.cssAudited ? null : clampScore(100 - cssErrors * 20);
+  const cssScore = checkFailed("css") || !input.cssAudited || cssCompatibilityLimitations > 0
+    ? null
+    : clampScore(100 - cssErrors * 20);
   const seoScore = checkFailed("seo") ? null : clampScore(100 - seoErrors * 15 - seoWarnings * 4 - schemaErrors * 15);
   const linkScore = checkFailed("links") || input.links.length === 0
     ? null
@@ -91,7 +97,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
   const auditedScores = [htmlScore, seoScore, cssScore, linkScore].filter(
     (score): score is number => score !== null,
   );
-  const overallScore = failedChecks.length > 0 || auditedScores.length === 0
+  const overallScore = failedChecks.length > 0 || cssCompatibilityLimitations > 0 || auditedScores.length === 0
     ? null
     : Math.round(auditedScores.reduce((total, score) => total + score, 0) / auditedScores.length);
 
@@ -104,6 +110,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
     htmlErrors,
     htmlWarnings,
     cssErrors,
+    cssCompatibilityLimitations,
     seoErrors,
     seoWarnings,
     schemaErrors,
@@ -120,14 +127,14 @@ export function createValidationReport(input: ValidationReportInput): Validation
     "| Audit | Status | Score |",
     "| :--- | :---: | :---: |",
     `| W3C HTML validation | ${htmlScore === null ? "Unavailable" : scoreIndicator(htmlScore)} | ${htmlScore === null ? "N/A" : `**${htmlScore}** / 100`} |`,
-    `| CSS validation | ${cssScore === null ? (checkFailed("css") ? "Unavailable" : "Not audited") : scoreIndicator(cssScore)} | ${cssScore === null ? "N/A" : `**${cssScore}** / 100`} |`,
+    `| CSS validation | ${cssScore === null ? (checkFailed("css") ? "Unavailable" : cssCompatibilityLimitations > 0 ? "Compatibility-limited" : "Not audited") : scoreIndicator(cssScore)} | ${cssScore === null ? "N/A" : `**${cssScore}** / 100`} |`,
     `| SEO and accessibility | ${seoScore === null ? "Unavailable" : scoreIndicator(seoScore)} | ${seoScore === null ? "N/A" : `**${seoScore}** / 100`} |`,
     `| Link integrity | ${linkScore === null ? (checkFailed("links") ? "Unavailable" : "No links checked") : scoreIndicator(linkScore)} | ${linkScore === null ? "N/A" : `**${linkScore}** / 100`} |`,
     "",
     "## Summary",
     "",
     `- HTML: ${htmlErrors} error(s), ${htmlWarnings} other diagnostic(s)` ,
-    `- CSS: ${input.cssAudited ? `${cssErrors} error(s)` : "not audited"}`,
+    `- CSS: ${input.cssAudited ? `${cssErrors} error(s)${cssCompatibilityLimitations > 0 ? `, ${cssCompatibilityLimitations} known validator limitation(s)` : ""}` : "not audited"}`,
     `- SEO and accessibility: ${seoErrors} error(s), ${seoWarnings} warning(s)`,
     `- JSON-LD syntax: ${schemaErrors} error(s)`,
     `- Links: ${brokenLinks} broken or unreachable, ${redirectLinks} redirect${redirectLinks === 1 ? "" : "s"} to review of ${input.links.length} checked`,
@@ -159,6 +166,12 @@ export function createValidationReport(input: ValidationReportInput): Validation
       for (const message of input.cssMessages) {
         report.push(
           `| ${message.line} | ${markdownCell(message.context ?? "N/A")} | ${markdownCell(message.message)} |`,
+        );
+      }
+      if (cssCompatibilityLimitations > 0) {
+        report.push(
+          "",
+          `${cssCompatibilityLimitations} known validator limitation(s) match Jigsaw's current parser gap for the standards-defined \`@container\` rule. The original Jigsaw diagnostic is preserved, but CSS and overall scores are withheld because this upstream limitation can report valid modern CSS as invalid.`,
         );
       }
     }

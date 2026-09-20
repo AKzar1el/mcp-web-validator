@@ -84,3 +84,49 @@ test("missing CSS validator envelope fails instead of producing a clean result",
     globalThis.fetch = originalFetch;
   }
 });
+
+test("CSS validator marks Jigsaw's known @container parser gap without hiding the upstream diagnostic", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(
+    JSON.stringify({
+      cssvalidation: {
+        errors: [
+          {
+            line: 1,
+            type: "at-rule",
+            message: "Unrecognized at-rule “@container”",
+            context: "",
+          },
+          {
+            line: 2,
+            type: "property",
+            message: "Property frobnicate doesn't exist",
+            context: ".card",
+          },
+        ],
+      },
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+
+  try {
+    const messages = await validateCssContent("@container card (inline-size > 30em) { .card { frobnicate: 1; } }");
+    assert.deepEqual(messages, [
+      {
+        line: 1,
+        type: "error",
+        message: "Unrecognized at-rule “@container”",
+        context: undefined,
+        compatibility: "known-validator-limitation",
+      },
+      {
+        line: 2,
+        type: "error",
+        message: "Property frobnicate doesn't exist",
+        context: ".card",
+      },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

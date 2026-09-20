@@ -74,3 +74,32 @@ for (const { name, tools: expectedTools, isMcpb } of files) {
     console.log(`Updated ${name} with ${expectedTools.length} tool definitions.`);
   }
 }
+
+const registryPath = path.join(repositoryRoot, "registry", "server.json");
+const registryCurrent = JSON.parse(await readFile(registryPath, "utf8"));
+assert.ok(
+  registryCurrent.packages?.some(
+    (registryPackage) => registryPackage.registryType === "npm" && registryPackage.identifier === packageJson.name,
+  ),
+  `registry/server.json must declare npm package ${packageJson.name}.`,
+);
+const registryExpected = {
+  ...registryCurrent,
+  version: packageJson.version,
+  packages: registryCurrent.packages.map((registryPackage) =>
+    registryPackage.registryType === "npm" && registryPackage.identifier === packageJson.name
+      ? { ...registryPackage, version: packageJson.version }
+      : registryPackage
+  ),
+};
+
+if (checkOnly) {
+  assert.deepStrictEqual(
+    registryCurrent,
+    registryExpected,
+    "registry/server.json is stale. Run npm run sync:manifests and commit the result.",
+  );
+} else {
+  await writeFile(registryPath, `${JSON.stringify(registryExpected, null, 2)}\n`, "utf8");
+  console.log(`Updated registry/server.json to version ${packageJson.version}.`);
+}

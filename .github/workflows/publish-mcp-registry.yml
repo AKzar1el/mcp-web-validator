@@ -1,0 +1,71 @@
+name: Publish MCP Registry
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Publish npm package
+    types:
+      - completed
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: mcp-registry-publish-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish server metadata
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out released source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.18.0
+          package-manager-cache: false
+
+      - name: Wait for declared npm package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_ref="$(node -e "const s=require('./registry/server.json'); const p=s.packages?.find((item)=>item.registryType==='npm'); if(!p) process.exit(1); process.stdout.write(p.identifier+'@'+p.version)")"
+          for attempt in {1..12}; do
+            if npm view "$package_ref" version --json >/dev/null 2>&1; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 12 ]; then
+              sleep 10
+            fi
+          done
+          echo "::error::Declared npm package version is not publicly readable: $package_ref"
+          exit 1
+
+      - name: Install mcp-publisher
+        env:
+          MCP_PUBLISHER_VERSION: v1.8.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz" \
+            | tar xz -C "$RUNNER_TEMP" mcp-publisher
+
+      - name: Validate Registry metadata
+        run: "$RUNNER_TEMP/mcp-publisher" validate registry/server.json
+
+      - name: Authenticate with GitHub OIDC
+        run: "$RUNNER_TEMP/mcp-publisher" login github-oidc
+
+      - name: Publish to Official MCP Registry
+        run: "$RUNNER_TEMP/mcp-publisher" publish registry/server.json

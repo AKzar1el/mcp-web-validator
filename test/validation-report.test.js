@@ -103,6 +103,20 @@ test("validation report keeps successful checks when link checking fails", async
   assert.match(report.errors?.[0] ?? "", /Link checker timed out/);
 });
 
+test("validation report withholds SEO score when schema analysis fails", async () => {
+  const report = await runReport({
+    validateSchemaMarkup: () => { throw new Error("Schema analysis failed"); },
+  });
+
+  assert.deepEqual(report.failedChecks, ["schema"]);
+  assert.equal(report.summary.seoScore, null);
+  assert.equal(report.summary.overallScore, null);
+  assert.deepEqual(report.seoIssues, seoIssues);
+  assert.deepEqual(report.schemaIssues, []);
+  assert.deepEqual(report.links, links);
+  assert.match(report.errors?.[0] ?? "", /JSON-LD analysis was unavailable/);
+});
+
 test("validation report records unexpected local analysis failures without losing other checks", async () => {
   const report = await runReport({
     auditSeoMetadata: () => { throw new Error("SEO analysis failed"); },

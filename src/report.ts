@@ -90,7 +90,9 @@ export function createValidationReport(input: ValidationReportInput): Validation
   const cssScore = checkFailed("css") || !input.cssAudited || cssCompatibilityLimitations > 0
     ? null
     : clampScore(100 - cssErrors * 20);
-  const seoScore = checkFailed("seo") ? null : clampScore(100 - seoErrors * 15 - seoWarnings * 4 - schemaErrors * 15);
+  const seoScore = checkFailed("seo") || checkFailed("schema")
+    ? null
+    : clampScore(100 - seoErrors * 15 - seoWarnings * 4 - schemaErrors * 15);
   const linkScore = checkFailed("links") || input.links.length === 0
     ? null
     : clampScore(100 - brokenLinks * 25);

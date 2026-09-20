@@ -154,9 +154,6 @@ function crawlKey(url: URL): string {
   const normalized = new URL(url.href);
   normalized.hash = "";
   normalized.search = "";
-  if (normalized.pathname.length > 1 && normalized.pathname.endsWith("/")) {
-    normalized.pathname = normalized.pathname.slice(0, -1);
-  }
   return normalized.href;
 }
 

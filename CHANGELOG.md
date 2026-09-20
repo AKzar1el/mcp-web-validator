@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-20
+
+### Added
+
+- Added stable machine-readable rule codes to local and hosted SEO, accessibility, and JSON-LD findings, including hosted site-audit findings and grouped issues.
+
 ## [1.2.1] - 2026-09-19
 
 ### Changed

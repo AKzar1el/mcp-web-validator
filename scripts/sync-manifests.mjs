@@ -30,6 +30,7 @@ const files = [
   { name: "manifest.json", tools: manifestTools, isMcpb: true },
   { name: "server.json", tools, isMcpb: false },
 ];
+const versionOnlyFiles = [".cursor-plugin/plugin.json", ".claude-plugin/plugin.json"];
 const checkOnly = process.argv.includes("--check");
 
 for (const { name, tools: expectedTools, isMcpb } of files) {
@@ -72,6 +73,23 @@ for (const { name, tools: expectedTools, isMcpb } of files) {
   } else {
     await writeFile(filePath, `${JSON.stringify(expected, null, 2)}\n`, "utf8");
     console.log(`Updated ${name} with ${expectedTools.length} tool definitions.`);
+  }
+}
+
+for (const name of versionOnlyFiles) {
+  const filePath = path.join(repositoryRoot, name);
+  const current = JSON.parse(await readFile(filePath, "utf8"));
+  const expected = { ...current, version: packageJson.version };
+
+  if (checkOnly) {
+    assert.deepStrictEqual(
+      current,
+      expected,
+      `${name} is stale. Run npm run sync:manifests and commit the result.`,
+    );
+  } else {
+    await writeFile(filePath, `${JSON.stringify(expected, null, 2)}\n`, "utf8");
+    console.log(`Updated ${name} to version ${packageJson.version}.`);
   }
 }
 

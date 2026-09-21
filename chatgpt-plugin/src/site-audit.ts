@@ -126,6 +126,7 @@ interface GroupAccumulator {
 }
 
 const SITE_AUDIT_USER_AGENT = "digestseo-web-validator";
+const SITEMAP_XML_NAMESPACE = "http://www.sitemaps.org/schemas/sitemap/0.9";
 const SITEMAP_CONTENT_TYPES = [
   "application/xml",
   "text/xml",
@@ -293,13 +294,53 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
     const seenPages = new Set<string>();
     const seenSitemaps = new Set<string>();
 
-    $("urlset > url > loc").each((_index, element) => {
-      const url = sameOriginCrawlUrl($(element).text().trim(), baseUrl, origin);
-      if (url) addUniqueUrl(pageUrls, seenPages, url);
+    const documentElement = $.root().children().first();
+    const documentElementName = String(documentElement.prop("tagName") ?? "");
+    const legacyUnnamespacedDocument = !documentElementName.includes(":")
+      && documentElement.attr("xmlns") === undefined;
+    const protocolElements = $("*").filter((_index, element) => {
+      if (element.type !== "tag") return false;
+      const qualifiedName = element.name;
+      const separator = qualifiedName.indexOf(":");
+      const prefix = separator >= 0 ? qualifiedName.slice(0, separator) : "";
+      const declaration = prefix ? `xmlns:${prefix}` : "xmlns";
+      let current = $(element);
+
+      while (current.length > 0) {
+        const declaredNamespace = current.attr(declaration);
+        if (declaredNamespace !== undefined) {
+          return declaredNamespace.trim() === SITEMAP_XML_NAMESPACE;
+        }
+        current = current.parent();
+      }
+
+      // Keep accepting the repository's historical unnamespaced sitemap fixtures,
+      // but do not treat unqualified elements inside a prefixed XML document as Sitemap elements.
+      return prefix === "" && legacyUnnamespacedDocument;
     });
-    $("sitemapindex > sitemap > loc").each((_index, element) => {
+    const protocolNodes = new Set(protocolElements.toArray());
+
+    protocolElements.each((_index, element) => {
+      const qualifiedName = String($(element).prop("tagName") ?? "");
+      const localName = qualifiedName.slice(qualifiedName.indexOf(":") + 1).toLowerCase();
+      if (localName !== "loc") return;
+
+      const parent = $(element).parent().get(0);
+      const grandparent = parent ? $(parent).parent().get(0) : undefined;
+      if (!parent || !grandparent || !protocolNodes.has(parent) || !protocolNodes.has(grandparent)) return;
+
+      const parentName = String($(parent).prop("tagName") ?? "");
+      const grandparentName = String($(grandparent).prop("tagName") ?? "");
+      const parentLocalName = parentName.slice(parentName.indexOf(":") + 1).toLowerCase();
+      const grandparentLocalName = grandparentName.slice(grandparentName.indexOf(":") + 1).toLowerCase();
       const url = sameOriginCrawlUrl($(element).text().trim(), baseUrl, origin);
-      if (url && !url.pathname.endsWith(".gz")) addUniqueUrl(childSitemaps, seenSitemaps, url);
+      if (!url) return;
+
+      if (parentLocalName === "url" && grandparentLocalName === "urlset") {
+        addUniqueUrl(pageUrls, seenPages, url);
+      } else if (parentLocalName === "sitemap" && grandparentLocalName === "sitemapindex" && !url.pathname.endsWith(".gz")) {
+        addUniqueUrl(childSitemaps, seenSitemaps, url);
+      }
     });
     return { pageUrls, childSitemaps, invalid: false };
   } catch {

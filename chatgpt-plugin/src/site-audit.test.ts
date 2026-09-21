@@ -95,6 +95,51 @@ describe("auditPublicSite", () => {
     expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/docs")).toBe(true);
   });
 
+  it("discovers namespace-prefixed sitemap indexes and URL sets without consuming extension namespaces", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /sitemap-index.xml\n", {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === "https://example.com/sitemap-index.xml") {
+        return new Response([
+          '<sm:sitemapindex xmlns:sm="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:ext="https://example.com/extension">',
+          "<sm:sitemap><sm:loc>https://example.com/child.xml</sm:loc></sm:sitemap>",
+          "<ext:sitemap><ext:loc>https://example.com/ignored.xml</ext:loc></ext:sitemap>",
+          "</sm:sitemapindex>",
+        ].join(""), { headers: { "content-type": "application/xml" } });
+      }
+      if (url === "https://example.com/child.xml") {
+        return new Response([
+          '<sm:urlset xmlns:sm="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:ext="https://example.com/extension">',
+          "<sm:url><sm:loc>https://example.com/</sm:loc></sm:url>",
+          "<sm:url><sm:loc>https://example.com/docs</sm:loc></sm:url>",
+          "<ext:url><ext:loc>https://example.com/ignored</ext:loc></ext:url>",
+          "</sm:urlset>",
+        ].join(""), { headers: { "content-type": "application/xml" } });
+      }
+      if (url === "https://example.com/docs") return htmlResponse();
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 2, pageOffset: 0 });
+
+    expect(result).toMatchObject({
+      discovery: "sitemap",
+      sitemap_url: "https://example.com/sitemap-index.xml",
+      pages_discovered: 2,
+      pages_selected: 2,
+      pages_audited: 2,
+    });
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/child.xml")).toBe(true);
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/docs")).toBe(true);
+    expect(fetchMock.mock.calls.some(([target]) => String(target).includes("ignored"))).toBe(false);
+  });
   it("treats robots.txt 5xx responses as unreachable and does not audit crawl candidates", async () => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);

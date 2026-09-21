@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The project follows [Se
 
 - Stopped treating an omitted `rel="canonical"` preference as a score-penalizing SEO warning while preserving a warning for canonical declarations with an empty target.
 - Aligned hosted site-audit `robots.txt` HTTP status handling with RFC 9309: 4xx responses are treated as unavailable so sitemap discovery can continue, while 5xx responses prevent crawl candidates from being audited.
+- Scoped page title, description, viewport and canonical metadata checks to the document head so body/SVG lookalikes cannot satisfy page-level SEO metadata requirements.
 
 ## [1.3.10] - 2026-09-21
 

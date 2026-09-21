@@ -51,6 +51,18 @@ describe("robots rules", () => {
     expect(isAllowedByRobots(new URL("https://example.com/encoded-slash//private"), rules.rules)).toBe(true);
     expect(isAllowedByRobots(new URL("https://example.com/unicode/%E3%83%84"), rules.rules)).toBe(false);
   });
+
+  it("uses normalized octet specificity when percent-encoded unreserved rules overlap", () => {
+    const rules = parseRobotsTxt([
+      "User-agent: DigestSEO-Web-Validator",
+      "Disallow: /x/%61",
+      "Allow: /x/ab",
+    ].join("\n"), "https://example.com");
+
+    // RFC 9309 decodes percent-encoded ASCII unreserved octets before
+    // comparison, so /x/ab is the more-specific five-octet match.
+    expect(isAllowedByRobots(new URL("https://example.com/x/abc"), rules.rules)).toBe(true);
+  });
 });
 
 describe("auditPublicSite", () => {

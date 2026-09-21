@@ -61,6 +61,16 @@ test("all action-based narrations use the shared escaping boundary", () => {
   }
 });
 
+test("HTML narration promotes Nu info+warning diagnostics as warnings", () => {
+  const output = htmlValidationContent([
+    { type: "info", subType: "warning", message: "Consider adding a lang attribute." },
+    { type: "info", message: "Trailing slash on void elements has no effect." },
+  ]);
+
+  assert.match(output, /\*\*Warning\*\*: Consider adding a lang attribute/);
+  assert.match(output, /\*\*Check\*\*: Trailing slash on void elements has no effect/);
+});
+
 test("CSS narration treats known Jigsaw parser gaps as review items while preserving the diagnostic", () => {
   const output = cssValidationContent([
     {

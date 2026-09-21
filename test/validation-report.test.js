@@ -45,6 +45,23 @@ test("validation report keeps all-success results and treats omitted CSS as not 
   assert.equal(typeof withCss.summary.overallScore, "number");
 });
 
+test("validation report presentation treats Nu info+warning diagnostics as warnings", async () => {
+  const report = await runReport({
+    validateHtmlContent: async () => [
+      { type: "info", subType: "warning", message: "Consider adding a lang attribute." },
+      { type: "info", message: "Trailing slash on void elements has no effect." },
+    ],
+    auditSeoMetadata: () => [],
+    validateSchemaMarkup: () => [],
+    checkBrokenLinks: async () => [],
+  });
+  const content = reportContent(report);
+
+  assert.match(content, /^### Validation report: attention needed/m);
+  assert.match(content, /\*\*Warning\*\*: HTML: Consider adding a lang attribute/);
+  assert.match(content, /\*\*Check\*\*: HTML: Trailing slash on void elements has no effect/);
+});
+
 test("validation report keeps local and link results when HTML validation fails", async () => {
   const report = await runReport({
     validateHtmlContent: async () => { throw new Error("Nu HTML Checker unavailable"); },

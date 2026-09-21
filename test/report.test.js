@@ -40,6 +40,25 @@ test("report scoring does not penalize informational Nu HTML diagnostics", () =>
   assert.equal(result.summary.htmlScore, 100);
 });
 
+test("report prose labels the Nu warning counter as warnings rather than all other diagnostics", () => {
+  const result = createValidationReport({
+    htmlFilePath: "index.html",
+    cssAudited: false,
+    htmlMessages: [
+      { type: "info", subType: "warning", message: "Consider adding a lang attribute." },
+      { type: "info", message: "Trailing slash on void elements has no effect." },
+    ],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [],
+  });
+
+  assert.equal(result.summary.htmlWarnings, 1);
+  assert.match(result.report, /HTML: 0 error\(s\), 1 warning\(s\)/);
+  assert.doesNotMatch(result.report, /HTML: 0 error\(s\), 1 other diagnostic\(s\)/);
+});
+
 test("report produces matching machine-readable counts", () => {
   const result = createValidationReport({
     htmlFilePath: "index.html",

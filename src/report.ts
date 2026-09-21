@@ -1,5 +1,9 @@
 import * as path from "node:path";
-import type { CSSMessage, W3CMessage } from "./w3c-validator.js";
+import {
+  getW3CMessageSeverity,
+  type CSSMessage,
+  type W3CMessage,
+} from "./w3c-validator.js";
 import type { LinkStatus, SEOIssue } from "./seo-auditor.js";
 
 export const validationReportChecks = ["input", "html", "css", "seo", "schema", "links"] as const;
@@ -74,10 +78,8 @@ function isRedirect(link: LinkStatus): boolean {
 export function createValidationReport(input: ValidationReportInput): ValidationReport {
   const failedChecks = input.failedChecks ?? [];
   const checkFailed = (check: ValidationReportCheck): boolean => failedChecks.includes(check);
-  const htmlErrors = input.htmlMessages.filter((message) => message.type === "error").length;
-  const htmlWarnings = input.htmlMessages.filter(
-    (message) => message.type === "warning" || (message.type === "info" && message.subType === "warning"),
-  ).length;
+  const htmlErrors = input.htmlMessages.filter((message) => getW3CMessageSeverity(message) === "error").length;
+  const htmlWarnings = input.htmlMessages.filter((message) => getW3CMessageSeverity(message) === "warning").length;
   const cssErrors = input.cssMessages.length;
   const cssCompatibilityLimitations = input.cssMessages.filter(
     (message) => message.compatibility === "known-validator-limitation",
@@ -137,7 +139,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
     "",
     "## Summary",
     "",
-    `- HTML: ${htmlErrors} error(s), ${htmlWarnings} other diagnostic(s)` ,
+    `- HTML: ${htmlErrors} error(s), ${htmlWarnings} warning(s)` ,
     `- CSS: ${input.cssAudited ? `${cssErrors} error(s)${cssCompatibilityLimitations > 0 ? `, ${cssCompatibilityLimitations} known validator limitation(s)` : ""}` : "not audited"}`,
     `- SEO and accessibility: ${seoErrors} error(s), ${seoWarnings} warning(s)`,
     `- JSON-LD syntax: ${schemaErrors} error(s)`,
@@ -156,7 +158,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
     report.push("", "| Line | Column | Severity | Message | Extract |", "| :---: | :---: | :--- | :--- | :--- |");
     for (const message of input.htmlMessages) {
       report.push(
-        `| ${message.lastLine ?? "N/A"} | ${message.lastColumn ?? "N/A"} | ${markdownCell(message.type)} | ${markdownCell(message.message)} | ${markdownCell(message.extract ?? "N/A")} |`,
+        `| ${message.lastLine ?? "N/A"} | ${message.lastColumn ?? "N/A"} | ${markdownCell(getW3CMessageSeverity(message))} | ${markdownCell(message.message)} | ${markdownCell(message.extract ?? "N/A")} |`,
       );
     }
   }

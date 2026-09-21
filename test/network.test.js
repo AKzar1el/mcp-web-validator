@@ -218,6 +218,45 @@ test("bounded public text fetch accepts configured HTML media types with paramet
   }
 });
 
+test("bounded public text fetch decodes the HTTP-declared character encoding", async () => {
+  const originalFetch = globalThis.fetch;
+  const body = new Uint8Array([
+    60, 116, 105, 116, 108, 101, 62, 67, 97, 102, 233, 60, 47, 116, 105, 116, 108, 101, 62,
+  ]);
+  globalThis.fetch = async () => new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/html; charset=windows-1252" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/legacy", {
+      acceptedContentTypes: ["text/html"],
+    });
+    assert.equal(result.text, "<title>Café</title>");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("bounded public text fetch rejects an unsupported HTTP-declared character encoding", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("<title>Example</title>", {
+    status: 200,
+    headers: { "content-type": "text/html; charset=definitely-not-an-encoding" },
+  });
+
+  try {
+    await assert.rejects(
+      fetchPublicText("https://1.1.1.1/unsupported-charset", {
+        acceptedContentTypes: ["text/html"],
+      }),
+      /unsupported response character encoding "definitely-not-an-encoding"/i,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker resolves relative links, deduplicates, and caps requests", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];

@@ -40,6 +40,30 @@ describe("fetchPublicHtml", () => {
     });
   });
 
+  it("decodes HTML using the HTTP-declared character encoding", async () => {
+    const body = new Uint8Array([
+      60, 116, 105, 116, 108, 101, 62, 67, 97, 102, 233, 60, 47, 116, 105, 116, 108, 101, 62,
+    ]);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, {
+      headers: { "content-type": "text/html; charset=windows-1252" },
+    })));
+
+    await expect(fetchPublicHtml("https://example.com/legacy")).resolves.toMatchObject({
+      html: "<title>Café</title>",
+    });
+  });
+
+  it("rejects an unsupported HTTP-declared character encoding", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => htmlResponse("<title>Example</title>", {
+      headers: { "content-type": "text/html; charset=definitely-not-an-encoding" },
+    })));
+
+    await expect(fetchPublicHtml("https://example.com/unsupported-charset")).rejects.toMatchObject({
+      code: "content_type",
+      message: expect.stringContaining("unsupported character encoding"),
+    });
+  });
+
   it.each([
     "ftp://example.com/file",
     "https://user:password@example.com/",

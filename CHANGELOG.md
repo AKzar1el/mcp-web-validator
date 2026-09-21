@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The project follows [Se
 ### Fixed
 
 - Kept title and meta-description character ranges as non-scoring editorial guidance instead of treating Google-independent length heuristics as SEO warning penalties.
+- Resolved relative link checks through the document's first `<base href>` when present, including relative base URLs resolved against the fetched page URL, while preserving public-URL safety checks.
 
 ## [1.3.12] - 2026-09-21
 

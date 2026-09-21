@@ -303,16 +303,26 @@ export async function checkBrokenLinks(
   }
   const linkLimit = Math.min(maxLinks, MAX_LINKS_TO_CHECK);
   const $ = cheerio.load(htmlContent);
-  let parsedBaseUrl = baseUrl ? await assertPublicHttpUrl(baseUrl) : undefined;
-  if (!parsedBaseUrl) {
-    const documentBaseHref = $("base[href]").first().attr("href")?.trim();
-    if (documentBaseHref) {
+  const fallbackBaseUrl = baseUrl ? await assertPublicHttpUrl(baseUrl) : undefined;
+  let parsedBaseUrl = fallbackBaseUrl;
+  const documentBaseHref = $("base[href]").first().attr("href");
+  if (documentBaseHref !== undefined) {
+    let resolvedDocumentBase: URL | undefined;
+    try {
+      resolvedDocumentBase = fallbackBaseUrl
+        ? new URL(documentBaseHref, fallbackBaseUrl)
+        : new URL(documentBaseHref);
+    } catch {
+      parsedBaseUrl = undefined;
+    }
+    if (resolvedDocumentBase) {
       try {
-        parsedBaseUrl = await assertPublicHttpUrl(documentBaseHref);
+        parsedBaseUrl = await assertPublicHttpUrl(resolvedDocumentBase);
       } catch (error: unknown) {
         if (!(error instanceof PublicUrlError)) {
           throw error;
         }
+        parsedBaseUrl = undefined;
       }
     }
   }

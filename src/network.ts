@@ -332,6 +332,12 @@ function createPinnedDispatcher(
   });
 }
 
+function beginClosingDispatcher(dispatcher: Agent): void {
+  // close() waits for the active response stream to finish, so starting it here
+  // releases the request-scoped Agent without interrupting callers reading the body.
+  void dispatcher.close().catch(() => {});
+}
+
 /** Fetches a public HTTP(S) URL while validating every redirect target. */
 export async function fetchPublicHttp(
   input: string | URL,
@@ -362,15 +368,18 @@ export async function fetchPublicHttp(
     }
 
     if (!redirectStatuses.has(response.status)) {
+      beginClosingDispatcher(dispatcher);
       return { response, url: currentTarget.url };
     }
 
     const location = response.headers.get("location");
     if (!location) {
+      beginClosingDispatcher(dispatcher);
       return { response, url: currentTarget.url };
     }
 
     if (redirectCount >= maxRedirects) {
+      beginClosingDispatcher(dispatcher);
       return { response, url: currentTarget.url };
     }
 

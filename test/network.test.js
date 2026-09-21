@@ -135,6 +135,7 @@ test("public fetch pins validated hostname resolution before transport", async (
   const originalFetch = globalThis.fetch;
   let lookupCalls = 0;
   let dispatcherSeen = false;
+  let dispatcherCloseStarted = false;
 
   dns.promises.lookup = async (_hostname, options) => {
     lookupCalls += 1;
@@ -146,6 +147,11 @@ test("public fetch pins validated hostname resolution before transport", async (
 
   globalThis.fetch = async (input, init) => {
     dispatcherSeen = Boolean(init?.dispatcher);
+    if (init?.dispatcher?.close) {
+      init.dispatcher.close = async () => {
+        dispatcherCloseStarted = true;
+      };
+    }
     if (!dispatcherSeen) {
       await dns.promises.lookup(new URL(String(input)).hostname, { all: true, verbatim: true });
     }
@@ -159,6 +165,7 @@ test("public fetch pins validated hostname resolution before transport", async (
     assert.equal(result.text, "ok");
     assert.equal(dispatcherSeen, true, "validated DNS answers must be pinned into the HTTP transport");
     assert.equal(lookupCalls, 1, "transport must not perform an independent hostname lookup after validation");
+    assert.equal(dispatcherCloseStarted, true, "request-scoped dispatcher close must begin after the terminal response");
   } finally {
     globalThis.fetch = originalFetch;
     dns.promises.lookup = originalLookup;

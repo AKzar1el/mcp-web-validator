@@ -71,6 +71,28 @@ test("HTML narration promotes Nu info+warning diagnostics as warnings", () => {
   assert.match(output, /\*\*Check\*\*: Trailing slash on void elements has no effect/);
 });
 
+test("informational-only HTML narration does not instruct users to fix nonexistent errors", () => {
+  const output = htmlValidationContent([
+    { type: "info", message: "Trailing slash on void elements has no effect." },
+  ]);
+
+  assert.match(output, /^### HTML validation: review suggested/m);
+  assert.match(output, /review the informational diagnostic/i);
+  assert.doesNotMatch(output, /Fix the errors/i);
+});
+
+test("informational-only SEO narration is review guidance rather than attention-needed work", () => {
+  const output = seoAuditContent(
+    [{ severity: "info", category: "SEO", message: "No canonical preference is declared." }],
+    1,
+    false,
+  );
+
+  assert.match(output, /^### SEO audit: review suggested/m);
+  assert.match(output, /review the suggestions/i);
+  assert.doesNotMatch(output, /Address errors first/i);
+});
+
 test("CSS narration treats known Jigsaw parser gaps as review items while preserving the diagnostic", () => {
   const output = cssValidationContent([
     {

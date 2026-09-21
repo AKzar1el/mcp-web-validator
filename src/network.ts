@@ -2,12 +2,14 @@ import { lookup } from "node:dns/promises";
 import * as fs from "node:fs/promises";
 import { BlockList, isIP } from "node:net";
 import * as path from "node:path";
+import { getEncoding } from "encoding-sniffer/sniffer";
 import { Agent } from "undici";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_REDIRECTS = 5;
 const DNS_TIMEOUT_MS = 5_000;
 const MAX_URL_LENGTH = 8_192;
+const HTML_ENCODING_SNIFF_BYTES = 1_024;
 
 const blockedAddresses = new BlockList();
 for (const [network, prefix] of [
@@ -250,6 +252,7 @@ export async function readResponseText(
   response: Response,
   maxBytes: number,
   encoding?: string,
+  sniffHtmlEncoding = false,
 ): Promise<string> {
   assertPositiveInteger(maxBytes, "maxBytes");
 
@@ -259,15 +262,6 @@ export async function readResponseText(
     throw new Error(`Response exceeds the ${maxBytes}-byte limit`);
   }
 
-  const encodingLabel = encoding === undefined ? "utf-8" : encoding;
-  let decoder: TextDecoder;
-  try {
-    decoder = new TextDecoder(encodingLabel);
-  } catch {
-    await cancelResponseBody(response);
-    throw new Error(`Unsupported response character encoding "${encodingLabel}"`);
-  }
-
   if (!response.body) {
     return "";
   }
@@ -275,6 +269,48 @@ export async function readResponseText(
   const reader = response.body.getReader();
   let totalBytes = 0;
   let text = "";
+  let decoder: TextDecoder | undefined;
+  let pendingChunks: Uint8Array[] = [];
+  let pendingBytes = 0;
+
+  const createDecoder = async (encodingLabel: string): Promise<TextDecoder> => {
+    try {
+      return new TextDecoder(encodingLabel);
+    } catch {
+      await reader.cancel();
+      throw new Error(`Unsupported response character encoding "${encodingLabel}"`);
+    }
+  };
+
+  const startDecoder = async (): Promise<void> => {
+    if (decoder) return;
+    let encodingLabel = encoding ?? "utf-8";
+    if (encoding === undefined && sniffHtmlEncoding) {
+      const sniffLength = Math.min(pendingBytes, HTML_ENCODING_SNIFF_BYTES);
+      const sniffBytes = new Uint8Array(sniffLength);
+      let copied = 0;
+      for (const chunk of pendingChunks) {
+        if (copied >= sniffLength) break;
+        const length = Math.min(chunk.byteLength, sniffLength - copied);
+        sniffBytes.set(chunk.subarray(0, length), copied);
+        copied += length;
+      }
+      encodingLabel = getEncoding(sniffBytes, {
+        maxBytes: HTML_ENCODING_SNIFF_BYTES,
+        defaultEncoding: "utf-8",
+      });
+    }
+    decoder = await createDecoder(encodingLabel);
+    for (const chunk of pendingChunks) {
+      text += decoder.decode(chunk, { stream: true });
+    }
+    pendingChunks = [];
+    pendingBytes = 0;
+  };
+
+  if (encoding !== undefined || !sniffHtmlEncoding) {
+    await startDecoder();
+  }
 
   try {
     while (true) {
@@ -288,7 +324,20 @@ export async function readResponseText(
         await reader.cancel();
         throw new Error(`Response exceeds the ${maxBytes}-byte limit`);
       }
-      text += decoder.decode(value, { stream: true });
+
+      if (!decoder) {
+        pendingChunks.push(value);
+        pendingBytes += value.byteLength;
+        if (pendingBytes >= HTML_ENCODING_SNIFF_BYTES) {
+          await startDecoder();
+        }
+      } else {
+        text += decoder.decode(value, { stream: true });
+      }
+    }
+    await startDecoder();
+    if (!decoder) {
+      throw new Error("Response decoder was not initialized");
     }
     text += decoder.decode();
     return text;
@@ -426,8 +475,14 @@ export async function fetchPublicText(
     throw new Error(`URL returned unsupported content type ${contentType ?? "missing"}`);
   }
 
+  const declaredEncoding = getDeclaredCharacterEncoding(contentTypeHeader);
   return {
-    text: await readResponseText(response, maxBytes, getDeclaredCharacterEncoding(contentTypeHeader)),
+    text: await readResponseText(
+      response,
+      maxBytes,
+      declaredEncoding,
+      declaredEncoding === undefined && contentType === "text/html",
+    ),
     url: url.href,
     status: response.status,
     contentType: contentTypeHeader,

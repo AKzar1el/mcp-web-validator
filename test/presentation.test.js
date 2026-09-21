@@ -5,6 +5,7 @@ import {
   failureContent,
   htmlValidationContent,
   linkCheckContent,
+  schemaValidationContent,
   screenshotCaptureContent,
   seoAuditContent,
 } from "../dist/presentation.js";
@@ -112,4 +113,17 @@ test("user-derived URLs, snippets, and paths remain inside unbreakable code span
     false,
   );
   assert.ok(seo.includes("`` `<img src=https://evil.test>` ``"));
+});
+
+test("JSON-LD narration counts parameterized media types that the schema parser accepts", () => {
+  const output = schemaValidationContent(
+    [],
+    0,
+    false,
+    '<script type="Application/LD+JSON; profile=https://www.w3.org/ns/json-ld#frame">{"@context":"https://schema.org"}</script>',
+  );
+
+  assert.match(output, /^### JSON-LD syntax: clean/m);
+  assert.match(output, /1 JSON-LD block parsed without syntax errors/);
+  assert.doesNotMatch(output, /No JSON-LD script blocks were found/);
 });

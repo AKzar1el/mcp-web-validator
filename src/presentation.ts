@@ -1,3 +1,4 @@
+import * as cheerio from "cheerio";
 import type { ValidationReport } from "./report.js";
 import type { LinkStatus, SEOIssue } from "./seo-auditor.js";
 import type { CSSMessage, W3CMessage } from "./w3c-validator.js";
@@ -194,10 +195,11 @@ export function seoAuditContent(issues: SEOIssue[], totalIssues: number, truncat
 }
 
 function countJsonLdBlocks(htmlContent: string): number {
-  const matches = htmlContent.match(
-    /<script\b(?=[^>]*\btype\s*=\s*(?:"application\/ld\+json"|'application\/ld\+json'|application\/ld\+json\b))[^>]*>/gi,
-  );
-  return matches?.length ?? 0;
+  const $ = cheerio.load(htmlContent);
+  return $("script[type]").filter((_, element) => {
+    const type = $(element).attr("type");
+    return type?.split(";", 1)[0].trim().toLowerCase() === "application/ld+json";
+  }).length;
 }
 
 export function schemaValidationContent(

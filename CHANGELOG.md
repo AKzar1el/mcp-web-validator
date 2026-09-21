@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.10] - 2026-09-21
+
 ### Fixed
 
 - Kept JSON-LD syntax narration aligned with accepted `application/ld+json` media-type casing and parameters so valid parameterized blocks are not reported as absent.

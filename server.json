@@ -49,6 +49,9 @@
                 "type": {
                   "type": "string"
                 },
+                "subType": {
+                  "type": "string"
+                },
                 "message": {
                   "type": "string"
                 },
@@ -130,6 +133,9 @@
               "type": "object",
               "properties": {
                 "type": {
+                  "type": "string"
+                },
+                "subType": {
                   "type": "string"
                 },
                 "message": {
@@ -713,6 +719,9 @@
               "type": "object",
               "properties": {
                 "type": {
+                  "type": "string"
+                },
+                "subType": {
                   "type": "string"
                 },
                 "message": {

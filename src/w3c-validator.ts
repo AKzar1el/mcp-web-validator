@@ -7,6 +7,7 @@ import { PACKAGE_VERSION } from "./version.js";
 
 export interface W3CMessage {
   type: string;
+  subType?: string;
   lastLine?: number;
   lastColumn?: number;
   firstLine?: number;
@@ -66,6 +67,10 @@ function normalizeW3CMessage(message: unknown): W3CMessage {
 
   if (typeof candidate.extract === "string") {
     normalized.extract = candidate.extract;
+  }
+
+  if (typeof candidate.subType === "string") {
+    normalized.subType = candidate.subType;
   }
 
   return normalized;

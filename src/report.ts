@@ -75,7 +75,9 @@ export function createValidationReport(input: ValidationReportInput): Validation
   const failedChecks = input.failedChecks ?? [];
   const checkFailed = (check: ValidationReportCheck): boolean => failedChecks.includes(check);
   const htmlErrors = input.htmlMessages.filter((message) => message.type === "error").length;
-  const htmlWarnings = input.htmlMessages.length - htmlErrors;
+  const htmlWarnings = input.htmlMessages.filter(
+    (message) => message.type === "warning" || (message.type === "info" && message.subType === "warning"),
+  ).length;
   const cssErrors = input.cssMessages.length;
   const cssCompatibilityLimitations = input.cssMessages.filter(
     (message) => message.compatibility === "known-validator-limitation",

@@ -50,7 +50,7 @@ test("HTML validator normalizes upstream messages to the advertised contract", a
           lastLine: 4,
           lastColumn: 9,
           extract: "<badtag>",
-          subtype: "warning",
+          subType: "warning",
           url: "https://example.com/",
           hiliteStart: 1,
           hiliteLength: 8,
@@ -72,6 +72,7 @@ test("HTML validator normalizes upstream messages to the advertised contract", a
         lastLine: 4,
         lastColumn: 9,
         extract: "<badtag>",
+        subType: "warning",
       },
     ]);
   } finally {

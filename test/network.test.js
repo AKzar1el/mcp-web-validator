@@ -6,7 +6,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
-import puppeteer from "puppeteer";
 import { assertPublicHttpUrl, fetchPublicText, readResponseText } from "../dist/network.js";
 import { captureScreenshots } from "../dist/screenshot.js";
 import { checkBrokenLinks } from "../dist/seo-auditor.js";
@@ -43,7 +42,6 @@ async function waitForRequestResolution(request) {
 }
 
 async function withMockedScreenshotBrowser(extraRequestUrls, gotoError, run) {
-  const originalLaunch = puppeteer.launch;
   const state = { requests: [], interceptionEnabled: false };
   let requestHandler;
   const page = {
@@ -72,13 +70,10 @@ async function withMockedScreenshotBrowser(extraRequestUrls, gotoError, run) {
     newPage: async () => page,
     close: async () => {},
   };
-  puppeteer.launch = async () => browser;
-
-  try {
-    return await run(state);
-  } finally {
-    puppeteer.launch = originalLaunch;
-  }
+  const browserRuntime = {
+    launch: async () => browser,
+  };
+  return run(state, browserRuntime);
 }
 
 async function createScreenshotFixture(t) {
@@ -553,8 +548,8 @@ test("local screenshot rendering permits only contained files and public network
     "ftp://example.com/unsupported",
   ];
 
-  const { result, state } = await withMockedScreenshotBrowser(requestUrls, undefined, async (browserState) => ({
-    result: await captureScreenshots(fixture.selectedFile, fixture.outputDirectory, screenshotViewport),
+  const { result, state } = await withMockedScreenshotBrowser(requestUrls, undefined, async (browserState, browserRuntime) => ({
+    result: await captureScreenshots(fixture.selectedFile, fixture.outputDirectory, screenshotViewport, browserRuntime),
     state: browserState,
   }));
 
@@ -590,8 +585,8 @@ test("local screenshot rendering blocks symlinked files outside the selected dir
     throw error;
   }
 
-  const { state } = await withMockedScreenshotBrowser([pathToFileURL(escapedSymlink).href], undefined, async (browserState) => {
-    await captureScreenshots(fixture.selectedFile, fixture.outputDirectory, screenshotViewport);
+  const { state } = await withMockedScreenshotBrowser([pathToFileURL(escapedSymlink).href], undefined, async (browserState, browserRuntime) => {
+    await captureScreenshots(fixture.selectedFile, fixture.outputDirectory, screenshotViewport, browserRuntime);
     return { state: browserState };
   });
 
@@ -601,8 +596,8 @@ test("local screenshot rendering blocks symlinked files outside the selected dir
 
 test("screenshot rendering preserves remote public targets and reports blocked navigation", async (t) => {
   const fixture = await createScreenshotFixture(t);
-  const remote = await withMockedScreenshotBrowser(["data:text/plain,ok", "blob:null/remote-fixture", "ftp://example.com/unsupported"], undefined, async (state) => ({
-    result: await captureScreenshots("https://1.1.1.1/page", fixture.outputDirectory, screenshotViewport),
+  const remote = await withMockedScreenshotBrowser(["data:text/plain,ok", "blob:null/remote-fixture", "ftp://example.com/unsupported"], undefined, async (state, browserRuntime) => ({
+    result: await captureScreenshots("https://1.1.1.1/page", fixture.outputDirectory, screenshotViewport, browserRuntime),
     state,
   }));
   assert.equal(remote.result.length, 1);
@@ -625,8 +620,8 @@ test("screenshot rendering preserves remote public targets and reports blocked n
   }
 
   await assert.rejects(
-    withMockedScreenshotBrowser(["http://127.0.0.1/blocked"], new Error("net::ERR_FAILED"), async () =>
-      captureScreenshots(fixture.selectedFile, fixture.outputDirectory, screenshotViewport),
+    withMockedScreenshotBrowser(["http://127.0.0.1/blocked"], new Error("net::ERR_FAILED"), async (_state, browserRuntime) =>
+      captureScreenshots(fixture.selectedFile, fixture.outputDirectory, screenshotViewport, browserRuntime),
     ),
     /Screenshot navigation blocked: .*(not public|non-public)/i,
   );

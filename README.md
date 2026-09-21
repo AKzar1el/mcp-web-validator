@@ -41,7 +41,7 @@ https://web-validator-mcp.digestseo.com/mcp
 - Node.js 22.12.0 or newer
 - An MCP client that supports stdio, or a client that supports Streamable HTTP for the hosted endpoint
 
-Puppeteer may download a compatible browser during npm installation. The browser is used only by the local `screenshot.capture` tool.
+The validation, SEO, schema, link, and report tools do not download a browser during installation. The local `screenshot.capture` tool installs its pinned headless browser into Puppeteer's cache on first use, then reuses that browser for later screenshots. Set `PUPPETEER_CACHE_DIR` if you need a custom cache location.
 
 ## Local server tools
 

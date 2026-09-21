@@ -556,7 +556,7 @@ export function createServer(): McpServer {
     {
       title: "Capture responsive screenshots",
       description:
-        "Renders a local HTML file or HTTP(S) URL in a sandboxed local Chromium browser and writes PNG screenshots to the requested directory. Existing matching files may be replaced.",
+        "Renders a local HTML file or HTTP(S) URL in a sandboxed local Chromium browser and writes PNG screenshots to the requested directory. Downloads the pinned headless browser on first use if it is not already cached. Existing matching files may be replaced.",
       inputSchema: {
         targetPath: z
           .string()

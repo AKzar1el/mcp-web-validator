@@ -93,7 +93,7 @@ export interface PublicHttpResult {
   url: URL;
 }
 
-interface ResolvedPublicHttpUrl {
+export interface ResolvedPublicHttpUrl {
   url: URL;
   addresses: Array<{ address: string; family: number }>;
 }
@@ -159,7 +159,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
  * Parses an HTTP(S) URL and rejects hostnames that resolve to local, private,
  * documentation, multicast, or otherwise non-public address space.
  */
-async function resolvePublicHttpUrl(input: string | URL): Promise<ResolvedPublicHttpUrl> {
+export async function resolvePublicHttpUrl(input: string | URL): Promise<ResolvedPublicHttpUrl> {
   const rawUrl = input instanceof URL ? input.href : input;
   if (typeof rawUrl !== "string" || rawUrl.length === 0 || rawUrl.length > MAX_URL_LENGTH) {
     throw new PublicUrlError(`URL must contain between 1 and ${MAX_URL_LENGTH} characters`);

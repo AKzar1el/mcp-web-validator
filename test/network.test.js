@@ -460,6 +460,41 @@ test("link checker retries a 501 HEAD response with a bounded GET", async () => 
   }
 });
 
+test("link checker retries without Range when the bounded GET returns 416", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input, init) => {
+    requested.push({ url: String(input), method: init?.method, range: init?.headers?.Range });
+    if (init?.method === "HEAD") return new Response(null, { status: 405 });
+    if (init?.headers?.Range) {
+      return new Response(null, {
+        status: 416,
+        headers: { "content-range": "bytes */0" },
+      });
+    }
+    return new Response(null, { status: 200 });
+  };
+
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/empty-resource">Link</a>', undefined, 1);
+    assert.deepEqual(links, [
+      {
+        url: "https://1.1.1.1/empty-resource",
+        status: 200,
+        ok: true,
+        message: undefined,
+      },
+    ]);
+    assert.deepEqual(requested, [
+      { url: "https://1.1.1.1/empty-resource", method: "HEAD", range: undefined },
+      { url: "https://1.1.1.1/empty-resource", method: "GET", range: "bytes=0-0" },
+      { url: "https://1.1.1.1/empty-resource", method: "GET", range: undefined },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker reports the bounded GET result after a 501 HEAD response", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];

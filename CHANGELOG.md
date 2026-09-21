@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The project follows [Se
 ### Fixed
 
 - Kept JSON-LD syntax narration aligned with accepted `application/ld+json` media-type casing and parameters so valid parameterized blocks are not reported as absent.
+- Retried link probes without a byte range when the bounded GET fallback receives HTTP 416, preventing reachable zero-length or otherwise range-unsatisfiable resources from being reported as broken.
 
 ## [1.3.9] - 2026-09-21
 

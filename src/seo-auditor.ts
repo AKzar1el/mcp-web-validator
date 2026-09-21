@@ -359,7 +359,7 @@ export async function checkBrokenLinks(
 
       // Some sites reject or do not implement HEAD even when the linked resource is available.
       if (headStatus === 405 || headStatus === 403 || headStatus === 501) {
-        const getResult = await fetchPublicHttp(url, {
+        let getResult = await fetchPublicHttp(url, {
           method: "GET",
           headers: {
             Range: "bytes=0-0",
@@ -368,6 +368,16 @@ export async function checkBrokenLinks(
           timeoutMs: LINK_CHECK_TIMEOUT_MS,
           maxRedirects: 0,
         });
+        if (getResult.response.status === 416) {
+          await cancelResponseBody(getResult.response);
+          getResult = await fetchPublicHttp(url, {
+            method: "GET",
+            headers: { "User-Agent": LINK_CHECK_USER_AGENT },
+            timeoutMs: LINK_CHECK_TIMEOUT_MS,
+            maxRedirects: 0,
+          });
+        }
+
         const status = getResult.response.status;
         const ok = status >= 200 && status < 400;
         const finalUrl = getResult.url.href;

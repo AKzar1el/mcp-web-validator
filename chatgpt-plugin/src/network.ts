@@ -1,3 +1,4 @@
+import { getEncoding } from "encoding-sniffer/sniffer";
 import { HTML_MAX_LENGTH, SERVICE_USER_AGENT } from "./constants";
 import { toPublicHttpUrl } from "./audits";
 
@@ -5,6 +6,7 @@ const MAX_PUBLIC_URL_LENGTH = 2_048;
 const MAX_PUBLIC_HTML_BYTES = 1024 * 1024;
 const MAX_PUBLIC_HTML_REDIRECTS = 3;
 const PUBLIC_HTML_TIMEOUT_MS = 12_000;
+const HTML_ENCODING_SNIFF_BYTES = 1_024;
 const SERVICE_HOSTNAME = "web-validator-mcp.digestseo.com";
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
@@ -116,6 +118,7 @@ export async function readBoundedResponseText(
   maxBytes: number,
   tooLargeMessage: string,
   encoding?: string,
+  sniffHtmlEncoding = false,
 ): Promise<string> {
   const declaredLength = response.headers.get("content-length");
   if (declaredLength && /^\d+$/.test(declaredLength) && Number(declaredLength) > maxBytes) {
@@ -123,19 +126,53 @@ export async function readBoundedResponseText(
     throw new Error(tooLargeMessage);
   }
 
-  const encodingLabel = encoding === undefined ? "utf-8" : encoding;
-  let decoder: TextDecoder;
-  try {
-    decoder = new TextDecoder(encodingLabel, { fatal: false });
-  } catch {
-    await cancelQuietly(response);
-    throw new Error(`Unsupported response character encoding "${encodingLabel}"`);
-  }
   if (!response.body) return "";
 
   const reader = response.body.getReader();
   let totalBytes = 0;
   let text = "";
+  let decoder: TextDecoder | undefined;
+  let pendingChunks: Uint8Array[] = [];
+  let pendingBytes = 0;
+
+  const createDecoder = async (encodingLabel: string): Promise<TextDecoder> => {
+    try {
+      return new TextDecoder(encodingLabel, { fatal: false });
+    } catch {
+      await reader.cancel();
+      throw new Error(`Unsupported response character encoding "${encodingLabel}"`);
+    }
+  };
+
+  const startDecoder = async (): Promise<void> => {
+    if (decoder) return;
+    let encodingLabel = encoding ?? "utf-8";
+    if (encoding === undefined && sniffHtmlEncoding) {
+      const sniffLength = Math.min(pendingBytes, HTML_ENCODING_SNIFF_BYTES);
+      const sniffBytes = new Uint8Array(sniffLength);
+      let copied = 0;
+      for (const chunk of pendingChunks) {
+        if (copied >= sniffLength) break;
+        const length = Math.min(chunk.byteLength, sniffLength - copied);
+        sniffBytes.set(chunk.subarray(0, length), copied);
+        copied += length;
+      }
+      encodingLabel = getEncoding(sniffBytes, {
+        maxBytes: HTML_ENCODING_SNIFF_BYTES,
+        defaultEncoding: "utf-8",
+      });
+    }
+    decoder = await createDecoder(encodingLabel);
+    for (const chunk of pendingChunks) {
+      text += decoder.decode(chunk, { stream: true });
+    }
+    pendingChunks = [];
+    pendingBytes = 0;
+  };
+
+  if (encoding !== undefined || !sniffHtmlEncoding) {
+    await startDecoder();
+  }
 
   try {
     while (true) {
@@ -147,7 +184,20 @@ export async function readBoundedResponseText(
         await reader.cancel(tooLargeMessage);
         throw new Error(tooLargeMessage);
       }
-      text += decoder.decode(value, { stream: true });
+
+      if (!decoder) {
+        pendingChunks.push(value);
+        pendingBytes += value.byteLength;
+        if (pendingBytes >= HTML_ENCODING_SNIFF_BYTES) {
+          await startDecoder();
+        }
+      } else {
+        text += decoder.decode(value, { stream: true });
+      }
+    }
+    await startDecoder();
+    if (!decoder) {
+      throw new Error("Response decoder was not initialized");
     }
     text += decoder.decode();
     return text;
@@ -231,11 +281,13 @@ export async function fetchPublicHtml(
 
       let html: string;
       try {
+        const declaredEncoding = getDeclaredCharacterEncoding(contentTypeHeader);
         html = await readBoundedResponseText(
           response,
           MAX_PUBLIC_HTML_BYTES,
           "The page exceeds the 1 MiB download limit.",
-          getDeclaredCharacterEncoding(contentTypeHeader),
+          declaredEncoding,
+          declaredEncoding === undefined,
         );
       } catch (cause) {
         if (cause instanceof Error && cause.message.includes("1 MiB")) {

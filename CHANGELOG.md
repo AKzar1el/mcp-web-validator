@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The project follows [Se
 
 ### Fixed
 
+- Preserved legacy HTML text when a public `text/html` response omits an HTTP charset but declares a supported encoding in the first 1024 bytes of the document, while keeping an explicit HTTP charset authoritative.
 - Made informational-only HTML and SEO narration review-oriented instead of labeling advisory findings as attention-needed work or telling users to fix nonexistent errors.
 
 ## [1.3.13] - 2026-09-21

@@ -245,6 +245,46 @@ test("bounded public text fetch decodes the HTTP-declared character encoding", a
   }
 });
 
+test("bounded public text fetch decodes an early HTML meta charset when HTTP omits one", async () => {
+  const originalFetch = globalThis.fetch;
+  const body = Buffer.concat([
+    Buffer.from('<meta charset="windows-1252"><title>Caf', "ascii"),
+    Buffer.from([0xe9]),
+    Buffer.from("</title>", "ascii"),
+  ]);
+  globalThis.fetch = async () => new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/html" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/meta-charset", {
+      acceptedContentTypes: ["text/html"],
+    });
+    assert.equal(result.text, '<meta charset="windows-1252"><title>Caf\u00e9</title>');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("HTTP charset keeps precedence over an HTML meta charset", async () => {
+  const originalFetch = globalThis.fetch;
+  const body = Buffer.from('<meta charset="windows-1252"><title>Caf\u00e9</title>', "utf8");
+  globalThis.fetch = async () => new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/http-charset-wins", {
+      acceptedContentTypes: ["text/html"],
+    });
+    assert.equal(result.text, '<meta charset="windows-1252"><title>Caf\u00e9</title>');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("bounded public text fetch rejects an unsupported HTTP-declared character encoding", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response("<title>Example</title>", {

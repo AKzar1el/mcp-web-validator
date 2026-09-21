@@ -53,6 +53,32 @@ describe("fetchPublicHtml", () => {
     });
   });
 
+  it("decodes an early HTML meta charset when HTTP omits one", async () => {
+    const body = new Uint8Array([
+      ...new TextEncoder().encode('<meta charset="windows-1252"><title>Caf'),
+      0xe9,
+      ...new TextEncoder().encode("</title>"),
+    ]);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, {
+      headers: { "content-type": "text/html" },
+    })));
+
+    await expect(fetchPublicHtml("https://example.com/meta-charset")).resolves.toMatchObject({
+      html: '<meta charset="windows-1252"><title>Caf\u00e9</title>',
+    });
+  });
+
+  it("keeps HTTP charset precedence over an HTML meta charset", async () => {
+    const body = new TextEncoder().encode('<meta charset="windows-1252"><title>Caf\u00e9</title>');
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, {
+      headers: { "content-type": "text/html; charset=utf-8" },
+    })));
+
+    await expect(fetchPublicHtml("https://example.com/http-charset-wins")).resolves.toMatchObject({
+      html: '<meta charset="windows-1252"><title>Caf\u00e9</title>',
+    });
+  });
+
   it("rejects an unsupported HTTP-declared character encoding", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => htmlResponse("<title>Example</title>", {
       headers: { "content-type": "text/html; charset=definitely-not-an-encoding" },

@@ -107,7 +107,7 @@ export function auditSeoMetadata(html: string): AuditResult {
     });
   }
 
-  if ($('meta[name="viewport"]').length === 0) {
+  if ($('meta[name="viewport" i]').length === 0) {
     collector.add({
       code: "seo.viewport.missing",
       severity: "error",

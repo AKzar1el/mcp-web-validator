@@ -98,6 +98,13 @@ test("meta description name matching follows HTML ASCII case-insensitive semanti
   );
   assert.equal(issues.find((issue) => issue.code === "seo.meta_description.length"), undefined);
 });
+
+test("viewport meta name matching follows HTML ASCII case-insensitive semantics", () => {
+  const issues = auditSeoMetadata('<meta name="ViewPort" content="width=device-width">');
+
+  assert.equal(issues.find((issue) => issue.code === "seo.viewport.missing"), undefined);
+});
+
 test("title-length warnings keep the editorial thresholds without claiming a fixed Google limit", () => {
   const shortTitle = "s".repeat(29);
   const longTitle = "l".repeat(61);

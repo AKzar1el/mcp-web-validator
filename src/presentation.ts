@@ -1,7 +1,11 @@
 import * as cheerio from "cheerio";
 import type { ValidationReport } from "./report.js";
 import type { LinkStatus, SEOIssue } from "./seo-auditor.js";
-import type { CSSMessage, W3CMessage } from "./w3c-validator.js";
+import {
+  getW3CMessageSeverity,
+  type CSSMessage,
+  type W3CMessage,
+} from "./w3c-validator.js";
 
 type ActionPriority = 0 | 1 | 2;
 
@@ -104,8 +108,9 @@ function toolContent(options: {
 }
 
 export function htmlValidationContent(messages: W3CMessage[], source?: string): string {
-  const errorCount = messages.filter((message) => message.type.toLowerCase() === "error").length;
-  const otherCount = messages.length - errorCount;
+  const errorCount = messages.filter((message) => getW3CMessageSeverity(message) === "error").length;
+  const warningCount = messages.filter((message) => getW3CMessageSeverity(message) === "warning").length;
+  const infoCount = messages.length - errorCount - warningCount;
   const sourceText = source ? ` for ${markdownCode(source, 180)}` : "";
   if (messages.length === 0) {
     return toolContent({
@@ -118,10 +123,10 @@ export function htmlValidationContent(messages: W3CMessage[], source?: string): 
 
   return toolContent({
     title: "HTML validation",
-    status: "attention needed",
-    outcome: `The W3C validator returned ${countLabel(errorCount, "error")} and ${countLabel(otherCount, "other diagnostic")}${sourceText}.`,
+    status: errorCount > 0 || warningCount > 0 ? "attention needed" : "review suggested",
+    outcome: `The W3C validator returned ${countLabel(errorCount, "error")}, ${countLabel(warningCount, "warning")}, and ${countLabel(infoCount, "informational diagnostic")}${sourceText}.`,
     actions: messages.map((message) => ({
-      priority: priorityForSeverity(message.type),
+      priority: priorityForSeverity(getW3CMessageSeverity(message)),
       message: message.message,
       location: formatLocation(message.lastLine ?? message.firstLine, message.lastColumn ?? message.firstColumn),
     })),
@@ -317,7 +322,7 @@ function reportActionItems(reportData: ValidationReportResult): ActionItem[] {
       message,
     })),
     ...reportData.htmlMessages.map((message) => ({
-      priority: priorityForSeverity(message.type),
+      priority: priorityForSeverity(getW3CMessageSeverity(message)),
       message: `HTML: ${message.message}`,
       location: formatLocation(message.lastLine ?? message.firstLine, message.lastColumn ?? message.firstColumn),
     })),
@@ -390,8 +395,8 @@ export function reportContent(reportData: ValidationReportResult): string {
     outcome: partial
       ? `Partial validation report: ${unavailableChecks.join(", ")} ${unavailableChecks.length === 1 ? "was" : "were"} unavailable; remaining checks completed. HTML has ${countLabel(summary.htmlErrors, "error")}; ${cssSummary}; SEO has ${countLabel(summary.seoErrors, "error")}; JSON-LD has ${countLabel(summary.schemaErrors, "syntax error")}; ${linkSummary}.`
       : compatibilityLimited
-        ? `The overall heuristic score is withheld because CSS validation includes ${countLabel(summary.cssCompatibilityLimitations, "known validator limitation")}. HTML has ${countLabel(summary.htmlErrors, "error")} and ${countLabel(summary.htmlWarnings, "other diagnostic")}; ${cssSummary}; SEO has ${countLabel(summary.seoErrors, "error")} and ${countLabel(summary.seoWarnings, "warning")}; JSON-LD has ${countLabel(summary.schemaErrors, "syntax error")}; ${linkSummary}.`
-        : `The report's heuristic overall score is **${summary.overallScore}/100**. HTML has ${countLabel(summary.htmlErrors, "error")} and ${countLabel(summary.htmlWarnings, "other diagnostic")}; ${cssSummary}; SEO has ${countLabel(summary.seoErrors, "error")} and ${countLabel(summary.seoWarnings, "warning")}; JSON-LD has ${countLabel(summary.schemaErrors, "syntax error")}; ${linkSummary}.`,
+        ? `The overall heuristic score is withheld because CSS validation includes ${countLabel(summary.cssCompatibilityLimitations, "known validator limitation")}. HTML has ${countLabel(summary.htmlErrors, "error")} and ${countLabel(summary.htmlWarnings, "warning")}; ${cssSummary}; SEO has ${countLabel(summary.seoErrors, "error")} and ${countLabel(summary.seoWarnings, "warning")}; JSON-LD has ${countLabel(summary.schemaErrors, "syntax error")}; ${linkSummary}.`
+        : `The report's heuristic overall score is **${summary.overallScore}/100**. HTML has ${countLabel(summary.htmlErrors, "error")} and ${countLabel(summary.htmlWarnings, "warning")}; ${cssSummary}; SEO has ${countLabel(summary.seoErrors, "error")} and ${countLabel(summary.seoWarnings, "warning")}; JSON-LD has ${countLabel(summary.schemaErrors, "syntax error")}; ${linkSummary}.`,
     actions,
     nextStep: partial
       ? "Review the completed findings, then retry the unavailable checks."

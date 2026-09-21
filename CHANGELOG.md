@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The project follows [Se
 ### Fixed
 
 - Began graceful cleanup of each request-scoped DNS-pinning dispatcher as soon as its terminal response is returned, preventing long-lived MCP processes from accumulating Undici Agents without interrupting response-body streaming.
+- Kept Nu HTML warning subtype semantics consistent across scoring and presentation so true warnings are labeled and prioritized as warnings while pure informational diagnostics remain review-only.
 
 ## [1.3.11] - 2026-09-21
 

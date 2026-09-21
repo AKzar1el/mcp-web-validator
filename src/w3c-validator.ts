@@ -16,6 +16,19 @@ export interface W3CMessage {
   extract?: string;
 }
 
+export type W3CMessageSeverity = "error" | "warning" | "info";
+
+export function getW3CMessageSeverity(
+  message: Pick<W3CMessage, "type" | "subType">,
+): W3CMessageSeverity {
+  const type = message.type.trim().toLowerCase();
+  if (type === "error") return "error";
+  if (type === "warning" || (type === "info" && message.subType?.trim().toLowerCase() === "warning")) {
+    return "warning";
+  }
+  return "info";
+}
+
 export interface CSSMessage {
   line: number;
   type: string;

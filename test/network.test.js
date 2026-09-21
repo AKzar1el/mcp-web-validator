@@ -312,7 +312,7 @@ test("link checker resolves relative links from the first public base element", 
   }
 });
 
-test("explicit link-check base URL takes precedence over the document base element", async () => {
+test("document base element overrides the fetched page URL for relative links", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];
   globalThis.fetch = async (input, init) => {
@@ -326,8 +326,50 @@ test("explicit link-check base URL takes precedence over the document base eleme
       "https://1.1.1.1/explicit/",
       1,
     );
-    assert.deepEqual(links.map((link) => link.url), ["https://1.1.1.1/explicit/guide"]);
-    assert.deepEqual(requested, [{ url: "https://1.1.1.1/explicit/guide", method: "HEAD" }]);
+    assert.deepEqual(links.map((link) => link.url), ["https://8.8.8.8/ignored/guide"]);
+    assert.deepEqual(requested, [{ url: "https://8.8.8.8/ignored/guide", method: "HEAD" }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("relative document base elements resolve against the fetched page URL", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input, init) => {
+    requested.push({ url: String(input), method: init?.method });
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const links = await checkBrokenLinks(
+      '<base href="../assets/"><a href="guide">Guide</a>',
+      "https://1.1.1.1/docs/page.html",
+      1,
+    );
+    assert.deepEqual(links.map((link) => link.url), ["https://1.1.1.1/assets/guide"]);
+    assert.deepEqual(requested, [{ url: "https://1.1.1.1/assets/guide", method: "HEAD" }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("unsafe document base elements do not redirect relative link checks", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input, init) => {
+    requested.push({ url: String(input), method: init?.method });
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const links = await checkBrokenLinks(
+      '<base href="http://127.0.0.1/private/"><a href="secret">Secret</a><a href="https://1.1.1.1/public">Public</a>',
+      "https://8.8.8.8/page",
+      2,
+    );
+    assert.deepEqual(links.map((link) => link.url), ["https://1.1.1.1/public"]);
+    assert.deepEqual(requested, [{ url: "https://1.1.1.1/public", method: "HEAD" }]);
   } finally {
     globalThis.fetch = originalFetch;
   }

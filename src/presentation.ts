@@ -121,16 +121,19 @@ export function htmlValidationContent(messages: W3CMessage[], source?: string): 
     });
   }
 
+  const hasActionableDiagnostics = errorCount > 0 || warningCount > 0;
   return toolContent({
     title: "HTML validation",
-    status: errorCount > 0 || warningCount > 0 ? "attention needed" : "review suggested",
+    status: hasActionableDiagnostics ? "attention needed" : "review suggested",
     outcome: `The W3C validator returned ${countLabel(errorCount, "error")}, ${countLabel(warningCount, "warning")}, and ${countLabel(infoCount, "informational diagnostic")}${sourceText}.`,
     actions: messages.map((message) => ({
       priority: priorityForSeverity(getW3CMessageSeverity(message)),
       message: message.message,
       location: formatLocation(message.lastLine ?? message.firstLine, message.lastColumn ?? message.firstColumn),
     })),
-    nextStep: "Fix the errors in order, then rerun HTML validation to confirm the markup is clean.",
+    nextStep: hasActionableDiagnostics
+      ? "Fix errors first, then warnings, and rerun HTML validation to confirm the markup is clean."
+      : "Review the informational diagnostics, then rerun validation after relevant markup changes.",
   });
 }
 
@@ -183,16 +186,19 @@ export function seoAuditContent(issues: SEOIssue[], totalIssues: number, truncat
     });
   }
 
+  const hasActionableFindings = errors > 0 || warnings > 0;
   return toolContent({
     title: "SEO audit",
-    status: "attention needed",
+    status: hasActionableFindings ? "attention needed" : "review suggested",
     outcome: `The audit found ${countLabel(errors, "error")}, ${countLabel(warnings, "warning")}, and ${countLabel(info, "suggestion")}.`,
     actions: issues.map((issue) => ({
       priority: priorityForSeverity(issue.severity),
       message: issue.message,
       location: issue.element ? collapseWhitespace(issue.element, 120) : undefined,
     })),
-    nextStep: "Address errors first, then warnings, and rerun the audit after updating the page.",
+    nextStep: hasActionableFindings
+      ? "Address errors first, then warnings, and rerun the audit after updating the page."
+      : "Review the suggestions that apply to this page, then rerun the audit after relevant template changes.",
     note: truncated
       ? `Showing the first ${issues.length} of ${totalIssues} findings in structured output.`
       : undefined,

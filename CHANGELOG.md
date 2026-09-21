@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+### Fixed
+
+- Made informational-only HTML and SEO narration review-oriented instead of labeling advisory findings as attention-needed work or telling users to fix nonexistent errors.
+
 ## [1.3.13] - 2026-09-21
 
 ### Fixed

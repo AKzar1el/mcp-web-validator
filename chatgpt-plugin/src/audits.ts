@@ -56,7 +56,7 @@ export function auditSeoMetadata(html: string): AuditResult {
   const $ = cheerio.load(html);
   const collector = createAuditCollector();
 
-  const title = $("title").first().text().trim();
+  const title = $("head > title").first().text().trim();
   if (!title) {
     collector.add({
       code: "seo.title.missing_or_empty",
@@ -73,7 +73,7 @@ export function auditSeoMetadata(html: string): AuditResult {
     });
   }
 
-  const description = $('meta[name="description" i]').first().attr("content")?.trim() ?? "";
+  const description = $('head > meta[name="description" i]').first().attr("content")?.trim() ?? "";
   if (!description) {
     collector.add({
       code: "seo.meta_description.missing_or_empty",
@@ -90,7 +90,7 @@ export function auditSeoMetadata(html: string): AuditResult {
     });
   }
 
-  const canonical = $("link[rel]").filter((_, element) => {
+  const canonical = $("head > link[rel]").filter((_, element) => {
     const rel = $(element).attr("rel") ?? "";
     const hasCanonicalToken = rel
       .trim()
@@ -107,7 +107,7 @@ export function auditSeoMetadata(html: string): AuditResult {
     });
   }
 
-  if ($('meta[name="viewport" i]').length === 0) {
+  if ($('head > meta[name="viewport" i]').length === 0) {
     collector.add({
       code: "seo.viewport.missing",
       severity: "error",

@@ -113,6 +113,24 @@ test("viewport meta name matching follows HTML ASCII case-insensitive semantics"
   assert.equal(issues.find((issue) => issue.code === "seo.viewport.missing"), undefined);
 });
 
+test("page metadata checks ignore body and SVG lookalikes outside the document head", () => {
+  const description = "D".repeat(140);
+  const issues = auditSeoMetadata([
+    "<html><head></head><body>",
+    '<svg><title>Decorative icon title that is not the page title</title></svg>',
+    `<meta name="description" content="${description}">`,
+    '<meta name="viewport" content="width=device-width">',
+    '<link rel="canonical" href="https://example.com/body-only">',
+    "<h1>Page heading</h1>",
+    "</body></html>",
+  ].join(""));
+
+  assert.equal(issues.find((issue) => issue.code === "seo.title.missing_or_empty")?.severity, "error");
+  assert.equal(issues.find((issue) => issue.code === "seo.meta_description.missing_or_empty")?.severity, "error");
+  assert.equal(issues.find((issue) => issue.code === "seo.viewport.missing")?.severity, "error");
+  assert.equal(issues.find((issue) => issue.code === "seo.canonical.missing")?.severity, "info");
+});
+
 test("title-length warnings keep the editorial thresholds without claiming a fixed Google limit", () => {
   const shortTitle = "s".repeat(29);
   const longTitle = "l".repeat(61);

@@ -77,7 +77,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   const { add } = collector;
 
   // --- Title Tag Audits ---
-  const titleTag = $("title");
+  const titleTag = $("head > title");
   if (titleTag.length === 0) {
     add({
       code: "seo.title.missing_or_empty",
@@ -114,7 +114,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   }
 
   // --- Meta Description Audits ---
-  const metaDescription = $('meta[name="description" i]');
+  const metaDescription = $('head > meta[name="description" i]');
   if (metaDescription.length === 0) {
     add({
       code: "seo.meta_description.missing_or_empty",
@@ -151,7 +151,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   }
 
   // --- Canonical Link ---
-  const canonicalLinks = $("link[rel]").filter((_, element) => {
+  const canonicalLinks = $("head > link[rel]").filter((_, element) => {
     const rel = $(element).attr("rel") ?? "";
     return rel
       .trim()
@@ -176,7 +176,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   }
 
   // --- Viewport Meta Tag (Mobile Responsiveness) ---
-  const viewport = $('meta[name="viewport" i]');
+  const viewport = $('head > meta[name="viewport" i]');
   if (viewport.length === 0) {
     add({
       code: "seo.viewport.missing",

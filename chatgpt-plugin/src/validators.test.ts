@@ -128,6 +128,24 @@ describe("bounded audits", () => {
     expect(result.issues.find((issue) => issue.code === "seo.viewport.missing")).toBeUndefined();
   });
 
+  it("ignores body and SVG metadata lookalikes outside the document head", () => {
+    const description = "D".repeat(140);
+    const result = auditSeoMetadata([
+      "<html><head></head><body>",
+      '<svg><title>Decorative icon title that is not the page title</title></svg>',
+      `<meta name="description" content="${description}">`,
+      '<meta name="viewport" content="width=device-width">',
+      '<link rel="canonical" href="https://example.com/body-only">',
+      "<h1>Page heading</h1>",
+      "</body></html>",
+    ].join(""));
+
+    expect(result.issues.find((issue) => issue.code === "seo.title.missing_or_empty")?.severity).toBe("error");
+    expect(result.issues.find((issue) => issue.code === "seo.meta_description.missing_or_empty")?.severity).toBe("error");
+    expect(result.issues.find((issue) => issue.code === "seo.viewport.missing")?.severity).toBe("error");
+    expect(result.issues.find((issue) => issue.code === "seo.canonical.missing")?.severity).toBe("warning");
+  });
+
   it("caps SEO findings while retaining the total", () => {
     const html = `<html><head><title>${"A".repeat(40)}</title><meta name="description" content="${"D".repeat(140)}"><meta name="viewport" content="width=device-width"><link rel="canonical" href="https://example.com"><meta property="og:title" content="x"><meta property="og:image" content="x"></head><body><h1>Title</h1>${"<img src=x>".repeat(150)}</body></html>`;
     const result = auditSeoMetadata(html);

@@ -369,8 +369,8 @@ describe("validation report", () => {
     expect(message.result.structuredContent.seo_findings.length).toBeGreaterThan(0);
     expect(message.result.structuredContent.overview.counts).toEqual([
       { key: "errors", label: "Errors", value: 4, tone: "error" },
-      { key: "warnings", label: "Warnings", value: 4, tone: "warning" },
-      { key: "notes", label: "Notes", value: 1, tone: "info" },
+      { key: "warnings", label: "Warnings", value: 2, tone: "warning" },
+      { key: "notes", label: "Notes", value: 3, tone: "info" },
       { key: "checks_passed", label: "Checks passed", value: 0, tone: "success" },
     ]);
   });
@@ -486,8 +486,8 @@ describe("polished tool responses", () => {
     ]);
     expect(seo.structuredContent.overview.counts).toEqual([
       { key: "errors", label: "Errors", value: 3, tone: "error" },
-      { key: "warnings", label: "Warnings", value: 1, tone: "warning" },
-      { key: "notes", label: "Notes", value: 1, tone: "info" },
+      { key: "warnings", label: "Warnings", value: 0, tone: "warning" },
+      { key: "notes", label: "Notes", value: 2, tone: "info" },
     ]);
   });
 

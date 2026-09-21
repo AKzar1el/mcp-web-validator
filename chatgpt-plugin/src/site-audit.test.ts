@@ -170,7 +170,7 @@ describe("auditPublicSite", () => {
       vi.fn(async (target: RequestInfo | URL) => {
         const url = String(target);
         if (url === "https://example.com/") {
-          return htmlResponse("<!doctype html><html><head><title>Short title</title><meta name=description content='A useful description with enough characters to meet the normal metadata target for this focused test page.'><meta name=viewport content='width=device-width'><link rel=canonical href='https://example.com/'></head><body><h1>Example</h1></body></html>");
+          return htmlResponse("<!doctype html><html><head><title>A descriptive title for the focused audit test page</title><meta name=description content='A useful description with enough characters to meet the normal metadata target for this focused test page.'><meta name=viewport content='width=device-width'><link rel=canonical href='https://example.com/'></head><body><h1>Example</h1><img src='hero.png'></body></html>");
         }
         if (url === "https://example.com/robots.txt") {
           return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
@@ -187,8 +187,8 @@ describe("auditPublicSite", () => {
 
     const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 1, pageOffset: 0 });
 
-    expect(result.pages[0]?.top_findings).toContainEqual(expect.objectContaining({ code: "seo.title.length" }));
-    expect(result.issue_groups).toContainEqual(expect.objectContaining({ code: "seo.title.length" }));
+    expect(result.pages[0]?.top_findings).toContainEqual(expect.objectContaining({ code: "accessibility.image_alt.missing" }));
+    expect(result.issue_groups).toContainEqual(expect.objectContaining({ code: "accessibility.image_alt.missing" }));
   });
 
   it("keeps sitemap URLs that differ only by a trailing slash as distinct crawl targets", async () => {

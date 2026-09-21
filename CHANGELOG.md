@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+### Changed
+
+- Deferred the local screenshot browser download until the first `screenshot.capture` call, so validator-only npm installs no longer fetch Chrome while screenshot users still receive the pinned verified headless shell automatically on demand.
+
 ## [1.3.6] - 2026-09-21
 
 ### Fixed

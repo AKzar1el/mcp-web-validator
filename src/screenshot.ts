@@ -1,6 +1,15 @@
-import puppeteer from "puppeteer";
+import {
+  Browser as ManagedBrowser,
+  computeExecutablePath,
+  detectBrowserPlatform,
+  install as installBrowser,
+  type BrowserPlatform,
+  type InstallOptions,
+} from "@puppeteer/browsers";
+import puppeteer, { type Browser as PuppeteerBrowser } from "puppeteer-core";
 import * as path from "path";
 import * as fs from "fs/promises";
+import * as os from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPublicHttpUrl, getErrorMessage } from "./network.js";
 
@@ -30,6 +39,76 @@ const SAFE_VIEWPORT_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 const NAVIGATION_TIMEOUT_MS = 30_000;
 
 export const SCREENSHOT_HEADLESS_MODE = "shell" as const;
+export const SCREENSHOT_BROWSER_BUILD_ID = "152.0.7977.42";
+
+type BrowserInstaller = (options: InstallOptions & { unpack?: true }) => Promise<{ executablePath: string }>;
+
+export interface ScreenshotBrowserRuntime {
+  launch(): Promise<PuppeteerBrowser>;
+}
+
+export async function resolveScreenshotBrowserExecutable(options: {
+  cacheDir?: string;
+  platform?: BrowserPlatform;
+  installer?: BrowserInstaller;
+} = {}): Promise<string> {
+  const platform = options.platform ?? detectBrowserPlatform();
+  if (!platform) {
+    throw new Error("Screenshot capture is not supported on this operating system");
+  }
+
+  const cacheDir = options.cacheDir
+    ?? process.env.PUPPETEER_CACHE_DIR
+    ?? path.join(os.homedir(), ".cache", "puppeteer");
+  const browser = ManagedBrowser.CHROMEHEADLESSSHELL;
+  const executablePath = computeExecutablePath({
+    browser,
+    buildId: SCREENSHOT_BROWSER_BUILD_ID,
+    cacheDir,
+    platform,
+  });
+
+  try {
+    await fs.access(executablePath);
+    return executablePath;
+  } catch {
+    // First screenshot use installs only the verified headless shell, not full Chrome.
+  }
+
+  try {
+    const installed = await (options.installer ?? installBrowser)({
+      browser,
+      buildId: SCREENSHOT_BROWSER_BUILD_ID,
+      cacheDir,
+      platform,
+    });
+    return installed.executablePath;
+  } catch (cause: unknown) {
+    throw new Error(
+      `Screenshot browser setup failed: ${getErrorMessage(cause)}`,
+      { cause },
+    );
+  }
+}
+
+let screenshotBrowserExecutablePromise: Promise<string> | undefined;
+
+const defaultScreenshotBrowserRuntime: ScreenshotBrowserRuntime = {
+  async launch(): Promise<PuppeteerBrowser> {
+    screenshotBrowserExecutablePromise ??= resolveScreenshotBrowserExecutable();
+    let executablePath: string;
+    try {
+      executablePath = await screenshotBrowserExecutablePromise;
+    } catch (cause) {
+      screenshotBrowserExecutablePromise = undefined;
+      throw cause;
+    }
+    return puppeteer.launch({
+      executablePath,
+      headless: SCREENSHOT_HEADLESS_MODE,
+    });
+  },
+};
 
 interface InterceptedRequest {
   url(): string;
@@ -163,7 +242,8 @@ async function resolveScreenshotRequest(
 export async function captureScreenshots(
   targetPath: string,
   outputDirectory: string,
-  customViewports?: ViewportConfig[]
+  customViewports?: ViewportConfig[],
+  browserRuntime: ScreenshotBrowserRuntime = defaultScreenshotBrowserRuntime,
 ): Promise<ScreenshotResult[]> {
   if (typeof targetPath !== "string" || targetPath.trim() === "") {
     throw new Error("targetPath must be a non-empty string");
@@ -196,10 +276,7 @@ export async function captureScreenshots(
   // Ensure output directory exists
   await fs.mkdir(resolvedOutputDirectory, { recursive: true });
 
-  // Launch Puppeteer's bundled headless shell.
-  const browser = await puppeteer.launch({
-    headless: SCREENSHOT_HEADLESS_MODE,
-  });
+  const browser = await browserRuntime.launch();
 
   const results: ScreenshotResult[] = [];
 

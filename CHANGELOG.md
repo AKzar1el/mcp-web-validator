@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+### Fixed
+
+- Began graceful cleanup of each request-scoped DNS-pinning dispatcher as soon as its terminal response is returned, preventing long-lived MCP processes from accumulating Undici Agents without interrupting response-body streaming.
+
 ## [1.3.11] - 2026-09-21
 
 ### Fixed

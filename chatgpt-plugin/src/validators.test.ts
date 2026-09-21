@@ -105,13 +105,33 @@ describe("bounded audits", () => {
     const valid = auditSeoMetadata('<link rel="alternate CANONICAL" href="https://example.com/page">');
     expect(valid.issues.find((issue) => issue.code === "seo.canonical.missing")).toBeUndefined();
 
+    const absent = auditSeoMetadata("<html><head></head><body><h1>Page</h1></body></html>");
+    expect(absent.issues.find((issue) => issue.code === "seo.canonical.missing")?.severity).toBe("info");
+
     const empty = auditSeoMetadata('<link rel="canonical" href="   ">');
     expect(empty.issues.find((issue) => issue.code === "seo.canonical.missing")).toEqual({
       code: "seo.canonical.missing",
       severity: "warning",
       category: "SEO",
-      message: "Missing or empty canonical link target. Add a non-empty href to <link rel=\"canonical\"> when this page needs an explicit canonical signal.",
+      message: "Canonical link is present but its href is empty. Provide a usable canonical target or remove the declaration.",
     });
+  });
+
+  it("keeps title and meta-description length heuristics as informational guidance", () => {
+    const result = auditSeoMetadata([
+      "<html><head>",
+      `<title>${"T".repeat(61)}</title>`,
+      `<meta name="description" content="${"D".repeat(161)}">`,
+      '<meta name="viewport" content="width=device-width">',
+      '<link rel="canonical" href="https://example.com/page">',
+      '<meta property="og:title" content="Page">',
+      '<meta property="og:image" content="https://example.com/image.png">',
+      "</head><body><h1>Page</h1></body></html>",
+    ].join(""));
+
+    expect(result.issues.find((issue) => issue.code === "seo.title.length")?.severity).toBe("info");
+    expect(result.issues.find((issue) => issue.code === "seo.meta_description.length")?.severity).toBe("info");
+    expect(result.counts.warning).toBe(0);
   });
 
   it("matches the standard meta description name ASCII case-insensitively", () => {
@@ -143,7 +163,7 @@ describe("bounded audits", () => {
     expect(result.issues.find((issue) => issue.code === "seo.title.missing_or_empty")?.severity).toBe("error");
     expect(result.issues.find((issue) => issue.code === "seo.meta_description.missing_or_empty")?.severity).toBe("error");
     expect(result.issues.find((issue) => issue.code === "seo.viewport.missing")?.severity).toBe("error");
-    expect(result.issues.find((issue) => issue.code === "seo.canonical.missing")?.severity).toBe("warning");
+    expect(result.issues.find((issue) => issue.code === "seo.canonical.missing")?.severity).toBe("info");
   });
 
   it("caps SEO findings while retaining the total", () => {

@@ -64,12 +64,19 @@ export function auditSeoMetadata(html: string): AuditResult {
       category: "SEO",
       message: "Missing or empty <title> tag.",
     });
-  } else if (title.length < 30 || title.length > 60) {
+  } else if (title.length < 30) {
     collector.add({
       code: "seo.title.length",
-      severity: "warning",
+      severity: "info",
       category: "SEO",
-      message: `Title length is ${title.length} characters; aim for roughly 30–60 characters.`,
+      message: `Title is ${title.length} characters. This is shorter than the audit's common editorial range; review whether it describes the page clearly.`,
+    });
+  } else if (title.length > 60) {
+    collector.add({
+      code: "seo.title.length",
+      severity: "info",
+      category: "SEO",
+      message: `Title is ${title.length} characters. This is longer than the audit's common editorial range; Google title links may be shortened or rewritten depending on context and device.`,
     });
   }
 
@@ -81,29 +88,43 @@ export function auditSeoMetadata(html: string): AuditResult {
       category: "SEO",
       message: "Missing or empty meta description.",
     });
-  } else if (description.length < 120 || description.length > 160) {
+  } else if (description.length < 120) {
     collector.add({
       code: "seo.meta_description.length",
-      severity: "warning",
+      severity: "info",
       category: "SEO",
-      message: `Meta description length is ${description.length} characters; aim for roughly 120–160 characters.`,
+      message: `Meta description is ${description.length} characters. This is shorter than the audit's common editorial range; review whether it provides a useful page summary.`,
+    });
+  } else if (description.length > 160) {
+    collector.add({
+      code: "seo.meta_description.length",
+      severity: "info",
+      category: "SEO",
+      message: `Meta description is ${description.length} characters. This is longer than the audit's common editorial range; displayed snippets may be shortened depending on the query and device.`,
     });
   }
 
-  const canonical = $("head > link[rel]").filter((_, element) => {
+  const canonicalLinks = $("head > link[rel]").filter((_, element) => {
     const rel = $(element).attr("rel") ?? "";
-    const hasCanonicalToken = rel
+    return rel
       .trim()
       .split(/[\t\n\f\r ]+/)
       .some((token) => token.toLowerCase() === "canonical");
-    return hasCanonicalToken && Boolean($(element).attr("href")?.trim());
   });
-  if (canonical.length === 0) {
+  const usableCanonical = canonicalLinks.filter((_, element) => Boolean($(element).attr("href")?.trim()));
+  if (canonicalLinks.length === 0) {
+    collector.add({
+      code: "seo.canonical.missing",
+      severity: "info",
+      category: "SEO",
+      message: "No rel=\"canonical\" preference is declared. This is optional unless the page needs an explicit canonicalization signal.",
+    });
+  } else if (usableCanonical.length === 0) {
     collector.add({
       code: "seo.canonical.missing",
       severity: "warning",
       category: "SEO",
-      message: "Missing or empty canonical link target. Add a non-empty href to <link rel=\"canonical\"> when this page needs an explicit canonical signal.",
+      message: "Canonical link is present but its href is empty. Provide a usable canonical target or remove the declaration.",
     });
   }
 

@@ -151,20 +151,27 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   }
 
   // --- Canonical Link ---
-  const canonical = $("link[rel]").filter((_, element) => {
+  const canonicalLinks = $("link[rel]").filter((_, element) => {
     const rel = $(element).attr("rel") ?? "";
-    const hasCanonicalToken = rel
+    return rel
       .trim()
       .split(/[\t\n\f\r ]+/)
       .some((token) => token.toLowerCase() === "canonical");
-    return hasCanonicalToken && Boolean($(element).attr("href")?.trim());
   });
-  if (canonical.length === 0) {
+  const usableCanonical = canonicalLinks.filter((_, element) => Boolean($(element).attr("href")?.trim()));
+  if (canonicalLinks.length === 0) {
+    add({
+      code: "seo.canonical.missing",
+      severity: "info",
+      category: "SEO",
+      message: "No rel=\"canonical\" preference is declared. This is optional unless the page needs an explicit canonicalization signal.",
+    });
+  } else if (usableCanonical.length === 0) {
     add({
       code: "seo.canonical.missing",
       severity: "warning",
       category: "SEO",
-      message: "Missing or empty canonical link target. Add a non-empty href to <link rel=\"canonical\"> when this page needs an explicit canonical signal.",
+      message: "Canonical link is present but its href is empty. Provide a usable canonical target or remove the declaration.",
     });
   }
 

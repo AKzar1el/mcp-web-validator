@@ -56,6 +56,7 @@ const publicUrlSchema = z
 
 const w3cMessageSchema = z.object({
   type: z.string(),
+  subType: z.string().optional(),
   message: z.string(),
   lastLine: z.number().int().optional(),
   lastColumn: z.number().int().optional(),

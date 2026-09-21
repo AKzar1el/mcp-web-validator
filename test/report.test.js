@@ -19,13 +19,34 @@ test("report scoring does not penalize informational SEO findings", () => {
   assert.match(result.report, /site\\\|name\.html/);
 });
 
+test("report scoring does not penalize informational Nu HTML diagnostics", () => {
+  const result = createValidationReport({
+    htmlFilePath: "index.html",
+    cssAudited: false,
+    htmlMessages: [
+      {
+        type: "info",
+        message: "Trailing slash on void elements has no effect.",
+      },
+    ],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [],
+  });
+
+  assert.equal(result.summary.htmlErrors, 0);
+  assert.equal(result.summary.htmlWarnings, 0);
+  assert.equal(result.summary.htmlScore, 100);
+});
+
 test("report produces matching machine-readable counts", () => {
   const result = createValidationReport({
     htmlFilePath: "index.html",
     cssAudited: true,
     htmlMessages: [
       { type: "error", message: "Bad element", lastLine: 2 },
-      { type: "info", message: "Consider a language attribute" },
+      { type: "info", subType: "warning", message: "Consider a language attribute" },
     ],
     cssMessages: [{ type: "error", line: 3, message: "Unexpected token" }],
     seoIssues: [

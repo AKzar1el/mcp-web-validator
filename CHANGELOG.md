@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserved Nu HTML Checker warning subtype metadata so pure informational diagnostics no longer inflate `htmlWarnings` or reduce the HTML heuristic score while actual warnings continue to count normally.
+
 ## [1.3.8] - 2026-09-21
 
 ### Fixed

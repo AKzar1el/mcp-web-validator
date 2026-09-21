@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The project follows [Se
 ### Fixed
 
 - Preserved Nu HTML Checker warning subtype metadata so pure informational diagnostics no longer inflate `htmlWarnings` or reduce the HTML heuristic score while actual warnings continue to count normally.
+- Matched the `viewport` metadata name ASCII case-insensitively in both local and hosted SEO audits, preventing valid mixed-case viewport tags from being reported missing.
 
 ## [1.3.8] - 2026-09-21
 

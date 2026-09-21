@@ -169,7 +169,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   }
 
   // --- Viewport Meta Tag (Mobile Responsiveness) ---
-  const viewport = $('meta[name="viewport"]');
+  const viewport = $('meta[name="viewport" i]');
   if (viewport.length === 0) {
     add({
       code: "seo.viewport.missing",

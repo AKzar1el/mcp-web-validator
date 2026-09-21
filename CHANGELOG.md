@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+### Fixed
+
+- Stopped treating an omitted `rel="canonical"` preference as a score-penalizing SEO warning while preserving a warning for canonical declarations with an empty target.
+
 ## [1.3.10] - 2026-09-21
 
 ### Fixed

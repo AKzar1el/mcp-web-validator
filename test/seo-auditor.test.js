@@ -75,16 +75,24 @@ test("audit findings expose stable machine-readable rule codes", () => {
 });
 
 
-test("canonical detection follows HTML rel token semantics and requires a non-empty href", () => {
+test("canonical audit distinguishes an optional missing preference from an unusable declaration", () => {
   const valid = auditSeoMetadata('<link rel="Alternate CANONICAL" href="https://example.com/page">');
   assert.equal(valid.find((issue) => issue.code === "seo.canonical.missing"), undefined);
+
+  const absent = auditSeoMetadata("");
+  assert.deepEqual(absent.find((issue) => issue.code === "seo.canonical.missing"), {
+    code: "seo.canonical.missing",
+    severity: "info",
+    category: "SEO",
+    message: "No rel=\"canonical\" preference is declared. This is optional unless the page needs an explicit canonicalization signal.",
+  });
 
   const empty = auditSeoMetadata('<link rel="canonical" href="   ">');
   assert.deepEqual(empty.find((issue) => issue.code === "seo.canonical.missing"), {
     code: "seo.canonical.missing",
     severity: "warning",
     category: "SEO",
-    message: "Missing or empty canonical link target. Add a non-empty href to <link rel=\"canonical\"> when this page needs an explicit canonical signal.",
+    message: "Canonical link is present but its href is empty. Provide a usable canonical target or remove the declaration.",
   });
 });
 

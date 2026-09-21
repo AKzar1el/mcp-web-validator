@@ -97,7 +97,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     } else if (titleText.length < 30) {
       add({
         code: "seo.title.length",
-        severity: "warning",
+        severity: "info",
         category: "SEO",
         message: `Title is ${titleText.length} characters. This is shorter than the audit's common editorial range; review whether it describes the page clearly.`,
         element: `<title>${titleText}</title>`,
@@ -105,7 +105,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     } else if (titleText.length > 60) {
       add({
         code: "seo.title.length",
-        severity: "warning",
+        severity: "info",
         category: "SEO",
         message: `Title is ${titleText.length} characters. This is longer than the audit's common editorial range; Google title links may be shortened or rewritten depending on context and device.`,
         element: `<title>${titleText}</title>`,
@@ -134,7 +134,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     } else if (descText.length < 120) {
       add({
         code: "seo.meta_description.length",
-        severity: "warning",
+        severity: "info",
         category: "SEO",
         message: `Meta description is ${descText.length} characters. This is shorter than the audit's common editorial range; review whether it provides a useful page summary.`,
         element: `<meta name="description" content="${descText}">`,
@@ -142,7 +142,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     } else if (descText.length > 160) {
       add({
         code: "seo.meta_description.length",
-        severity: "warning",
+        severity: "info",
         category: "SEO",
         message: `Meta description is ${descText.length} characters. This is longer than the audit's common editorial range; displayed snippets may be shortened depending on the query and device.`,
         element: `<meta name="description" content="${descText}">`,

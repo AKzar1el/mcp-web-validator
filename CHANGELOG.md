@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+### Fixed
+
+- Kept title and meta-description character ranges as non-scoring editorial guidance instead of treating Google-independent length heuristics as SEO warning penalties.
+
 ## [1.3.12] - 2026-09-21
 
 ### Fixed

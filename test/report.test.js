@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createValidationReport } from "../dist/report.js";
+import { auditSeoMetadata } from "../dist/seo-auditor.js";
 
 test("report scoring does not penalize informational SEO findings", () => {
   const result = createValidationReport({
@@ -17,6 +18,32 @@ test("report scoring does not penalize informational SEO findings", () => {
   assert.equal(result.summary.cssScore, null);
   assert.equal(result.summary.linkScore, null);
   assert.match(result.report, /site\\\|name\.html/);
+});
+
+test("report scoring does not penalize title and meta-description editorial length guidance", () => {
+  const seoIssues = auditSeoMetadata([
+    "<html><head>",
+    `<title>${"T".repeat(61)}</title>`,
+    `<meta name="description" content="${"D".repeat(161)}">`,
+    '<meta name="viewport" content="width=device-width">',
+    '<link rel="canonical" href="https://example.com/">',
+    '<meta property="og:title" content="Example">',
+    '<meta property="og:image" content="https://example.com/image.png">',
+    "</head><body><h1>Example</h1></body></html>",
+  ].join(""));
+  const result = createValidationReport({
+    htmlFilePath: "index.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues,
+    schemaIssues: [],
+    links: [],
+  });
+
+  assert.equal(seoIssues.filter((issue) => issue.code.endsWith(".length")).length, 2);
+  assert.equal(result.summary.seoWarnings, 0);
+  assert.equal(result.summary.seoScore, 100);
 });
 
 test("report scoring does not penalize informational Nu HTML diagnostics", () => {

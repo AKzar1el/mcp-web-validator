@@ -131,7 +131,7 @@ test("page metadata checks ignore body and SVG lookalikes outside the document h
   assert.equal(issues.find((issue) => issue.code === "seo.canonical.missing")?.severity, "info");
 });
 
-test("title-length warnings keep the editorial thresholds without claiming a fixed Google limit", () => {
+test("title-length guidance keeps editorial thresholds without claiming a fixed Google limit", () => {
   const shortTitle = "s".repeat(29);
   const longTitle = "l".repeat(61);
   const shortIssue = lengthIssue(`<title>${shortTitle}</title>`, "Title is");
@@ -139,14 +139,14 @@ test("title-length warnings keep the editorial thresholds without claiming a fix
 
   assert.deepEqual(shortIssue, {
     code: "seo.title.length",
-    severity: "warning",
+    severity: "info",
     category: "SEO",
     message: "Title is 29 characters. This is shorter than the audit's common editorial range; review whether it describes the page clearly.",
     element: `<title>${shortTitle}</title>`,
   });
   assert.deepEqual(longIssue, {
     code: "seo.title.length",
-    severity: "warning",
+    severity: "info",
     category: "SEO",
     message: "Title is 61 characters. This is longer than the audit's common editorial range; Google title links may be shortened or rewritten depending on context and device.",
     element: `<title>${longTitle}</title>`,
@@ -157,7 +157,7 @@ test("title-length warnings keep the editorial thresholds without claiming a fix
   assert.equal(lengthIssue(`<title>${"a".repeat(60)}</title>`, "Title is"), undefined);
 });
 
-test("meta-description warnings keep the editorial thresholds without claiming a fixed Google limit", () => {
+test("meta-description guidance keeps editorial thresholds without claiming a fixed Google limit", () => {
   const shortDescription = "s".repeat(119);
   const longDescription = "l".repeat(161);
   const shortIssue = lengthIssue(`<meta name="description" content="${shortDescription}">`, "Meta description is");
@@ -165,14 +165,14 @@ test("meta-description warnings keep the editorial thresholds without claiming a
 
   assert.deepEqual(shortIssue, {
     code: "seo.meta_description.length",
-    severity: "warning",
+    severity: "info",
     category: "SEO",
     message: "Meta description is 119 characters. This is shorter than the audit's common editorial range; review whether it provides a useful page summary.",
     element: `<meta name="description" content="${shortDescription}">`,
   });
   assert.deepEqual(longIssue, {
     code: "seo.meta_description.length",
-    severity: "warning",
+    severity: "info",
     category: "SEO",
     message: "Meta description is 161 characters. This is longer than the audit's common editorial range; displayed snippets may be shortened depending on the query and device.",
     element: `<meta name="description" content="${longDescription}">`,

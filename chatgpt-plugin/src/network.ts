@@ -102,21 +102,37 @@ async function cancelQuietly(response: Response): Promise<void> {
   }
 }
 
+function getDeclaredCharacterEncoding(contentType: string | null): string | undefined {
+  if (!contentType) return undefined;
+  const match = /(?:^|;)\s*charset\s*=\s*(?:"([^"]*)"|([^;\s]*))/i.exec(contentType);
+  if (!match) return undefined;
+  return (match[1] ?? match[2] ?? "").trim();
+}
+
 /** Reads a response body without ever buffering more than the configured cap. */
 export async function readBoundedResponseText(
   response: Response,
   maxBytes: number,
   tooLargeMessage: string,
+  encoding?: string,
 ): Promise<string> {
   const declaredLength = response.headers.get("content-length");
   if (declaredLength && /^\d+$/.test(declaredLength) && Number(declaredLength) > maxBytes) {
     await cancelQuietly(response);
     throw new Error(tooLargeMessage);
   }
+
+  const encodingLabel = encoding === undefined ? "utf-8" : encoding;
+  let decoder: TextDecoder;
+  try {
+    decoder = new TextDecoder(encodingLabel, { fatal: false });
+  } catch {
+    await cancelQuietly(response);
+    throw new Error(`Unsupported response character encoding "${encodingLabel}"`);
+  }
   if (!response.body) return "";
 
   const reader = response.body.getReader();
-  const decoder = new TextDecoder("utf-8", { fatal: false });
   let totalBytes = 0;
   let text = "";
 
@@ -199,8 +215,8 @@ export async function fetchPublicHtml(
         throw new PublicHtmlFetchError("http_status", `The page returned HTTP ${status}.`);
       }
 
-      const contentType = response.headers
-        .get("content-type")
+      const contentTypeHeader = response.headers.get("content-type");
+      const contentType = contentTypeHeader
         ?.split(";", 1)[0]
         .trim()
         .toLowerCase();
@@ -218,10 +234,17 @@ export async function fetchPublicHtml(
           response,
           MAX_PUBLIC_HTML_BYTES,
           "The page exceeds the 1 MiB download limit.",
+          getDeclaredCharacterEncoding(contentTypeHeader),
         );
       } catch (cause) {
         if (cause instanceof Error && cause.message.includes("1 MiB")) {
           throw new PublicHtmlFetchError("too_large", cause.message);
+        }
+        if (cause instanceof Error && cause.message.startsWith("Unsupported response character encoding")) {
+          throw new PublicHtmlFetchError(
+            "content_type",
+            "The page declares an unsupported character encoding.",
+          );
         }
         throw cause;
       }

@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+### Fixed
+
+- Honored supported character encodings declared by fetched HTML responses instead of always decoding those representations as UTF-8, preventing legacy-encoded page text from being corrupted before validation and SEO analysis.
+
 ## [1.3.7] - 2026-09-21
 
 ### Changed

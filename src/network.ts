@@ -234,7 +234,23 @@ export async function cancelResponseBody(response: Response): Promise<void> {
   }
 }
 
-export async function readResponseText(response: Response, maxBytes: number): Promise<string> {
+function getDeclaredCharacterEncoding(contentType: string | null): string | undefined {
+  if (!contentType) {
+    return undefined;
+  }
+
+  const match = /(?:^|;)\s*charset\s*=\s*(?:"([^"]*)"|([^;\s]*))/i.exec(contentType);
+  if (!match) {
+    return undefined;
+  }
+  return (match[1] ?? match[2] ?? "").trim();
+}
+
+export async function readResponseText(
+  response: Response,
+  maxBytes: number,
+  encoding?: string,
+): Promise<string> {
   assertPositiveInteger(maxBytes, "maxBytes");
 
   const declaredLength = Number(response.headers.get("content-length"));
@@ -243,12 +259,20 @@ export async function readResponseText(response: Response, maxBytes: number): Pr
     throw new Error(`Response exceeds the ${maxBytes}-byte limit`);
   }
 
+  const encodingLabel = encoding === undefined ? "utf-8" : encoding;
+  let decoder: TextDecoder;
+  try {
+    decoder = new TextDecoder(encodingLabel);
+  } catch {
+    await cancelResponseBody(response);
+    throw new Error(`Unsupported response character encoding "${encodingLabel}"`);
+  }
+
   if (!response.body) {
     return "";
   }
 
   const reader = response.body.getReader();
-  const decoder = new TextDecoder();
   let totalBytes = 0;
   let text = "";
 
@@ -394,7 +418,7 @@ export async function fetchPublicText(
   }
 
   return {
-    text: await readResponseText(response, maxBytes),
+    text: await readResponseText(response, maxBytes, getDeclaredCharacterEncoding(contentTypeHeader)),
     url: url.href,
     status: response.status,
     contentType: contentTypeHeader,

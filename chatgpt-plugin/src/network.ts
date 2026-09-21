@@ -57,6 +57,7 @@ export class PublicHtmlFetchError extends Error {
   constructor(
     readonly code: PublicHtmlFetchErrorCode,
     message: string,
+    readonly status?: number,
   ) {
     super(message);
   }
@@ -212,7 +213,7 @@ export async function fetchPublicHtml(
       if (!response.ok) {
         const status = response.status;
         await cancelQuietly(response);
-        throw new PublicHtmlFetchError("http_status", `The page returned HTTP ${status}.`);
+        throw new PublicHtmlFetchError("http_status", `The page returned HTTP ${status}.`, status);
       }
 
       const contentTypeHeader = response.headers.get("content-type");
@@ -339,7 +340,7 @@ export async function fetchPublicText(
       if (!response.ok) {
         const status = response.status;
         await cancelQuietly(response);
-        throw new PublicHtmlFetchError("http_status", `The resource returned HTTP ${status}.`);
+        throw new PublicHtmlFetchError("http_status", `The resource returned HTTP ${status}.`, status);
       }
 
       const contentType = response.headers

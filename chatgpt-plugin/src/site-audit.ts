@@ -304,10 +304,9 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
   }
 }
 
-function isRobotsMissing(error: unknown): boolean {
-  return error instanceof PublicHtmlFetchError
-    && error.code === "http_status"
-    && error.message.includes("HTTP 404");
+function robotsHttpStatus(error: unknown): number | undefined {
+  if (!(error instanceof PublicHtmlFetchError) || error.code !== "http_status") return undefined;
+  return error.status;
 }
 
 async function discoverFromSitemaps(
@@ -380,7 +379,18 @@ async function discoverSitePages(origin: string): Promise<DiscoveryResult> {
     });
     robots = parseRobotsTxt(fetched.text, origin);
   } catch (cause) {
-    if (!isRobotsMissing(cause)) {
+    const status = robotsHttpStatus(cause);
+    if (status !== undefined && status >= 400 && status <= 499) {
+      robots = { rules: [], sitemapUrls: [] };
+    } else if (status !== undefined && status >= 500 && status <= 599) {
+      return {
+        rules: [{ allow: false, path: "/" }],
+        pageUrls: [],
+        discovery: "root_only",
+        discoveryError: "robots_unavailable",
+        truncated: false,
+      };
+    } else {
       return {
         rules: [],
         pageUrls: [],
@@ -389,7 +399,6 @@ async function discoverSitePages(origin: string): Promise<DiscoveryResult> {
         truncated: false,
       };
     }
-    robots = { rules: [], sitemapUrls: [] };
   }
 
   const fallbackSitemap = new URL("/sitemap.xml", origin);

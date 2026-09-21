@@ -54,6 +54,59 @@ describe("robots rules", () => {
 });
 
 describe("auditPublicSite", () => {
+  it("treats robots.txt 4xx responses as unavailable and continues with sitemap discovery", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/robots.txt") return new Response("forbidden", { status: 403 });
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response("<urlset><url><loc>https://example.com/</loc></url><url><loc>https://example.com/docs</loc></url></urlset>", {
+          headers: { "content-type": "application/xml" },
+        });
+      }
+      if (url === "https://example.com/docs") return htmlResponse();
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 2, pageOffset: 0 });
+
+    expect(result).toMatchObject({
+      discovery: "sitemap",
+      pages_discovered: 2,
+      pages_selected: 2,
+      pages_audited: 2,
+    });
+    expect(result.discovery_error).toBeUndefined();
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/sitemap.xml")).toBe(true);
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/docs")).toBe(true);
+  });
+
+  it("treats robots.txt 5xx responses as unreachable and does not audit crawl candidates", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/robots.txt") return new Response("unavailable", { status: 503 });
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 1, pageOffset: 0 });
+
+    expect(result).toMatchObject({
+      discovery: "root_only",
+      discovery_error: "robots_unavailable",
+      pages_discovered: 1,
+      pages_selected: 0,
+      pages_audited: 0,
+      pages_skipped_robots: 1,
+    });
+    expect(result.pages).toEqual([]);
+    expect(fetchMock.mock.calls.some(([target]) => String(target).startsWith("https://html5.validator.nu/"))).toBe(false);
+  });
+
   it("carries stable audit rule codes into page findings and site issue groups", async () => {
     vi.stubGlobal(
       "fetch",

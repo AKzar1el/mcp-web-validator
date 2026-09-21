@@ -12,6 +12,7 @@ import * as fs from "fs/promises";
 import * as os from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPublicHttpUrl, getErrorMessage } from "./network.js";
+import { startScreenshotTransportProxy } from "./screenshot-proxy.js";
 
 export interface ViewportConfig {
   name: string;
@@ -44,7 +45,7 @@ export const SCREENSHOT_BROWSER_BUILD_ID = "152.0.7977.42";
 type BrowserInstaller = (options: InstallOptions & { unpack?: true }) => Promise<{ executablePath: string }>;
 
 export interface ScreenshotBrowserRuntime {
-  launch(): Promise<PuppeteerBrowser>;
+  launch(proxyServer: string): Promise<PuppeteerBrowser>;
 }
 
 export async function resolveScreenshotBrowserExecutable(options: {
@@ -94,7 +95,7 @@ export async function resolveScreenshotBrowserExecutable(options: {
 let screenshotBrowserExecutablePromise: Promise<string> | undefined;
 
 const defaultScreenshotBrowserRuntime: ScreenshotBrowserRuntime = {
-  async launch(): Promise<PuppeteerBrowser> {
+  async launch(proxyServer: string): Promise<PuppeteerBrowser> {
     screenshotBrowserExecutablePromise ??= resolveScreenshotBrowserExecutable();
     let executablePath: string;
     try {
@@ -106,6 +107,10 @@ const defaultScreenshotBrowserRuntime: ScreenshotBrowserRuntime = {
     return puppeteer.launch({
       executablePath,
       headless: SCREENSHOT_HEADLESS_MODE,
+      args: [
+        `--proxy-server=${proxyServer}`,
+        "--proxy-bypass-list=<-loopback>",
+      ],
     });
   },
 };
@@ -276,15 +281,18 @@ export async function captureScreenshots(
   // Ensure output directory exists
   await fs.mkdir(resolvedOutputDirectory, { recursive: true });
 
-  const browser = await browserRuntime.launch();
-
   const results: ScreenshotResult[] = [];
+  let blockedRequestMessage: string | undefined;
+  const transportProxy = await startScreenshotTransportProxy((message) => {
+    blockedRequestMessage ??= message;
+  });
+  let browser: PuppeteerBrowser | undefined;
 
   try {
+    browser = await browserRuntime.launch(transportProxy.url);
     const page = await browser.newPage();
     page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
 
-    let blockedRequestMessage: string | undefined;
     await page.setRequestInterception(true);
     page.on("request", (request) => {
       void resolveScreenshotRequest(request, localDirectory, (message) => {
@@ -333,7 +341,10 @@ export async function captureScreenshots(
       });
     }
   } finally {
-    await browser.close();
+    if (browser) {
+      await browser.close();
+    }
+    await transportProxy.close();
   }
 
   return results;

@@ -4,6 +4,7 @@ import { syncBuiltinESMExports } from "node:module";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as net from "node:net";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { assertPublicHttpUrl, fetchPublicText, readResponseText } from "../dist/network.js";
@@ -74,6 +75,38 @@ async function withMockedScreenshotBrowser(extraRequestUrls, gotoError, run) {
     launch: async () => browser,
   };
   return run(state, browserRuntime);
+}
+
+async function openProxyTunnel(proxyUrl, authority) {
+  const proxy = new URL(proxyUrl);
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({
+      host: proxy.hostname,
+      port: Number(proxy.port),
+    });
+    let response = "";
+    let settled = false;
+    const finish = (error, statusLine) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      if (error) reject(error);
+      else resolve(statusLine);
+    };
+    socket.setTimeout(2_000, () => finish(new Error("proxy tunnel timed out")));
+    socket.once("error", (error) => finish(error));
+    socket.on("data", (chunk) => {
+      response += chunk.toString("latin1");
+      if (response.includes("\r\n\r\n")) {
+        finish(undefined, response.slice(0, response.indexOf("\r\n")));
+      }
+    });
+    socket.once("connect", () => {
+      socket.write(
+        `CONNECT ${authority} HTTP/1.1\r\nHost: ${authority}\r\nConnection: close\r\n\r\n`,
+      );
+    });
+  });
 }
 
 async function createScreenshotFixture(t) {
@@ -788,6 +821,79 @@ test("screenshot rendering preserves remote public targets and reports blocked n
     ),
     /Screenshot navigation blocked: .*(not public|non-public)/i,
   );
+});
+
+test("screenshot rendering pins Chromium transport against DNS rebinding", async (t) => {
+  const fixture = await createScreenshotFixture(t);
+  const originalLookup = dns.promises.lookup;
+  let lookupCalls = 0;
+  let transportProxySeen = false;
+
+  dns.promises.lookup = async (_hostname, options) => {
+    lookupCalls += 1;
+    const address = lookupCalls <= 2 ? "1.1.1.1" : "127.0.0.1";
+    const record = { address, family: 4 };
+    return options?.all ? [record] : record;
+  };
+  syncBuiltinESMExports();
+
+  let requestHandler;
+  const page = {
+    setDefaultNavigationTimeout: () => {},
+    setRequestInterception: async () => {},
+    on: (event, listener) => {
+      if (event === "request") requestHandler = listener;
+    },
+    setViewport: async () => {},
+    goto: async (targetUrl) => {
+      const request = createMockRequest(targetUrl);
+      requestHandler(request);
+      await waitForRequestResolution(request);
+      const statusLine = await openProxyTunnel(page.transportProxyUrl, "rebind.example.org:443");
+      if (!statusLine.includes(" 200 ")) {
+        throw new Error(`net::ERR_TUNNEL_CONNECTION_FAILED (${statusLine})`);
+      }
+    },
+    screenshot: async () => {},
+    transportProxyUrl: undefined,
+  };
+  const browser = {
+    newPage: async () => page,
+    close: async () => {},
+  };
+  const browserRuntime = {
+    launch: async (proxyUrl) => {
+      assert.match(
+        proxyUrl ?? "",
+        /^http:\/\/127\.0\.0\.1:\d+$/,
+        "screenshot Chromium must use the request-scoped loopback transport proxy",
+      );
+      transportProxySeen = true;
+      page.transportProxyUrl = proxyUrl;
+      return browser;
+    },
+  };
+
+  try {
+    await assert.rejects(
+      captureScreenshots(
+        "https://rebind.example.org/",
+        fixture.outputDirectory,
+        screenshotViewport,
+        browserRuntime,
+      ),
+      /Screenshot navigation blocked: .*non-public/i,
+    );
+    assert.equal(transportProxySeen, true);
+    assert.equal(
+      lookupCalls,
+      3,
+      "the proxy must revalidate the hostname at connection time and reject the private rebound",
+    );
+  } finally {
+    dns.promises.lookup = originalLookup;
+    syncBuiltinESMExports();
+  }
 });
 
 test("screenshot viewport names cannot escape the output directory", async () => {

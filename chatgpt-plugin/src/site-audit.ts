@@ -269,10 +269,13 @@ export function parseRobotsTxt(value: string, origin: string): ParsedRobots {
 export function isAllowedByRobots(url: URL, rules: RobotsRule[]): boolean {
   const target = `${url.pathname}${url.search}`;
   let winner: RobotsRule | undefined;
+  let winnerSpecificity = -1;
   for (const rule of rules) {
     if (!robotsPatternMatches(target, rule.path)) continue;
-    if (!winner || rule.path.length > winner.path.length || (rule.path.length === winner.path.length && rule.allow)) {
+    const specificity = normalizeRobotsComparisonValue(rule.path).length;
+    if (!winner || specificity > winnerSpecificity || (specificity === winnerSpecificity && rule.allow)) {
       winner = rule;
+      winnerSpecificity = specificity;
     }
   }
   return winner?.allow ?? true;

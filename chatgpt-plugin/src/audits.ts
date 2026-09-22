@@ -154,6 +154,24 @@ export function auditSeoMetadata(html: string): AuditResult {
     });
   }
 
+  // Google Search respects robots meta directives in both the head and body.
+  const indexBlockingRobotsMeta = $('meta[name]').filter((_, element) => {
+    const name = ($(element).attr("name") ?? "").trim().toLowerCase();
+    if (name !== "robots" && name !== "googlebot") return false;
+    const content = $(element).attr("content") ?? "";
+    return content
+      .split(",")
+      .some((directive) => ["noindex", "none"].includes(directive.trim().toLowerCase()));
+  });
+  if (indexBlockingRobotsMeta.length > 0) {
+    collector.add({
+      code: "seo.robots.noindex",
+      severity: "warning",
+      category: "SEO",
+      message: "A robots directive prevents Google from indexing this page. Confirm that noindex is intentional.",
+    });
+  }
+
   const viewport = $('head > meta[name="viewport" i]');
   if (viewport.length === 0) {
     collector.add({

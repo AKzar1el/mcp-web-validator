@@ -38,6 +38,7 @@ export interface FetchPublicTextOptions {
   allowedOrigin: string;
   acceptedContentTypes: readonly string[];
   maxBytes: number;
+  maxRedirects?: number;
   timeoutMs?: number;
 }
 
@@ -353,6 +354,7 @@ export async function fetchPublicText(
 ): Promise<FetchedPublicText> {
   const requestedUrl = requirePublicPageUrl(value);
   requireAllowedOrigin(requestedUrl, options.allowedOrigin);
+  const maxRedirects = options.maxRedirects ?? MAX_PUBLIC_HTML_REDIRECTS;
   let currentUrl = requestedUrl;
   const visited = new Set<string>();
   const controller = new AbortController();
@@ -384,10 +386,10 @@ export async function fetchPublicText(
         if (!location) {
           throw new PublicHtmlFetchError("redirect", "The resource returned a redirect without a destination.");
         }
-        if (redirectsFollowed >= MAX_PUBLIC_HTML_REDIRECTS) {
+        if (redirectsFollowed >= maxRedirects) {
           throw new PublicHtmlFetchError(
             "redirect",
-            `The resource exceeded the ${MAX_PUBLIC_HTML_REDIRECTS}-redirect limit.`,
+            `The resource exceeded the ${maxRedirects}-redirect limit.`,
           );
         }
 

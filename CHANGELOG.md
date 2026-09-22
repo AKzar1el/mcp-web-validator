@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The project follows [Se
 ### Fixed
 
 - Labeled pure advisory action lists as review items instead of "Fix first" work while preserving Fix-first prioritization when errors or warnings exist.
+- Accepted CR, LF, and CRLF robots.txt line endings in hosted sitemap-first site audits, matching RFC 9309 parsing syntax.
 
 ## [1.3.15] - 2026-09-22
 

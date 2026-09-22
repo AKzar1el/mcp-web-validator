@@ -26,6 +26,17 @@ describe("robots rules", () => {
     expect(isAllowedByRobots(new URL("https://example.com/other"), rules.rules)).toBe(true);
   });
 
+  it("accepts bare CR robots line endings", () => {
+    const parsed = parseRobotsTxt([
+      "User-agent: DigestSEO-Web-Validator",
+      "Disallow: /private",
+      "Sitemap: https://example.com/sitemap.xml",
+    ].join("\r"), "https://example.com");
+
+    expect(isAllowedByRobots(new URL("https://example.com/private"), parsed.rules)).toBe(false);
+    expect(parsed.sitemapUrls.map((url) => url.href)).toEqual(["https://example.com/sitemap.xml"]);
+  });
+
   it("falls back to wildcard rules when only a prefix of the crawler product token is named", () => {
     const rules = parseRobotsTxt([
       "User-agent: DigestSEO",

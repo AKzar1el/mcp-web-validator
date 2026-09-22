@@ -4,9 +4,15 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.22] - 2026-09-23
+
 ### Fixed
 
 - Reported `robots`/`googlebot` `noindex`-equivalent meta directives, including body metadata honored by Google Search, instead of silently treating index-blocked pages as clean.
+
+### Changed
+
+- Raised the minimum supported Undici 7.x dependency floor to 7.29.1 while preserving the package's Node.js `>=22.12.0` support contract.
 
 ## [1.3.21] - 2026-09-22
 

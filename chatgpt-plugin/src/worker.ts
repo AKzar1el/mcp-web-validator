@@ -6,7 +6,7 @@ import {
 } from "@modelcontextprotocol/ext-apps/server";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { auditSeoMetadata, checkBrokenLinks, resolveDocumentBaseUrl, validateSchemaMarkup } from "./audits";
+import { auditSeoMetadata, checkBrokenLinks, validateSchemaMarkup } from "./audits";
 import {
   CSS_MAX_LENGTH,
   HOSTED_MAX_LINKS,
@@ -1278,7 +1278,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
         const report = await runValidationReport({
           html: fetched.html,
           checkLinks: check_links,
-          baseUrl: resolveDocumentBaseUrl(fetched.html, fetched.finalUrl),
+          baseUrl: fetched.finalUrl,
           maxLinks: max_links,
           title: "Public webpage audit",
           sourceDetail: fetched.redirectsFollowed > 0

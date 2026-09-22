@@ -322,18 +322,6 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
-/** Resolves the first document <base href> against a known public fallback URL. */
-export function resolveDocumentBaseUrl(html: string, fallbackBaseUrl: string): string {
-  const safeFallback = toPublicHttpUrl(fallbackBaseUrl)?.toString();
-  if (!safeFallback) {
-    throw new Error("fallback base URL must be a public HTTP(S) URL on port 80 or 443.");
-  }
-
-  const $ = cheerio.load(html);
-  const href = $("base[href]").first().attr("href")?.trim();
-  if (!href) return safeFallback;
-  return toPublicHttpUrl(href, safeFallback)?.toString() ?? safeFallback;
-}
 /**
  * Checks a capped set of public HTTP(S) links. It does not follow redirects,
  * request custom ports, or return response bodies.
@@ -343,12 +331,24 @@ export async function checkBrokenLinks(
   baseUrl: string | undefined,
   maxLinks: number,
 ): Promise<LinkStatus[]> {
-  const safeBaseUrl = baseUrl ? toPublicHttpUrl(baseUrl)?.toString() : undefined;
-  if (baseUrl && !safeBaseUrl) {
+  const fallbackBaseUrl = baseUrl ? toPublicHttpUrl(baseUrl)?.toString() : undefined;
+  if (baseUrl && !fallbackBaseUrl) {
     throw new Error("base_url must be a public HTTP(S) URL on port 80 or 443.");
   }
 
   const $ = cheerio.load(html);
+  let effectiveBaseUrl = fallbackBaseUrl;
+  const documentBaseHref = $("base[href]").first().attr("href");
+  if (documentBaseHref !== undefined) {
+    try {
+      const resolvedDocumentBase = fallbackBaseUrl
+        ? new URL(documentBaseHref, fallbackBaseUrl)
+        : new URL(documentBaseHref);
+      effectiveBaseUrl = toPublicHttpUrl(resolvedDocumentBase.href)?.toString();
+    } catch {
+      effectiveBaseUrl = undefined;
+    }
+  }
   const urls: URL[] = [];
   const seen = new Set<string>();
   const limit = Math.min(Math.max(maxLinks, 1), HOSTED_MAX_LINKS);
@@ -357,7 +357,7 @@ export async function checkBrokenLinks(
     if (urls.length >= limit) return;
     const href = $(element).attr("href")?.trim();
     if (!href || href.startsWith("#") || /^(mailto:|tel:|javascript:|data:)/i.test(href)) return;
-    const url = toPublicHttpUrl(href, safeBaseUrl);
+    const url = toPublicHttpUrl(href, effectiveBaseUrl);
     if (!url || seen.has(url.toString())) return;
     seen.add(url.toString());
     urls.push(url);

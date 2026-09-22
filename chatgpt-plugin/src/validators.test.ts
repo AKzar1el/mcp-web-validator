@@ -217,4 +217,39 @@ describe("link checks", () => {
       "user-agent": expect.stringContaining("DigestSEO-Web-Validator"),
     });
   });
+
+  it("resolves relative links from the first document base instead of base_url", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks(
+      '<base href="https://assets.example.org/docs/"><a href="guide">Guide</a>',
+      "https://example.com/page",
+      1,
+    )).resolves.toEqual([
+      { url: "https://assets.example.org/docs/guide", status: 204, ok: true, message: undefined },
+    ]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL("https://assets.example.org/docs/guide"),
+      expect.objectContaining({ method: "HEAD", redirect: "manual" }),
+    );
+  });
+
+  it("does not resolve relative links through the fallback when the document base is unsafe", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks(
+      '<base href="http://127.0.0.1/private/"><a href="secret">Secret</a><a href="https://example.org/public">Public</a>',
+      "https://example.com/page",
+      2,
+    )).resolves.toEqual([
+      { url: "https://example.org/public", status: 204, ok: true, message: undefined },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL("https://example.org/public"),
+      expect.objectContaining({ method: "HEAD", redirect: "manual" }),
+    );
+  });
 });

@@ -142,6 +142,32 @@ test("missing CSS validator envelope fails instead of producing a clean result",
   }
 });
 
+test("CSS validator reports full totals when structured diagnostics are capped", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    cssvalidation: {
+      errors: Array.from({ length: 205 }, (_, index) => ({
+        line: index + 1,
+        type: "property",
+        message: `Issue ${index + 1}`,
+        context: ".card",
+      })),
+    },
+  });
+
+  try {
+    const validatorModule = await import("../dist/w3c-validator.js");
+    assert.equal(typeof validatorModule.validateCssContentDetailed, "function");
+    const result = await validatorModule.validateCssContentDetailed("body { color: black; }");
+    assert.equal(result.messages.length, 200);
+    assert.equal(result.total, 205);
+    assert.equal(result.truncated, true);
+    assert.deepEqual(result.counts, { error: 205, compatibilityLimitation: 0 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("CSS validator marks Jigsaw's known @container parser gap without hiding the upstream diagnostic", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(

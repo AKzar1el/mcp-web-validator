@@ -150,8 +150,12 @@ export function htmlValidationContent(
   });
 }
 
-export function cssValidationContent(messages: CSSMessage[]): string {
-  if (messages.length === 0) {
+export function cssValidationContent(
+  messages: CSSMessage[],
+  totalMessages = messages.length,
+  counts?: { error: number; compatibilityLimitation: number },
+): string {
+  if (totalMessages === 0) {
     return toolContent({
       title: "CSS validation",
       status: "clean",
@@ -163,14 +167,15 @@ export function cssValidationContent(messages: CSSMessage[]): string {
   const compatibilityLimitations = messages.filter(
     (message) => message.compatibility === "known-validator-limitation",
   );
-  const actionableErrors = messages.length - compatibilityLimitations.length;
+  const compatibilityLimitationCount = counts?.compatibilityLimitation ?? compatibilityLimitations.length;
+  const actionableErrors = counts?.error ?? messages.length - compatibilityLimitations.length;
 
   return toolContent({
     title: "CSS validation",
     status: actionableErrors > 0 ? "attention needed" : "review suggested",
-    outcome: compatibilityLimitations.length > 0
-      ? `The W3C validator returned ${countLabel(messages.length, "CSS error")}; ${countLabel(compatibilityLimitations.length, "diagnostic")} ${compatibilityLimitations.length === 1 ? "matches" : "match"} a known validator limitation.`
-      : `The W3C validator returned ${countLabel(messages.length, "CSS error")}.`,
+    outcome: compatibilityLimitationCount > 0
+      ? `The W3C validator returned ${countLabel(totalMessages, "CSS diagnostic")}; ${countLabel(compatibilityLimitationCount, "diagnostic")} ${compatibilityLimitationCount === 1 ? "matches" : "match"} a known validator limitation.`
+      : `The W3C validator returned ${countLabel(actionableErrors, "CSS error")}.`,
     actions: messages.map((message) => ({
       priority: message.compatibility === "known-validator-limitation" ? 2 : 0,
       message: message.context ? `${message.message} Context: ${message.context}` : message.message,
@@ -179,9 +184,14 @@ export function cssValidationContent(messages: CSSMessage[]): string {
     nextStep: actionableErrors > 0
       ? "Correct the actionable errors, then rerun CSS validation because one syntax issue can cause later diagnostics."
       : "Review the marked @container diagnostic against current CSS specifications; do not treat it as invalid CSS by itself.",
-    note: compatibilityLimitations.length > 0
-      ? "Jigsaw currently does not recognize the standards-defined @container rule. The upstream diagnostic is preserved and marked as a known validator limitation."
-      : undefined,
+    note: [
+      compatibilityLimitationCount > 0
+        ? "Jigsaw currently does not recognize the standards-defined @container rule. The upstream diagnostic is preserved and marked as a known validator limitation."
+        : undefined,
+      totalMessages > messages.length
+        ? `Showing the first ${messages.length} of ${totalMessages} CSS diagnostics in structured output; summary counts include all returned Jigsaw diagnostics.`
+        : undefined,
+    ].filter(Boolean).join(" ") || undefined,
   });
 }
 
@@ -409,9 +419,14 @@ export function reportContent(reportData: ValidationReportResult): string {
     .filter((check) => check !== "input")
     .map((check) => checkLabels[check]);
   const scoreNote = "The score is a triage heuristic based on these checks, not a Lighthouse score or a search-ranking prediction.";
-  const truncationNote = reportData.htmlTruncated
-    ? `Showing the first ${reportData.htmlMessages.length} of ${reportData.htmlTotalMessages} HTML diagnostics; HTML summary counts and scoring include all returned Nu diagnostics.`
-    : undefined;
+  const truncationNote = [
+    reportData.htmlTruncated
+      ? `Showing the first ${reportData.htmlMessages.length} of ${reportData.htmlTotalMessages} HTML diagnostics; HTML summary counts and scoring include all returned Nu diagnostics.`
+      : undefined,
+    reportData.cssTruncated
+      ? `Showing the first ${reportData.cssMessages.length} of ${reportData.cssTotalMessages} CSS diagnostics; CSS summary counts and scoring include all returned Jigsaw diagnostics.`
+      : undefined,
+  ].filter(Boolean).join(" ") || undefined;
   return toolContent({
     title: "Validation report",
     status,

@@ -35,6 +35,7 @@ import {
   getW3CMessageSeverity,
   MAX_CSS_VALIDATION_BYTES,
   validateCssContent,
+  validateCssContentDetailed,
   validateHtmlContent,
   validateHtmlContentDetailed,
 } from "./w3c-validator.js";
@@ -169,6 +170,8 @@ function failedReport(filePath: string, error: string): ValidationReport {
     htmlTotalMessages: 0,
     htmlTruncated: false,
     cssMessages: [],
+    cssTotalMessages: 0,
+    cssTruncated: false,
     seoIssues: [],
     schemaIssues: [],
     links: [],
@@ -182,6 +185,7 @@ interface ValidationReportDependencies {
   validateHtmlContent: typeof validateHtmlContent;
   validateHtmlContentDetailed?: typeof validateHtmlContentDetailed;
   validateCssContent: typeof validateCssContent;
+  validateCssContentDetailed?: typeof validateCssContentDetailed;
   auditSeoMetadata: typeof auditSeoMetadata;
   validateSchemaMarkup: typeof validateSchemaMarkup;
   checkBrokenLinks: typeof checkBrokenLinks;
@@ -192,6 +196,7 @@ const validationReportDependencies: ValidationReportDependencies = {
   validateHtmlContent,
   validateHtmlContentDetailed,
   validateCssContent,
+  validateCssContentDetailed,
   auditSeoMetadata,
   validateSchemaMarkup,
   checkBrokenLinks,
@@ -234,9 +239,32 @@ export async function generateValidationReport(
         for (const message of messages) counts[getW3CMessageSeverity(message)] += 1;
         return { messages, total: messages.length, truncated: false, counts };
       });
+  const cssValidation = css === undefined
+    ? Promise.resolve({
+        messages: [],
+        total: 0,
+        truncated: false,
+        counts: { error: 0, compatibilityLimitation: 0 },
+      })
+    : dependencies.validateCssContentDetailed
+      ? dependencies.validateCssContentDetailed(css)
+      : dependencies.validateCssContent(css).then((messages) => {
+          const compatibilityLimitation = messages.filter(
+            (message) => message.compatibility === "known-validator-limitation",
+          ).length;
+          return {
+            messages,
+            total: messages.length,
+            truncated: false,
+            counts: {
+              error: messages.length - compatibilityLimitation,
+              compatibilityLimitation,
+            },
+          };
+        });
   const [htmlResult, cssResult, seoResult, schemaResult, linksResult] = await Promise.allSettled([
     htmlValidation,
-    css === undefined ? Promise.resolve([]) : dependencies.validateCssContent(css),
+    cssValidation,
     Promise.resolve().then(() => dependencies.auditSeoMetadata(html)),
     Promise.resolve().then(() => dependencies.validateSchemaMarkup(html)),
     dependencies.checkBrokenLinks(html, baseUrl, 25),
@@ -255,7 +283,10 @@ export async function generateValidationReport(
     htmlTotalMessages: htmlResult.status === "fulfilled" ? htmlResult.value.total : 0,
     htmlTruncated: htmlResult.status === "fulfilled" ? htmlResult.value.truncated : false,
     htmlCounts: htmlResult.status === "fulfilled" ? htmlResult.value.counts : undefined,
-    cssMessages: cssResult.status === "fulfilled" ? cssResult.value : [],
+    cssMessages: cssResult.status === "fulfilled" ? cssResult.value.messages : [],
+    cssTotalMessages: cssResult.status === "fulfilled" ? cssResult.value.total : 0,
+    cssTruncated: cssResult.status === "fulfilled" ? cssResult.value.truncated : false,
+    cssCounts: cssResult.status === "fulfilled" ? cssResult.value.counts : undefined,
     seoIssues: seoResult.status === "fulfilled" ? seoResult.value.slice(0, 200) : [],
     schemaIssues: schemaResult.status === "fulfilled" ? schemaResult.value.slice(0, 200) : [],
     links: linksResult.status === "fulfilled" ? linksResult.value : [],
@@ -382,6 +413,8 @@ export function createServer(): McpServer {
       },
       outputSchema: {
         errors: z.array(cssMessageSchema),
+        totalMessages: z.number().int().nonnegative(),
+        truncated: z.boolean(),
         error: z.string().optional(),
       },
       annotations: externalReadOnlyAnnotations,
@@ -389,12 +422,19 @@ export function createServer(): McpServer {
     async ({ filePath }) => {
       try {
         const css = await readTextFile(filePath, CSS_MAX_BYTES);
-        const errors = await validateCssContent(css);
-        return result({ errors }, cssValidationContent(errors));
+        const validation = await validateCssContentDetailed(css);
+        return result(
+          {
+            errors: validation.messages,
+            totalMessages: validation.total,
+            truncated: validation.truncated,
+          },
+          cssValidationContent(validation.messages, validation.total, validation.counts),
+        );
       } catch (cause) {
         const error = getErrorMessage(cause);
         return result(
-          { errors: [], error },
+          { errors: [], totalMessages: 0, truncated: false, error },
           failureContent(
             "CSS validation",
             error,
@@ -550,6 +590,8 @@ export function createServer(): McpServer {
         htmlTotalMessages: z.number().int().nonnegative(),
         htmlTruncated: z.boolean(),
         cssMessages: z.array(cssMessageSchema),
+        cssTotalMessages: z.number().int().nonnegative(),
+        cssTruncated: z.boolean(),
         seoIssues: z.array(seoIssueSchema),
         schemaIssues: z.array(seoIssueSchema),
         links: z.array(linkStatusSchema),

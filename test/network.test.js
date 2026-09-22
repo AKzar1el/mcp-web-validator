@@ -150,6 +150,7 @@ test("public URL policy blocks local, reserved, credentialed, and custom-port ta
     "http://169.254.169.254/",
     "http://192.0.2.1/",
     "http://[::1]/",
+    "http://[3fff::1]/",
     "https://user:password@1.1.1.1/",
     "https://1.1.1.1:8443/",
     "http://1.1.1.1:443/",
@@ -161,6 +162,10 @@ test("public URL policy blocks local, reserved, credentialed, and custom-port ta
   assert.equal((await assertPublicHttpUrl("http://1.1.1.1:80/")).href, "http://1.1.1.1/");
   assert.equal((await assertPublicHttpUrl("https://1.1.1.1:443/")).href, "https://1.1.1.1/");
   assert.equal((await assertPublicHttpUrl("https://1.1.1.1/path#fragment")).href, "https://1.1.1.1/path");
+  assert.equal(
+    (await assertPublicHttpUrl("https://[2606:4700:4700::1111]/")).href,
+    "https://[2606:4700:4700::1111]/",
+  );
 });
 
 test("public fetch pins validated hostname resolution before transport", async () => {

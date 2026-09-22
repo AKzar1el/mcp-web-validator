@@ -18,6 +18,13 @@ export interface W3CMessage {
 
 export type W3CMessageSeverity = "error" | "warning" | "info";
 
+export interface HtmlValidationResult {
+  messages: W3CMessage[];
+  total: number;
+  truncated: boolean;
+  counts: Record<W3CMessageSeverity, number>;
+}
+
 export function getW3CMessageSeverity(
   message: Pick<W3CMessage, "type" | "subType">,
 ): W3CMessageSeverity {
@@ -89,10 +96,8 @@ function normalizeW3CMessage(message: unknown): W3CMessage {
   return normalized;
 }
 
-/**
- * Validates HTML using the W3C Nu HTML Checker API
- */
-export async function validateHtmlContent(htmlContent: string): Promise<W3CMessage[]> {
+/** Validates HTML using the W3C Nu HTML Checker API and retains bounded-output metadata. */
+export async function validateHtmlContentDetailed(htmlContent: string): Promise<HtmlValidationResult> {
   const url = "https://validator.w3.org/nu/?out=json";
 
   try {
@@ -121,12 +126,25 @@ export async function validateHtmlContent(htmlContent: string): Promise<W3CMessa
     if (!Array.isArray(data.messages)) {
       throw new Error("W3C HTML validator returned an invalid response shape");
     }
-    return data.messages
-      .map(normalizeW3CMessage)
-      .slice(0, MAX_VALIDATION_MESSAGES);
+    const normalized = data.messages.map(normalizeW3CMessage);
+    const counts: HtmlValidationResult["counts"] = { error: 0, warning: 0, info: 0 };
+    for (const message of normalized) {
+      counts[getW3CMessageSeverity(message)] += 1;
+    }
+    return {
+      messages: normalized.slice(0, MAX_VALIDATION_MESSAGES),
+      total: normalized.length,
+      truncated: normalized.length > MAX_VALIDATION_MESSAGES,
+      counts,
+    };
   } catch (error: unknown) {
     throw new Error(`HTML validation failed: ${getErrorMessage(error)}`);
   }
+}
+
+/** Backwards-compatible convenience API returning capped diagnostics only. */
+export async function validateHtmlContent(htmlContent: string): Promise<W3CMessage[]> {
+  return (await validateHtmlContentDetailed(htmlContent)).messages;
 }
 
 /**

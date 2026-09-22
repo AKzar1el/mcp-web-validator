@@ -62,6 +62,32 @@ test("validation report presentation treats Nu info+warning diagnostics as warni
   assert.match(content, /\*\*Check\*\*: HTML: Trailing slash on void elements has no effect/);
 });
 
+test("validation report preserves full HTML counts when returned diagnostics are capped", async () => {
+  const cappedMessages = Array.from({ length: 200 }, (_, index) => ({
+    type: "error",
+    message: `Issue ${index + 1}`,
+  }));
+  const report = await runReport({
+    validateHtmlContent: async () => cappedMessages,
+    validateHtmlContentDetailed: async () => ({
+      messages: cappedMessages,
+      total: 205,
+      truncated: true,
+      counts: { error: 205, warning: 0, info: 0 },
+    }),
+    auditSeoMetadata: () => [],
+    validateSchemaMarkup: () => [],
+    checkBrokenLinks: async () => [],
+  });
+
+  assert.equal(report.htmlMessages.length, 200);
+  assert.equal(report.htmlTotalMessages, 205);
+  assert.equal(report.htmlTruncated, true);
+  assert.equal(report.summary.htmlErrors, 205);
+  assert.match(report.report, /200 shown of 205/);
+  assert.match(reportContent(report), /first 200 of 205 HTML diagnostics/i);
+});
+
 test("validation report keeps local and link results when HTML validation fails", async () => {
   const report = await runReport({
     validateHtmlContent: async () => { throw new Error("Nu HTML Checker unavailable"); },

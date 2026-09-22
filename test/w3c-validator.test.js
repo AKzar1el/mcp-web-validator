@@ -92,6 +92,28 @@ test("HTML validator normalizes upstream messages to the advertised contract", a
   }
 });
 
+test("HTML validator reports full totals when structured diagnostics are capped", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    messages: Array.from({ length: 205 }, (_, index) => ({
+      type: "error",
+      message: `Issue ${index + 1}`,
+    })),
+  });
+
+  try {
+    const validatorModule = await import("../dist/w3c-validator.js");
+    assert.equal(typeof validatorModule.validateHtmlContentDetailed, "function");
+    const result = await validatorModule.validateHtmlContentDetailed("<!doctype html><title>Test</title>");
+    assert.equal(result.messages.length, 200);
+    assert.equal(result.total, 205);
+    assert.equal(result.truncated, true);
+    assert.deepEqual(result.counts, { error: 205, warning: 0, info: 0 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("empty CSS validator responses fail instead of producing a clean result", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response("  \n", { status: 200 });

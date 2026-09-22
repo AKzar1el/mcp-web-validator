@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The project follows [Se
 ### Fixed
 
 - Treated Nu HTML Checker `non-document-error` diagnostics as errors instead of informational messages in local validation, report scoring, and narration, matching the validator's documented JSON semantics and hosted behavior.
+- Preserved full Nu HTML diagnostic totals and severity counts when local/package output is capped at 200 messages, with explicit truncation metadata/disclosure so summaries and heuristic scoring no longer undercount large result sets.
 
 ## [1.3.17] - 2026-09-22
 

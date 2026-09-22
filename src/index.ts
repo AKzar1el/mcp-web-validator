@@ -32,9 +32,11 @@ import {
 } from "./presentation.js";
 import { PACKAGE_VERSION } from "./version.js";
 import {
+  getW3CMessageSeverity,
   MAX_CSS_VALIDATION_BYTES,
   validateCssContent,
   validateHtmlContent,
+  validateHtmlContentDetailed,
 } from "./w3c-validator.js";
 
 export const SERVER_VERSION = PACKAGE_VERSION;
@@ -164,6 +166,8 @@ function failedReport(filePath: string, error: string): ValidationReport {
       brokenLinks: 0,
     },
     htmlMessages: [],
+    htmlTotalMessages: 0,
+    htmlTruncated: false,
     cssMessages: [],
     seoIssues: [],
     schemaIssues: [],
@@ -176,6 +180,7 @@ function failedReport(filePath: string, error: string): ValidationReport {
 interface ValidationReportDependencies {
   readTextFile: typeof readTextFile;
   validateHtmlContent: typeof validateHtmlContent;
+  validateHtmlContentDetailed?: typeof validateHtmlContentDetailed;
   validateCssContent: typeof validateCssContent;
   auditSeoMetadata: typeof auditSeoMetadata;
   validateSchemaMarkup: typeof validateSchemaMarkup;
@@ -185,6 +190,7 @@ interface ValidationReportDependencies {
 const validationReportDependencies: ValidationReportDependencies = {
   readTextFile,
   validateHtmlContent,
+  validateHtmlContentDetailed,
   validateCssContent,
   auditSeoMetadata,
   validateSchemaMarkup,
@@ -221,8 +227,15 @@ export async function generateValidationReport(
     }
   }
 
+  const htmlValidation = dependencies.validateHtmlContentDetailed
+    ? dependencies.validateHtmlContentDetailed(html)
+    : dependencies.validateHtmlContent(html).then((messages) => {
+        const counts = { error: 0, warning: 0, info: 0 };
+        for (const message of messages) counts[getW3CMessageSeverity(message)] += 1;
+        return { messages, total: messages.length, truncated: false, counts };
+      });
   const [htmlResult, cssResult, seoResult, schemaResult, linksResult] = await Promise.allSettled([
-    dependencies.validateHtmlContent(html),
+    htmlValidation,
     css === undefined ? Promise.resolve([]) : dependencies.validateCssContent(css),
     Promise.resolve().then(() => dependencies.auditSeoMetadata(html)),
     Promise.resolve().then(() => dependencies.validateSchemaMarkup(html)),
@@ -238,7 +251,10 @@ export async function generateValidationReport(
   return createValidationReport({
     htmlFilePath,
     cssAudited: css !== undefined,
-    htmlMessages: htmlResult.status === "fulfilled" ? htmlResult.value : [],
+    htmlMessages: htmlResult.status === "fulfilled" ? htmlResult.value.messages : [],
+    htmlTotalMessages: htmlResult.status === "fulfilled" ? htmlResult.value.total : 0,
+    htmlTruncated: htmlResult.status === "fulfilled" ? htmlResult.value.truncated : false,
+    htmlCounts: htmlResult.status === "fulfilled" ? htmlResult.value.counts : undefined,
     cssMessages: cssResult.status === "fulfilled" ? cssResult.value : [],
     seoIssues: seoResult.status === "fulfilled" ? seoResult.value.slice(0, 200) : [],
     schemaIssues: schemaResult.status === "fulfilled" ? schemaResult.value.slice(0, 200) : [],
@@ -268,6 +284,8 @@ export function createServer(): McpServer {
       },
       outputSchema: {
         errors: z.array(w3cMessageSchema),
+        totalMessages: z.number().int().nonnegative(),
+        truncated: z.boolean(),
         error: z.string().optional(),
       },
       annotations: externalReadOnlyAnnotations,
@@ -275,12 +293,15 @@ export function createServer(): McpServer {
     async ({ filePath }) => {
       try {
         const html = await readTextFile(filePath, HTML_MAX_BYTES);
-        const errors = await validateHtmlContent(html);
-        return result({ errors }, htmlValidationContent(errors));
+        const validation = await validateHtmlContentDetailed(html);
+        return result(
+          { errors: validation.messages, totalMessages: validation.total, truncated: validation.truncated },
+          htmlValidationContent(validation.messages, undefined, validation.total, validation.counts),
+        );
       } catch (cause) {
         const error = getErrorMessage(cause);
         return result(
-          { errors: [], error },
+          { errors: [], totalMessages: 0, truncated: false, error },
           failureContent(
             "HTML validation",
             error,
@@ -303,6 +324,8 @@ export function createServer(): McpServer {
       },
       outputSchema: {
         errors: z.array(w3cMessageSchema),
+        totalMessages: z.number().int().nonnegative(),
+        truncated: z.boolean(),
         fetchedUrl: z.string().optional(),
         error: z.string().optional(),
       },
@@ -323,15 +346,20 @@ export function createServer(): McpServer {
         if (fetched.status < 200 || fetched.status >= 300) {
           throw new Error(`Target URL returned HTTP ${fetched.status}.`);
         }
-        const errors = await validateHtmlContent(fetched.text);
+        const validation = await validateHtmlContentDetailed(fetched.text);
         return result(
-          { errors, fetchedUrl: fetched.url },
-          htmlValidationContent(errors, fetched.url),
+          {
+            errors: validation.messages,
+            totalMessages: validation.total,
+            truncated: validation.truncated,
+            fetchedUrl: fetched.url,
+          },
+          htmlValidationContent(validation.messages, fetched.url, validation.total, validation.counts),
         );
       } catch (cause) {
         const error = getErrorMessage(cause);
         return result(
-          { errors: [], error },
+          { errors: [], totalMessages: 0, truncated: false, error },
           failureContent(
             "URL validation",
             error,
@@ -519,6 +547,8 @@ export function createServer(): McpServer {
         report: z.string(),
         summary: reportSummarySchema,
         htmlMessages: z.array(w3cMessageSchema),
+        htmlTotalMessages: z.number().int().nonnegative(),
+        htmlTruncated: z.boolean(),
         cssMessages: z.array(cssMessageSchema),
         seoIssues: z.array(seoIssueSchema),
         schemaIssues: z.array(seoIssueSchema),

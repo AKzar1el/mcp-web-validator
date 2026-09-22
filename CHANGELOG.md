@@ -9,6 +9,7 @@ All notable changes to this project are documented here. The project follows [Se
 - Labeled pure advisory action lists as review items instead of "Fix first" work while preserving Fix-first prioritization when errors or warnings exist.
 - Accepted CR, LF, and CRLF robots.txt line endings in hosted sitemap-first site audits, matching RFC 9309 parsing syntax.
 - Aligned hosted broken-link resolution with document-base semantics so the first safe `<base href>` overrides the fallback page URL, while unsafe declared bases no longer cause relative links to be checked against the wrong fallback target.
+- Added hosted sitemap discovery for Google-supported RSS 2.0, Atom 1.0, and plain-text sitemap representations while preserving same-origin/public crawl guards.
 
 ## [1.3.15] - 2026-09-22
 

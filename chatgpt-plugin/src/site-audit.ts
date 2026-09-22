@@ -296,6 +296,31 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
 
     const documentElement = $.root().children().first();
     const documentElementName = String(documentElement.prop("tagName") ?? "");
+    const documentElementLocalName = documentElementName
+      .slice(documentElementName.indexOf(":") + 1)
+      .toLowerCase();
+
+    if (documentElementLocalName === "rss" && documentElement.attr("version") === "2.0") {
+      $("channel > item > link").each((_index, element) => {
+        const url = sameOriginCrawlUrl($(element).text().trim(), baseUrl, origin);
+        if (url) addUniqueUrl(pageUrls, seenPages, url);
+      });
+      return { pageUrls, childSitemaps, invalid: false };
+    }
+
+    if (
+      documentElementLocalName === "feed"
+      && documentElement.attr("xmlns")?.trim() === "http://www.w3.org/2005/Atom"
+    ) {
+      $("entry > link[href]").each((_index, element) => {
+        const rel = $(element).attr("rel")?.trim().toLowerCase();
+        if (rel && rel !== "alternate") return;
+        const url = sameOriginCrawlUrl($(element).attr("href")?.trim() ?? "", baseUrl, origin);
+        if (url) addUniqueUrl(pageUrls, seenPages, url);
+      });
+      return { pageUrls, childSitemaps, invalid: false };
+    }
+
     const legacyUnnamespacedDocument = !documentElementName.includes(":")
       && documentElement.attr("xmlns") === undefined;
     const protocolElements = $("*").filter((_index, element) => {
@@ -348,6 +373,29 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
   }
 }
 
+function parseTextSitemap(value: string, baseUrl: string, origin: string): ParsedSitemap {
+  const pageUrls: URL[] = [];
+  const seenPages = new Set<string>();
+  for (const line of value.split(/\r\n|\n|\r/)) {
+    const candidate = line.trim();
+    if (!candidate) continue;
+    const url = sameOriginCrawlUrl(candidate, baseUrl, origin);
+    if (url) addUniqueUrl(pageUrls, seenPages, url);
+  }
+  return { pageUrls, childSitemaps: [], invalid: false };
+}
+
+function parseSitemapRepresentation(
+  value: string,
+  contentType: string,
+  baseUrl: string,
+  origin: string,
+): ParsedSitemap {
+  return contentType === "text/plain"
+    ? parseTextSitemap(value, baseUrl, origin)
+    : parseSitemapXml(value, baseUrl, origin);
+}
+
 function robotsHttpStatus(error: unknown): number | undefined {
   if (!(error instanceof PublicHtmlFetchError) || error.code !== "http_status") return undefined;
   return error.status;
@@ -379,7 +427,7 @@ async function discoverFromSitemaps(
         maxBytes: SITE_AUDIT_MAX_SITEMAP_BYTES,
       });
       sitemapUrl ??= fetched.finalUrl;
-      const parsed = parseSitemapXml(fetched.text, fetched.finalUrl, origin);
+      const parsed = parseSitemapRepresentation(fetched.text, fetched.contentType, fetched.finalUrl, origin);
       if (parsed.invalid) {
         discoveryError ??= "sitemap_invalid";
         continue;

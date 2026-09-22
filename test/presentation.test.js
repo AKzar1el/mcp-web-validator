@@ -28,6 +28,7 @@ test("finding and failure narration escapes hostile Markdown and inline HTML", (
     { type: "error", line: 7, message: hostileProse, context: hostileProse },
   ]);
   assert.match(css, /^### CSS validation: attention needed/m);
+  assert.match(css, /\*\*Fix first\*\*/);
   assert.match(css, /\*\*Error\*\*/);
   assertProseIsEscaped(css);
 
@@ -77,6 +78,8 @@ test("informational-only HTML narration does not instruct users to fix nonexiste
   ]);
 
   assert.match(output, /^### HTML validation: review suggested/m);
+  assert.match(output, /\*\*Review\*\*/);
+  assert.doesNotMatch(output, /\*\*Fix first\*\*/);
   assert.match(output, /review the informational diagnostic/i);
   assert.doesNotMatch(output, /Fix the errors/i);
 });
@@ -89,6 +92,8 @@ test("informational-only SEO narration is review guidance rather than attention-
   );
 
   assert.match(output, /^### SEO audit: review suggested/m);
+  assert.match(output, /\*\*Review\*\*/);
+  assert.doesNotMatch(output, /\*\*Fix first\*\*/);
   assert.match(output, /review the suggestions/i);
   assert.doesNotMatch(output, /Address errors first/i);
 });
@@ -107,6 +112,8 @@ test("CSS narration treats known Jigsaw parser gaps as review items while preser
   assert.match(output, /known validator limitation/i);
   assert.match(output, /Unrecognized/);
   assert.match(output, /\*\*Check\*\*/);
+  assert.match(output, /\*\*Review\*\*/);
+  assert.doesNotMatch(output, /\*\*Fix first\*\*/);
   assert.doesNotMatch(output, /\*\*Error\*\*/);
 });
 
@@ -126,6 +133,8 @@ test("link narration treats redirects as review items instead of broken links", 
   ]);
   assert.match(redirectsOnly, /^### Link check: review suggested/m);
   assert.match(redirectsOnly, /no checked links are broken or unreachable; 1 redirect needs review/i);
+  assert.match(redirectsOnly, /\*\*Review\*\*/);
+  assert.doesNotMatch(redirectsOnly, /\*\*Fix first\*\*/);
   assert.doesNotMatch(redirectsOnly, /Link returned HTTP 308/);
 });
 

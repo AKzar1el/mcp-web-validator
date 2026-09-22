@@ -99,9 +99,12 @@ function toolContent(options: {
   if (options.note) {
     sections.push(collapseWhitespace(options.note, 500));
   }
-  const actions = formatActions(options.actions ?? []);
+  const actionItems = options.actions ?? [];
+  const actions = formatActions(actionItems);
   if (actions) {
-    sections.push(`**Fix first**\n${actions}`);
+    const hasActionableItem = actionItems.some((item) => item.priority < 2);
+    const actionHeading = options.status === "review suggested" || !hasActionableItem ? "Review" : "Fix first";
+    sections.push(`**${actionHeading}**\n${actions}`);
   }
   sections.push(`**Next step:** ${collapseWhitespace(options.nextStep, 400)}`);
   return sections.join("\n\n");

@@ -22,7 +22,7 @@ export function getW3CMessageSeverity(
   message: Pick<W3CMessage, "type" | "subType">,
 ): W3CMessageSeverity {
   const type = message.type.trim().toLowerCase();
-  if (type === "error") return "error";
+  if (type === "error" || type === "non-document-error") return "error";
   if (type === "warning" || (type === "info" && message.subType?.trim().toLowerCase() === "warning")) {
     return "warning";
   }

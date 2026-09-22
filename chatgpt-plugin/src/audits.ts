@@ -25,6 +25,11 @@ export interface AuditResult {
   counts: Record<AuditSeverity, number>;
 }
 
+export interface AuditSeoMetadataOptions {
+  /** Final HTTP X-Robots-Tag value when auditing a fetched live page. */
+  xRobotsTag?: string;
+}
+
 const MAX_AUDIT_ISSUES = 100;
 const REQUEST_TIMEOUT_MS = 5_000;
 
@@ -55,11 +60,33 @@ function hasJsonLdDocumentShape(value: unknown): boolean {
   return typeof value === "object" && value !== null;
 }
 
+function hasIndexBlockingXRobotsTagForGoogle(value: string | undefined): boolean {
+  if (!value) return false;
+  const parameterizedRules = new Set([
+    "max-snippet",
+    "max-image-preview",
+    "max-video-preview",
+    "unavailable_after",
+  ]);
+  let scope: "all" | "googlebot" | "other" = "all";
+
+  for (const part of value.split(",")) {
+    let directive = part.trim().toLowerCase();
+    const scoped = /^([a-z0-9._-]+)\s*:\s*(.+)$/i.exec(directive);
+    if (scoped && !parameterizedRules.has(scoped[1])) {
+      scope = scoped[1] === "googlebot" ? "googlebot" : "other";
+      directive = scoped[2].trim();
+    }
+    if (scope !== "other" && ["noindex", "none"].includes(directive)) return true;
+  }
+  return false;
+}
+
 /**
  * Checks on-page metadata and accessibility signals without fetching or storing
  * any external content.
  */
-export function auditSeoMetadata(html: string): AuditResult {
+export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions = {}): AuditResult {
   const $ = cheerio.load(html);
   const collector = createAuditCollector();
 
@@ -163,7 +190,7 @@ export function auditSeoMetadata(html: string): AuditResult {
       .split(",")
       .some((directive) => ["noindex", "none"].includes(directive.trim().toLowerCase()));
   });
-  if (indexBlockingRobotsMeta.length > 0) {
+  if (indexBlockingRobotsMeta.length > 0 || hasIndexBlockingXRobotsTagForGoogle(options.xRobotsTag)) {
     collector.add({
       code: "seo.robots.noindex",
       severity: "warning",

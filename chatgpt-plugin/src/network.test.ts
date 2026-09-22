@@ -40,6 +40,19 @@ describe("fetchPublicHtml", () => {
     });
   });
 
+  it("preserves the final X-Robots-Tag value for live SEO analysis", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => htmlResponse(undefined, {
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "x-robots-tag": "noindex, follow",
+      },
+    })));
+
+    await expect(fetchPublicHtml("https://example.com/header-noindex")).resolves.toMatchObject({
+      xRobotsTag: "noindex, follow",
+    });
+  });
+
   it("decodes HTML using the HTTP-declared character encoding", async () => {
     const body = new Uint8Array([
       60, 116, 105, 116, 108, 101, 62, 67, 97, 102, 233, 60, 47, 116, 105, 116, 108, 101, 62,

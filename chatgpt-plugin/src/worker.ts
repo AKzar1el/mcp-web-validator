@@ -418,6 +418,7 @@ interface ValidationReportOptions {
   css?: string;
   checkLinks: boolean;
   baseUrl?: string;
+  xRobotsTag?: string;
   maxLinks: number;
   title: "Validation report" | "Public webpage audit";
   sourceDetail?: string;
@@ -437,6 +438,7 @@ async function runValidationReport({
   css,
   checkLinks,
   baseUrl,
+  xRobotsTag,
   maxLinks,
   title,
   sourceDetail,
@@ -447,7 +449,7 @@ async function runValidationReport({
     cssChecked ? Promise.resolve().then(() => validateCss(css)) : Promise.resolve([]),
     checkLinks ? checkBrokenLinks(html, baseUrl, maxLinks) : Promise.resolve([]),
   ]);
-  const seoResult = auditSeoMetadata(html);
+  const seoResult = auditSeoMetadata(html, { xRobotsTag });
   const schemaResult = validateSchemaMarkup(html);
   const failedChecks: ReportCheck[] = [];
   const failureDetails: string[] = [];
@@ -1279,6 +1281,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           html: fetched.html,
           checkLinks: check_links,
           baseUrl: fetched.finalUrl,
+          xRobotsTag: fetched.xRobotsTag,
           maxLinks: max_links,
           title: "Public webpage audit",
           sourceDetail: fetched.redirectsFollowed > 0

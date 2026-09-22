@@ -563,6 +563,36 @@ describe("polished tool responses", () => {
 });
 
 describe("public webpage audit", () => {
+  it("reports a fetched X-Robots-Tag noindex directive as an SEO warning", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/header-noindex") {
+        return new Response(
+          "<!doctype html><html><head><title>Example page title for validation</title></head><body><h1>Example</h1></body></html>",
+          {
+            headers: {
+              "content-type": "text/html; charset=utf-8",
+              "x-robots-tag": "none",
+            },
+          },
+        );
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callTool("audit_public_webpage", {
+      url: "https://example.com/header-noindex",
+      check_links: false,
+    });
+
+    expect(result.structuredContent.seo_findings).toContainEqual(expect.objectContaining({
+      code: "seo.robots.noindex",
+      severity: "warning",
+    }));
+  });
+
   it("fetches one page and returns the existing report without exposing its HTML", async () => {
     const privateMarker = "private-page-marker-that-must-not-be-returned";
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {

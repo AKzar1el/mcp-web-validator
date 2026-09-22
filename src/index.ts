@@ -84,6 +84,12 @@ const seoIssueSchema = z.object({
   element: z.string().optional(),
 });
 
+const auditCountsSchema = z.object({
+  error: z.number().int().nonnegative(),
+  warning: z.number().int().nonnegative(),
+  info: z.number().int().nonnegative(),
+});
+
 const linkStatusSchema = z.object({
   url: z.string(),
   status: z.union([z.number().int(), z.enum(["blocked", "failed"])]),
@@ -173,7 +179,11 @@ function failedReport(filePath: string, error: string): ValidationReport {
     cssTotalMessages: 0,
     cssTruncated: false,
     seoIssues: [],
+    seoTotalIssues: 0,
+    seoTruncated: false,
     schemaIssues: [],
+    schemaTotalIssues: 0,
+    schemaTruncated: false,
     links: [],
     failedChecks: ["input"],
     errors: [`${path.basename(filePath || "document")}: ${error}`],
@@ -187,7 +197,9 @@ interface ValidationReportDependencies {
   validateCssContent: typeof validateCssContent;
   validateCssContentDetailed?: typeof validateCssContentDetailed;
   auditSeoMetadata: typeof auditSeoMetadata;
+  auditSeoMetadataDetailed?: typeof auditSeoMetadataDetailed;
   validateSchemaMarkup: typeof validateSchemaMarkup;
+  validateSchemaMarkupDetailed?: typeof validateSchemaMarkupDetailed;
   checkBrokenLinks: typeof checkBrokenLinks;
 }
 
@@ -198,7 +210,9 @@ const validationReportDependencies: ValidationReportDependencies = {
   validateCssContent,
   validateCssContentDetailed,
   auditSeoMetadata,
+  auditSeoMetadataDetailed,
   validateSchemaMarkup,
+  validateSchemaMarkupDetailed,
   checkBrokenLinks,
 };
 
@@ -262,11 +276,27 @@ export async function generateValidationReport(
             },
           };
         });
+  const seoValidation = dependencies.auditSeoMetadataDetailed
+    ? Promise.resolve().then(() => dependencies.auditSeoMetadataDetailed!(html))
+    : Promise.resolve().then(() => {
+        const issues = dependencies.auditSeoMetadata(html);
+        const counts = { error: 0, warning: 0, info: 0 };
+        for (const issue of issues) counts[issue.severity] += 1;
+        return { issues, totalIssues: issues.length, truncated: false, counts };
+      });
+  const schemaValidation = dependencies.validateSchemaMarkupDetailed
+    ? Promise.resolve().then(() => dependencies.validateSchemaMarkupDetailed!(html))
+    : Promise.resolve().then(() => {
+        const issues = dependencies.validateSchemaMarkup(html);
+        const counts = { error: 0, warning: 0, info: 0 };
+        for (const issue of issues) counts[issue.severity] += 1;
+        return { issues, totalIssues: issues.length, truncated: false, counts };
+      });
   const [htmlResult, cssResult, seoResult, schemaResult, linksResult] = await Promise.allSettled([
     htmlValidation,
     cssValidation,
-    Promise.resolve().then(() => dependencies.auditSeoMetadata(html)),
-    Promise.resolve().then(() => dependencies.validateSchemaMarkup(html)),
+    seoValidation,
+    schemaValidation,
     dependencies.checkBrokenLinks(html, baseUrl, 25),
   ]);
 
@@ -287,8 +317,14 @@ export async function generateValidationReport(
     cssTotalMessages: cssResult.status === "fulfilled" ? cssResult.value.total : 0,
     cssTruncated: cssResult.status === "fulfilled" ? cssResult.value.truncated : false,
     cssCounts: cssResult.status === "fulfilled" ? cssResult.value.counts : undefined,
-    seoIssues: seoResult.status === "fulfilled" ? seoResult.value.slice(0, 200) : [],
-    schemaIssues: schemaResult.status === "fulfilled" ? schemaResult.value.slice(0, 200) : [],
+    seoIssues: seoResult.status === "fulfilled" ? seoResult.value.issues : [],
+    seoTotalIssues: seoResult.status === "fulfilled" ? seoResult.value.totalIssues : 0,
+    seoTruncated: seoResult.status === "fulfilled" ? seoResult.value.truncated : false,
+    seoCounts: seoResult.status === "fulfilled" ? seoResult.value.counts : undefined,
+    schemaIssues: schemaResult.status === "fulfilled" ? schemaResult.value.issues : [],
+    schemaTotalIssues: schemaResult.status === "fulfilled" ? schemaResult.value.totalIssues : 0,
+    schemaTruncated: schemaResult.status === "fulfilled" ? schemaResult.value.truncated : false,
+    schemaCounts: schemaResult.status === "fulfilled" ? schemaResult.value.counts : undefined,
     links: linksResult.status === "fulfilled" ? linksResult.value : [],
     failedChecks,
     errors,
@@ -459,21 +495,22 @@ export function createServer(): McpServer {
         issues: z.array(seoIssueSchema),
         totalIssues: z.number().int().nonnegative(),
         truncated: z.boolean(),
+        counts: auditCountsSchema,
         error: z.string().optional(),
       },
       annotations: localReadOnlyAnnotations,
     },
     async ({ htmlContent }) => {
       try {
-        const { issues, totalIssues, truncated } = auditSeoMetadataDetailed(htmlContent);
+        const { issues, totalIssues, truncated, counts } = auditSeoMetadataDetailed(htmlContent);
         return result(
-          { issues, totalIssues, truncated },
-          seoAuditContent(issues, totalIssues, truncated),
+          { issues, totalIssues, truncated, counts },
+          seoAuditContent(issues, totalIssues, truncated, counts),
         );
       } catch (cause) {
         const error = getErrorMessage(cause);
         return result(
-          { issues: [], totalIssues: 0, truncated: false, error },
+          { issues: [], totalIssues: 0, truncated: false, counts: { error: 0, warning: 0, info: 0 }, error },
           failureContent(
             "SEO audit",
             error,
@@ -542,21 +579,22 @@ export function createServer(): McpServer {
         issues: z.array(seoIssueSchema),
         totalIssues: z.number().int().nonnegative(),
         truncated: z.boolean(),
+        counts: auditCountsSchema,
         error: z.string().optional(),
       },
       annotations: localReadOnlyAnnotations,
     },
     async ({ htmlContent }) => {
       try {
-        const { issues, totalIssues, truncated } = validateSchemaMarkupDetailed(htmlContent);
+        const { issues, totalIssues, truncated, counts } = validateSchemaMarkupDetailed(htmlContent);
         return result(
-          { issues, totalIssues, truncated },
+          { issues, totalIssues, truncated, counts },
           schemaValidationContent(issues, totalIssues, truncated, htmlContent),
         );
       } catch (cause) {
         const error = getErrorMessage(cause);
         return result(
-          { issues: [], totalIssues: 0, truncated: false, error },
+          { issues: [], totalIssues: 0, truncated: false, counts: { error: 0, warning: 0, info: 0 }, error },
           failureContent(
             "JSON-LD syntax",
             error,
@@ -593,7 +631,11 @@ export function createServer(): McpServer {
         cssTotalMessages: z.number().int().nonnegative(),
         cssTruncated: z.boolean(),
         seoIssues: z.array(seoIssueSchema),
+        seoTotalIssues: z.number().int().nonnegative(),
+        seoTruncated: z.boolean(),
         schemaIssues: z.array(seoIssueSchema),
+        schemaTotalIssues: z.number().int().nonnegative(),
+        schemaTruncated: z.boolean(),
         links: z.array(linkStatusSchema),
         failedChecks: z.array(z.enum(validationReportChecks)),
         errors: z.array(z.string()).optional(),

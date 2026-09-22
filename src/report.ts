@@ -4,7 +4,7 @@ import {
   type CSSMessage,
   type W3CMessage,
 } from "./w3c-validator.js";
-import type { LinkStatus, SEOIssue } from "./seo-auditor.js";
+import type { AuditCounts, LinkStatus, SEOIssue } from "./seo-auditor.js";
 
 export const validationReportChecks = ["input", "html", "css", "seo", "schema", "links"] as const;
 export type ValidationReportCheck = (typeof validationReportChecks)[number];
@@ -36,7 +36,11 @@ export interface ValidationReport {
   cssTotalMessages: number;
   cssTruncated: boolean;
   seoIssues: SEOIssue[];
+  seoTotalIssues: number;
+  seoTruncated: boolean;
   schemaIssues: SEOIssue[];
+  schemaTotalIssues: number;
+  schemaTruncated: boolean;
   links: LinkStatus[];
   failedChecks: ValidationReportCheck[];
   errors?: string[];
@@ -54,7 +58,13 @@ export interface ValidationReportInput {
   cssTruncated?: boolean;
   cssCounts?: { error: number; compatibilityLimitation: number };
   seoIssues: SEOIssue[];
+  seoTotalIssues?: number;
+  seoTruncated?: boolean;
+  seoCounts?: AuditCounts;
   schemaIssues: SEOIssue[];
+  schemaTotalIssues?: number;
+  schemaTruncated?: boolean;
+  schemaCounts?: AuditCounts;
   links: LinkStatus[];
   failedChecks?: ValidationReportCheck[];
   errors?: string[];
@@ -99,9 +109,13 @@ export function createValidationReport(input: ValidationReportInput): Validation
   const cssCompatibilityLimitations = input.cssCounts?.compatibilityLimitation
     ?? input.cssMessages.filter((message) => message.compatibility === "known-validator-limitation").length;
   const cssErrors = input.cssCounts?.error ?? input.cssMessages.length - cssCompatibilityLimitations;
-  const seoErrors = input.seoIssues.filter((issue) => issue.severity === "error").length;
-  const seoWarnings = input.seoIssues.filter((issue) => issue.severity === "warning").length;
-  const schemaErrors = input.schemaIssues.filter((issue) => issue.severity === "error").length;
+  const seoTotalIssues = input.seoTotalIssues ?? input.seoIssues.length;
+  const seoTruncated = input.seoTruncated ?? seoTotalIssues > input.seoIssues.length;
+  const schemaTotalIssues = input.schemaTotalIssues ?? input.schemaIssues.length;
+  const schemaTruncated = input.schemaTruncated ?? schemaTotalIssues > input.schemaIssues.length;
+  const seoErrors = input.seoCounts?.error ?? input.seoIssues.filter((issue) => issue.severity === "error").length;
+  const seoWarnings = input.seoCounts?.warning ?? input.seoIssues.filter((issue) => issue.severity === "warning").length;
+  const schemaErrors = input.schemaCounts?.error ?? input.schemaIssues.filter((issue) => issue.severity === "error").length;
   const brokenLinks = input.links.filter((link) => !link.ok).length;
   const redirectLinks = input.links.filter(isRedirect).length;
 
@@ -205,10 +219,21 @@ export function createValidationReport(input: ValidationReportInput): Validation
   }
 
   const combinedIssues = [...input.seoIssues, ...input.schemaIssues];
-  report.push("", `## SEO, accessibility, and JSON-LD findings (${combinedIssues.length})`);
+  const combinedTotalIssues = seoTotalIssues + schemaTotalIssues;
+  const combinedTruncated = seoTruncated || schemaTruncated;
+  report.push(
+    "",
+    `## SEO, accessibility, and JSON-LD findings (${combinedTruncated ? `${combinedIssues.length} shown of ${combinedTotalIssues}` : combinedTotalIssues})`,
+  );
   if (combinedIssues.length === 0) {
     report.push("No SEO, accessibility, or JSON-LD syntax findings were returned.");
   } else {
+    if (seoTruncated) {
+      report.push(`The structured SEO/accessibility findings are capped; showing the first ${input.seoIssues.length} of ${seoTotalIssues}. Summary counts and scoring use all findings.`);
+    }
+    if (schemaTruncated) {
+      report.push(`The structured JSON-LD findings are capped; showing the first ${input.schemaIssues.length} of ${schemaTotalIssues}. Summary counts and scoring use all findings.`);
+    }
     report.push("", "| Category | Severity | Message | Element |", "| :--- | :--- | :--- | :--- |");
     for (const issue of combinedIssues) {
       report.push(
@@ -239,7 +264,11 @@ export function createValidationReport(input: ValidationReportInput): Validation
     cssTotalMessages,
     cssTruncated,
     seoIssues: input.seoIssues,
+    seoTotalIssues,
+    seoTruncated,
     schemaIssues: input.schemaIssues,
+    schemaTotalIssues,
+    schemaTruncated,
     links: input.links,
     failedChecks,
     ...(input.errors && input.errors.length > 0 ? { errors: input.errors } : {}),

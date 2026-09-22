@@ -371,6 +371,32 @@
           "truncated": {
             "type": "boolean"
           },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "warning": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "info": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "error",
+              "warning",
+              "info"
+            ],
+            "additionalProperties": false
+          },
           "error": {
             "type": "string"
           }
@@ -378,7 +404,8 @@
         "required": [
           "issues",
           "totalIssues",
-          "truncated"
+          "truncated",
+          "counts"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false
@@ -558,6 +585,32 @@
           "truncated": {
             "type": "boolean"
           },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "error": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "warning": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "info": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "error",
+              "warning",
+              "info"
+            ],
+            "additionalProperties": false
+          },
           "error": {
             "type": "string"
           }
@@ -565,7 +618,8 @@
         "required": [
           "issues",
           "totalIssues",
-          "truncated"
+          "truncated",
+          "counts"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false
@@ -878,6 +932,14 @@
               "additionalProperties": false
             }
           },
+          "seoTotalIssues": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "seoTruncated": {
+            "type": "boolean"
+          },
           "schemaIssues": {
             "type": "array",
             "items": {
@@ -919,6 +981,14 @@
               ],
               "additionalProperties": false
             }
+          },
+          "schemaTotalIssues": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "schemaTruncated": {
+            "type": "boolean"
           },
           "links": {
             "type": "array",
@@ -990,7 +1060,11 @@
           "cssTotalMessages",
           "cssTruncated",
           "seoIssues",
+          "seoTotalIssues",
+          "seoTruncated",
           "schemaIssues",
+          "schemaTotalIssues",
+          "schemaTruncated",
           "links",
           "failedChecks"
         ],

@@ -115,6 +115,48 @@ test("validation report preserves full CSS counts when returned diagnostics are 
   assert.match(reportContent(report), /first 200 of 205 CSS diagnostics/i);
 });
 
+test("validation report preserves full SEO and schema counts when returned findings are capped", async () => {
+  const cappedSeo = Array.from({ length: 200 }, (_, index) => ({
+    severity: "warning",
+    category: "SEO",
+    message: `SEO issue ${index + 1}`,
+  }));
+  const cappedSchema = Array.from({ length: 200 }, (_, index) => ({
+    severity: "error",
+    category: "Schema",
+    message: `Schema issue ${index + 1}`,
+  }));
+  const report = await runReport({
+    auditSeoMetadata: () => cappedSeo,
+    auditSeoMetadataDetailed: () => ({
+      issues: cappedSeo,
+      totalIssues: 205,
+      truncated: true,
+      counts: { error: 0, warning: 205, info: 0 },
+    }),
+    validateSchemaMarkup: () => cappedSchema,
+    validateSchemaMarkupDetailed: () => ({
+      issues: cappedSchema,
+      totalIssues: 205,
+      truncated: true,
+      counts: { error: 205, warning: 0, info: 0 },
+    }),
+    checkBrokenLinks: async () => [],
+  });
+
+  assert.equal(report.seoIssues.length, 200);
+  assert.equal(report.seoTotalIssues, 205);
+  assert.equal(report.seoTruncated, true);
+  assert.equal(report.schemaIssues.length, 200);
+  assert.equal(report.schemaTotalIssues, 205);
+  assert.equal(report.schemaTruncated, true);
+  assert.equal(report.summary.seoWarnings, 205);
+  assert.equal(report.summary.schemaErrors, 205);
+  assert.match(report.report, /400 shown of 410/);
+  assert.match(reportContent(report), /first 200 of 205 SEO findings/i);
+  assert.match(reportContent(report), /first 200 of 205 JSON-LD findings/i);
+});
+
 test("validation report keeps local and link results when HTML validation fails", async () => {
   const report = await runReport({
     validateHtmlContent: async () => { throw new Error("Nu HTML Checker unavailable"); },

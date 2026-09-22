@@ -100,6 +100,23 @@ test("informational-only SEO narration is review guidance rather than attention-
   assert.doesNotMatch(output, /Address errors first/i);
 });
 
+test("SEO narration uses full severity counts when structured findings are truncated", () => {
+  const issues = Array.from({ length: 200 }, (_, index) => ({
+    severity: "warning",
+    category: "SEO",
+    message: `Issue ${index + 1}`,
+  }));
+  const output = seoAuditContent(
+    issues,
+    205,
+    true,
+    { error: 0, warning: 205, info: 0 },
+  );
+
+  assert.match(output, /0 errors, 205 warnings, and 0 suggestions/);
+  assert.match(output, /first 200 of 205 findings/i);
+});
+
 test("CSS narration treats known Jigsaw parser gaps as review items while preserving the diagnostic", () => {
   const output = cssValidationContent([
     {

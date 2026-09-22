@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 import type { ValidationReport } from "./report.js";
-import type { LinkStatus, SEOIssue } from "./seo-auditor.js";
+import type { AuditCounts, LinkStatus, SEOIssue } from "./seo-auditor.js";
 import {
   getW3CMessageSeverity,
   type CSSMessage,
@@ -195,10 +195,15 @@ export function cssValidationContent(
   });
 }
 
-export function seoAuditContent(issues: SEOIssue[], totalIssues: number, truncated: boolean): string {
-  const errors = issues.filter((issue) => issue.severity === "error").length;
-  const warnings = issues.filter((issue) => issue.severity === "warning").length;
-  const info = issues.filter((issue) => issue.severity === "info").length;
+export function seoAuditContent(
+  issues: SEOIssue[],
+  totalIssues: number,
+  truncated: boolean,
+  counts?: AuditCounts,
+): string {
+  const errors = counts?.error ?? issues.filter((issue) => issue.severity === "error").length;
+  const warnings = counts?.warning ?? issues.filter((issue) => issue.severity === "warning").length;
+  const info = counts?.info ?? issues.filter((issue) => issue.severity === "info").length;
   if (totalIssues === 0) {
     return toolContent({
       title: "SEO audit",
@@ -425,6 +430,12 @@ export function reportContent(reportData: ValidationReportResult): string {
       : undefined,
     reportData.cssTruncated
       ? `Showing the first ${reportData.cssMessages.length} of ${reportData.cssTotalMessages} CSS diagnostics; CSS summary counts and scoring include all returned Jigsaw diagnostics.`
+      : undefined,
+    reportData.seoTruncated
+      ? `Showing the first ${reportData.seoIssues.length} of ${reportData.seoTotalIssues} SEO findings; SEO summary counts and scoring include all findings.`
+      : undefined,
+    reportData.schemaTruncated
+      ? `Showing the first ${reportData.schemaIssues.length} of ${reportData.schemaTotalIssues} JSON-LD findings; JSON-LD summary counts and scoring include all findings.`
       : undefined,
   ].filter(Boolean).join(" ") || undefined;
   return toolContent({

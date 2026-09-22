@@ -197,6 +197,23 @@ describe("bounded audits", () => {
     expect(result.issues).toHaveLength(1);
     expect(result.issues[0]?.code).toBe("schema.jsonld.invalid_json");
   });
+  it("rejects non-document top-level JSON-LD shapes", () => {
+    const invalid = validateSchemaMarkup([
+      '<script type="application/ld+json">42</script>',
+      '<script type="application/ld+json">[42]</script>',
+    ].join(""));
+    expect(invalid.total).toBe(2);
+    expect(invalid.issues.map((issue) => issue.code)).toEqual([
+      "schema.jsonld.invalid_document",
+      "schema.jsonld.invalid_document",
+    ]);
+
+    const valid = validateSchemaMarkup([
+      '<script type="application/ld+json">{}</script>',
+      '<script type="application/ld+json">[{}]</script>',
+    ].join(""));
+    expect(valid.total).toBe(0);
+  });
 });
 
 describe("link checks", () => {

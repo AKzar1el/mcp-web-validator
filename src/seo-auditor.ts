@@ -68,6 +68,13 @@ function isJsonLdScriptType(type: string | undefined): boolean {
   return type?.split(";", 1)[0].trim().toLowerCase() === "application/ld+json";
 }
 
+function hasJsonLdDocumentShape(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.every((entry) => typeof entry === "object" && entry !== null && !Array.isArray(entry));
+  }
+  return typeof value === "object" && value !== null;
+}
+
 /**
  * Audits technical SEO and accessibility basics on HTML content using Cheerio
  */
@@ -271,7 +278,16 @@ export function validateSchemaMarkupDetailed(htmlContent: string): AuditDetails 
     }
 
     try {
-      JSON.parse(scriptText);
+      const parsed = JSON.parse(scriptText) as unknown;
+      if (!hasJsonLdDocumentShape(parsed)) {
+        add({
+          code: "schema.jsonld.invalid_document",
+          severity: "error",
+          category: "Schema",
+          message: "Invalid JSON-LD document shape: the top level must be an object or an array of objects.",
+          element: `<script type="application/ld+json">...</script>`,
+        });
+      }
     } catch (error: unknown) {
       add({
         code: "schema.jsonld.invalid_json",

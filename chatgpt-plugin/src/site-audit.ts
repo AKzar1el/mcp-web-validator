@@ -696,7 +696,8 @@ function groupFindings(
   for (const page of pages) {
     for (const finding of page.findings) {
       if (finding.severity === "info") continue;
-      const key = `${finding.severity}\u0000${finding.category}\u0000${finding.message}`;
+      const identity = finding.code ? `code:${finding.code}` : `message:${finding.message}`;
+      const key = `${finding.severity}\u0000${finding.category}\u0000${identity}`;
       let group = groups.get(key);
       if (!group) {
         if (groups.size >= SITE_AUDIT_MAX_ISSUE_GROUPS) {
@@ -707,7 +708,9 @@ function groupFindings(
           code: finding.code,
           severity: finding.severity,
           category: finding.category,
-          message: finding.message,
+          message: finding.code?.startsWith("schema.jsonld.")
+            ? finding.message.replace(/^JSON-LD block #\d+ /, "A JSON-LD block ")
+            : finding.message,
           pages: new Set<string>(),
         };
         groups.set(key, group);

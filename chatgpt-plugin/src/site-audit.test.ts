@@ -364,6 +364,7 @@ describe("auditPublicSite", () => {
     expect(invalidJsonGroups).toHaveLength(1);
     expect(invalidJsonGroups[0]).toMatchObject({
       code: "schema.jsonld.invalid_json",
+      message: "A JSON-LD block is not valid JSON.",
       affected_pages: 2,
       example_urls: ["https://example.com/", "https://example.com/second"],
     });

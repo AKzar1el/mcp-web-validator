@@ -175,7 +175,10 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       .split(/[\t\n\f\r ]+/)
       .some((token) => token.toLowerCase() === "canonical");
   });
-  const usableCanonical = canonicalLinks.filter((_, element) => Boolean($(element).attr("href")?.trim()));
+  const nonEmptyCanonical = canonicalLinks.filter((_, element) => Boolean($(element).attr("href")?.trim()));
+  const usableCanonical = nonEmptyCanonical.filter(
+    (_, element) => !["hreflang", "lang", "media", "type"].some((attribute) => $(element).attr(attribute) !== undefined),
+  );
   if (canonicalLinks.length === 0) {
     add({
       code: "seo.canonical.missing",
@@ -184,11 +187,27 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       message: "No rel=\"canonical\" preference is declared. This is optional unless the page needs an explicit canonicalization signal.",
     });
   } else if (usableCanonical.length === 0) {
+    if (nonEmptyCanonical.length > 0) {
+      add({
+        code: "seo.canonical.unusable",
+        severity: "warning",
+        category: "SEO",
+        message: "Canonical link is present but uses attributes Google ignores for canonicalization. Use a plain rel=\"canonical\" link in <head>.",
+      });
+    } else {
+      add({
+        code: "seo.canonical.missing",
+        severity: "warning",
+        category: "SEO",
+        message: "Canonical link is present but its href is empty. Provide a usable canonical target or remove the declaration.",
+      });
+    }
+  } else if (usableCanonical.length > 1) {
     add({
-      code: "seo.canonical.missing",
+      code: "seo.canonical.multiple",
       severity: "warning",
       category: "SEO",
-      message: "Canonical link is present but its href is empty. Provide a usable canonical target or remove the declaration.",
+      message: "Multiple usable canonical link relations are declared. Keep one unambiguous canonical target.",
     });
   }
 

@@ -258,6 +258,52 @@ test("bounded public text fetch accepts configured HTML media types with paramet
   }
 });
 
+test("bounded public text fetch honors a UTF-16 BOM for XHTML without an HTTP charset", async () => {
+  const originalFetch = globalThis.fetch;
+  const xml = '<?xml version="1.0" encoding="utf-16"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Caf\u00e9</title></head></html>';
+  const body = Buffer.concat([
+    Buffer.from([0xff, 0xfe]),
+    Buffer.from(xml, "utf16le"),
+  ]);
+  globalThis.fetch = async () => new Response(body, {
+    status: 200,
+    headers: { "content-type": "application/xhtml+xml" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/xhtml-utf16", {
+      acceptedContentTypes: ["application/xhtml+xml"],
+    });
+    assert.equal(result.text, xml);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("bounded public text fetch honors an XML encoding declaration for XHTML without an HTTP charset", async () => {
+  const originalFetch = globalThis.fetch;
+  const prefix = '<?xml version="1.0" encoding="windows-1252"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Caf';
+  const suffix = "</title></head></html>";
+  const body = Buffer.concat([
+    Buffer.from(prefix, "ascii"),
+    Buffer.from([0xe9]),
+    Buffer.from(suffix, "ascii"),
+  ]);
+  globalThis.fetch = async () => new Response(body, {
+    status: 200,
+    headers: { "content-type": "application/xhtml+xml" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/xhtml-declared-encoding", {
+      acceptedContentTypes: ["application/xhtml+xml"],
+    });
+    assert.match(result.text, /<title>Caf\u00e9<\/title>/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("bounded public text fetch decodes the HTTP-declared character encoding", async () => {
   const originalFetch = globalThis.fetch;
   const body = new Uint8Array([

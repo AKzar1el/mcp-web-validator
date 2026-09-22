@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.20] - 2026-09-22
+
+### Fixed
+
+- Gave XML byte-order marks precedence over conflicting HTTP charset declarations for XML media types while preserving HTTP charset precedence over XML declarations when no BOM is present.
+- Reported present-but-empty viewport metadata as unusable instead of treating it as a configured mobile viewport declaration.
+
 ## [1.3.19] - 2026-09-22
 
 ### Fixed

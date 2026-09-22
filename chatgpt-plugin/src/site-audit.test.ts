@@ -359,6 +359,35 @@ describe("auditPublicSite", () => {
     expect(result.issue_groups_truncated).toBe(true);
   });
 
+  it("does not mark issue groups truncated when only informational diagnostics were capped", async () => {
+    const nuMessages = Array.from({ length: 205 }, (_, index) => ({
+      type: "info",
+      message: `Informational diagnostic ${index + 1}`,
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (target: RequestInfo | URL) => {
+        const url = String(target);
+        if (url === "https://example.com/") return htmlResponse();
+        if (url === "https://example.com/robots.txt") {
+          return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+        }
+        if (url === "https://example.com/sitemap.xml") {
+          return new Response("<urlset><url><loc>https://example.com/</loc></url></urlset>", {
+            headers: { "content-type": "application/xml" },
+          });
+        }
+        if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: nuMessages });
+        throw new Error(`Unexpected fetch target: ${url}`);
+      }),
+    );
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 1, pageOffset: 0 });
+
+    expect(result.pages[0]?.notes).toBeGreaterThanOrEqual(205);
+    expect(result.issue_groups_truncated).toBe(false);
+  });
+
   it("keeps sitemap URLs that differ only by a trailing slash as distinct crawl targets", async () => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);

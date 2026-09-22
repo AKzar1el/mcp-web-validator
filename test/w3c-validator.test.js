@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateCssContent, validateHtmlContent } from "../dist/w3c-validator.js";
+import {
+  getW3CMessageSeverity,
+  validateCssContent,
+  validateHtmlContent,
+} from "../dist/w3c-validator.js";
+
+test("Nu non-document-error messages retain error severity", () => {
+  assert.equal(
+    getW3CMessageSeverity({ type: "non-document-error" }),
+    "error",
+  );
+});
+
 test("missing HTML validator messages fail instead of producing a clean result", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify({}), { status: 200 });

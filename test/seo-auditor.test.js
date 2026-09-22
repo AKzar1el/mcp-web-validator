@@ -23,6 +23,10 @@ test("SEO audit reports the full total while bounding returned findings", () => 
   assert.equal(detailed.issues.length, MAX_AUDIT_ISSUES);
   assert.ok(detailed.totalIssues > MAX_AUDIT_ISSUES);
   assert.equal(detailed.truncated, true);
+  assert.equal(
+    detailed.counts.error + detailed.counts.warning + detailed.counts.info,
+    detailed.totalIssues,
+  );
   assert.equal(auditSeoMetadata(html).length, MAX_AUDIT_ISSUES);
 });
 
@@ -37,6 +41,7 @@ test("JSON-LD audit reports the full total while bounding returned findings", ()
   assert.equal(detailed.issues.length, MAX_AUDIT_ISSUES);
   assert.equal(detailed.totalIssues, blockCount);
   assert.equal(detailed.truncated, true);
+  assert.deepEqual(detailed.counts, { error: blockCount, warning: 0, info: 0 });
   assert.equal(validateSchemaMarkup(html).length, MAX_AUDIT_ISSUES);
 });
 

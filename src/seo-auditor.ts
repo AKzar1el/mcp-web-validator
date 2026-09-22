@@ -29,10 +29,17 @@ export interface LinkStatus {
   message?: string;
 }
 
+export interface AuditCounts {
+  error: number;
+  warning: number;
+  info: number;
+}
+
 export interface AuditDetails {
   issues: SEOIssue[];
   totalIssues: number;
   truncated: boolean;
+  counts: AuditCounts;
 }
 
 function addIssue(issues: SEOIssue[], issue: SEOIssue): void {
@@ -48,10 +55,12 @@ function createIssueCollector(): {
 } {
   const issues: SEOIssue[] = [];
   let totalIssues = 0;
+  const counts: AuditCounts = { error: 0, warning: 0, info: 0 };
   return {
     issues,
     add(issue) {
       totalIssues += 1;
+      counts[issue.severity] += 1;
       addIssue(issues, issue);
     },
     details() {
@@ -59,6 +68,7 @@ function createIssueCollector(): {
         issues,
         totalIssues,
         truncated: totalIssues > issues.length,
+        counts: { ...counts },
       };
     },
   };

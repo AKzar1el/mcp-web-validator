@@ -79,14 +79,28 @@ describe("fetchPublicHtml", () => {
     });
   });
 
-  it("rejects an unsupported HTTP-declared character encoding", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => htmlResponse("<title>Example</title>", {
+  it("falls back to an early HTML meta charset when HTTP declares an unsupported charset", async () => {
+    const body = new Uint8Array([
+      ...new TextEncoder().encode('<meta charset="windows-1252"><title>Caf'),
+      0xe9,
+      ...new TextEncoder().encode("</title>"),
+    ]);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, {
       headers: { "content-type": "text/html; charset=definitely-not-an-encoding" },
     })));
 
-    await expect(fetchPublicHtml("https://example.com/unsupported-charset")).rejects.toMatchObject({
-      code: "content_type",
-      message: expect.stringContaining("unsupported character encoding"),
+    await expect(fetchPublicHtml("https://example.com/unsupported-charset-meta")).resolves.toMatchObject({
+      html: '<meta charset="windows-1252"><title>Caf\u00e9</title>',
+    });
+  });
+
+  it("falls back to UTF-8 when HTTP declares an unsupported charset and HTML has no usable meta charset", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => htmlResponse("<title>Caf\u00e9</title>", {
+      headers: { "content-type": "text/html; charset=definitely-not-an-encoding" },
+    })));
+
+    await expect(fetchPublicHtml("https://example.com/unsupported-charset-default")).resolves.toMatchObject({
+      html: "<title>Caf\u00e9</title>",
     });
   });
 

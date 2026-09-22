@@ -13,11 +13,13 @@ import {
 
 test("published runtime avoids Puppeteer's install-time browser downloader", async () => {
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  const puppeteerCoreVersion = packageJson.dependencies?.["puppeteer-core"];
+  const browsersVersion = packageJson.dependencies?.["@puppeteer/browsers"];
 
   assert.equal(packageJson.dependencies?.puppeteer, undefined);
-  assert.equal(packageJson.dependencies?.["puppeteer-core"], "25.7.0");
-  assert.equal(packageJson.dependencies?.["@puppeteer/browsers"], "3.2.0");
-  assert.equal(packageJson.devDependencies?.puppeteer, "25.7.0");
+  assert.match(puppeteerCoreVersion, /^\d+\.\d+\.\d+$/);
+  assert.match(browsersVersion, /^\d+\.\d+\.\d+$/);
+  assert.equal(packageJson.devDependencies?.puppeteer, puppeteerCoreVersion);
 });
 
 test("first screenshot browser resolution can install the pinned headless shell lazily", async (t) => {

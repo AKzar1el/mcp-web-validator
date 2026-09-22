@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+### Fixed
+
+- Reported `robots`/`googlebot` `noindex`-equivalent meta directives, including body metadata honored by Google Search, instead of silently treating index-blocked pages as clean.
+
 ## [1.3.21] - 2026-09-22
 
 ### Fixed

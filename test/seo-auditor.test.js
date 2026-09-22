@@ -143,6 +143,24 @@ test("canonical audit reports ambiguous and Google-ignored canonical declaration
   }
 });
 
+test("robots meta audit reports noindex-equivalent directives that affect Google Search", () => {
+  for (const html of [
+    '<meta name="robots" content="NOINDEX, follow">',
+    '<body><meta name="GoogleBot" content="none"></body>',
+    '<meta name="robots" content="index, follow"><meta name="googlebot" content="noindex">',
+  ]) {
+    assert.deepEqual(auditSeoMetadata(html).find((issue) => issue.code === "seo.robots.noindex"), {
+      code: "seo.robots.noindex",
+      severity: "warning",
+      category: "SEO",
+      message: "A robots directive prevents Google from indexing this page. Confirm that noindex is intentional.",
+    });
+  }
+
+  const allowed = auditSeoMetadata('<meta name="robots" content="index, follow, max-image-preview:none">');
+  assert.equal(allowed.find((issue) => issue.code === "seo.robots.noindex"), undefined);
+});
+
 test("meta description name matching follows HTML ASCII case-insensitive semantics", () => {
   const description = "D".repeat(140);
   const issues = auditSeoMetadata(`<meta name="Description" content="${description}">`);

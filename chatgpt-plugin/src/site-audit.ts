@@ -214,7 +214,7 @@ export function parseRobotsTxt(value: string, origin: string): ParsedRobots {
     currentHasRules = false;
   };
 
-  for (const rawLine of value.split(/\r?\n/)) {
+  for (const rawLine of value.split(/\r\n|\r|\n/)) {
     const line = rawLine.split("#", 1)[0]?.trim() ?? "";
     if (!line) continue;
     const separator = line.indexOf(":");

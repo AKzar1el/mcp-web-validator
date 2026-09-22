@@ -102,7 +102,8 @@ function toolContent(options: {
   const actionItems = options.actions ?? [];
   const actions = formatActions(actionItems);
   if (actions) {
-    const actionHeading = actionItems.some((item) => item.priority < 2) ? "Fix first" : "Review";
+    const hasActionableItem = actionItems.some((item) => item.priority < 2);
+    const actionHeading = options.status === "review suggested" || !hasActionableItem ? "Review" : "Fix first";
     sections.push(`**${actionHeading}**\n${actions}`);
   }
   sections.push(`**Next step:** ${collapseWhitespace(options.nextStep, 400)}`);

@@ -52,7 +52,7 @@ The npm package exposes these exact runtime tool names:
 | `html.local` | Validate a local HTML file. | Reads the selected file and submits its markup to the external W3C Nu HTML Checker at `validator.w3.org/nu/`. |
 | `html.url` | Validate the markup returned by a public URL. | Fetches the URL, then submits the returned markup to the external Nu checker. |
 | `css.local` | Validate a local CSS file. | Reads the selected file and submits its CSS to the external W3C Jigsaw CSS Validator. |
-| `seo.metadata` | Audit titles, descriptions, canonical tags, robots indexing directives, headings, viewport metadata, image alt attributes, and Open Graph metadata. | Processes supplied HTML locally. |
+| `seo.metadata` | Audit titles, descriptions, canonical tags, robots noindex directives, headings, viewport metadata, image alt attributes, and Open Graph metadata. | Processes supplied HTML locally. |
 | `links.broken` | Check links extracted from supplied HTML. | Sends bounded HTTP requests to eligible public links. |
 | `schema.markup` | Parse JSON-LD blocks and report JSON syntax errors. | Processes supplied HTML locally. |
 | `report.validation` | Combine HTML, optional CSS, SEO, JSON-LD, and bounded link checks in a Markdown report. | Reads selected files, contacts the validators, and checks eligible public links found in the HTML. |
@@ -68,7 +68,7 @@ The hosted app exposes eight tools:
 | `audit_public_site` | Run a bounded sitemap-first audit of up to eight authorized, same-origin public pages. It respects `robots.txt`, returns compact page coverage and deduplicated findings, and does not run site-wide link checks. |
 | `validate_html` | Validate raw HTML markup already supplied in the conversation. |
 | `validate_css` | Parse supplied CSS for syntax errors inside the Worker. |
-| `audit_seo_metadata` | Audit supplied HTML for covered on-page SEO, robots indexing, and accessibility signals. |
+| `audit_seo_metadata` | Audit supplied HTML for covered on-page SEO, robots noindex, and accessibility signals. |
 | `validate_schema_markup` | Check JSON-LD blocks in supplied HTML for JSON syntax errors. |
 | `check_broken_links` | Check up to 20 authorized public links extracted from supplied HTML. |
 | `generate_validation_report` | Combine the checks for supplied markup; `base_url` resolves relative links but does not fetch a page. |

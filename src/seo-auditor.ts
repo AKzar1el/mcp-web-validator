@@ -231,8 +231,8 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   });
 
   // --- Open Graph / Social Tags ---
-  const ogTitle = $('meta[property="og:title"]');
-  const ogImage = $('meta[property="og:image"]');
+  const ogTitle = $('head > meta[property="og:title"]');
+  const ogImage = $('head > meta[property="og:image"]');
   if (ogTitle.length === 0 || ogImage.length === 0) {
     add({
       code: "seo.open_graph.missing",

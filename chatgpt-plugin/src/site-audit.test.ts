@@ -370,6 +370,42 @@ describe("auditPublicSite", () => {
     });
   });
 
+  it("prioritizes later errors over earlier warnings when issue groups hit the cap", async () => {
+    const nuMessages = [
+      ...Array.from({ length: 50 }, (_, index) => ({ type: "warning", message: `Warning ${index + 1}` })),
+      { type: "error", message: "Late critical error" },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (target: RequestInfo | URL) => {
+        const url = String(target);
+        if (url === "https://example.com/") return htmlResponse();
+        if (url === "https://example.com/robots.txt") {
+          return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+        }
+        if (url === "https://example.com/sitemap.xml") {
+          return new Response("<urlset><url><loc>https://example.com/</loc></url></urlset>", {
+            headers: { "content-type": "application/xml" },
+          });
+        }
+        if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: nuMessages });
+        throw new Error(`Unexpected fetch target: ${url}`);
+      }),
+    );
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 1, pageOffset: 0 });
+
+    expect(result.issue_groups).toHaveLength(50);
+    expect(result.issue_groups.filter((group) => group.severity === "error")).toHaveLength(1);
+    expect(result.issue_groups.filter((group) => group.severity === "warning")).toHaveLength(49);
+    expect(result.issue_groups).toContainEqual(expect.objectContaining({
+      severity: "error",
+      category: "HTML",
+      message: "Late critical error",
+    }));
+    expect(result.issue_groups_truncated).toBe(true);
+  });
+
   it("marks site issue groups truncated when page diagnostics were capped before grouping", async () => {
     const nuMessages = [
       ...Array.from({ length: 200 }, () => ({ type: "error", message: "Repeated diagnostic" })),

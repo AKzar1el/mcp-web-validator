@@ -700,10 +700,6 @@ function groupFindings(
       const key = `${finding.severity}\u0000${finding.category}\u0000${identity}`;
       let group = groups.get(key);
       if (!group) {
-        if (groups.size >= SITE_AUDIT_MAX_ISSUE_GROUPS) {
-          truncated = true;
-          continue;
-        }
         group = {
           code: finding.code,
           severity: finding.severity,
@@ -719,7 +715,7 @@ function groupFindings(
     }
   }
 
-  const issueGroups = Array.from(groups.values())
+  const rankedGroups = Array.from(groups.values())
     .map((group) => ({
       code: group.code,
       severity: group.severity,
@@ -733,7 +729,11 @@ function groupFindings(
       || right.affected_pages - left.affected_pages
       || left.message.localeCompare(right.message),
     );
-  return { issueGroups, truncated };
+  if (rankedGroups.length > SITE_AUDIT_MAX_ISSUE_GROUPS) truncated = true;
+  return {
+    issueGroups: rankedGroups.slice(0, SITE_AUDIT_MAX_ISSUE_GROUPS),
+    truncated,
+  };
 }
 
 /**

@@ -5,6 +5,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { detectBrowserPlatform } from "@puppeteer/browsers";
+import { PUPPETEER_REVISIONS } from "puppeteer-core/internal/revisions.js";
 
 import {
   resolveScreenshotBrowserExecutable,
@@ -20,6 +21,10 @@ test("published runtime avoids Puppeteer's install-time browser downloader", asy
   assert.match(puppeteerCoreVersion, /^\d+\.\d+\.\d+$/);
   assert.match(browsersVersion, /^\d+\.\d+\.\d+$/);
   assert.equal(packageJson.devDependencies?.puppeteer, puppeteerCoreVersion);
+});
+
+test("screenshot browser pin matches puppeteer-core's supported headless shell", () => {
+  assert.equal(SCREENSHOT_BROWSER_BUILD_ID, PUPPETEER_REVISIONS["chrome-headless-shell"]);
 });
 
 test("first screenshot browser resolution can install the pinned headless shell lazily", async (t) => {

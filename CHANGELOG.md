@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The project follows [Se
 ### Fixed
 
 - Pinned Chromium screenshot HTTP(S) connections to DNS answers revalidated as public at proxy connection time, closing a DNS-rebinding/TOCTOU gap while preserving the original hostname for TLS/SNI validation.
+- Scoped Open Graph title/image checks to the document head so body-only metadata lookalikes cannot suppress missing social-preview guidance.
 
 ## [1.3.14] - 2026-09-21
 

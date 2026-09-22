@@ -173,7 +173,7 @@ export function auditSeoMetadata(html: string): AuditResult {
     }
   });
 
-  if ($('meta[property="og:title"]').length === 0 || $('meta[property="og:image"]').length === 0) {
+  if ($('head > meta[property="og:title"]').length === 0 || $('head > meta[property="og:image"]').length === 0) {
     collector.add({
       code: "seo.open_graph.missing",
       severity: "info",

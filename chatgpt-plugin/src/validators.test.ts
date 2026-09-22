@@ -156,6 +156,8 @@ describe("bounded audits", () => {
       `<meta name="description" content="${description}">`,
       '<meta name="viewport" content="width=device-width">',
       '<link rel="canonical" href="https://example.com/body-only">',
+      '<meta property="og:title" content="Body-only title">',
+      '<meta property="og:image" content="https://example.com/body-only.png">',
       "<h1>Page heading</h1>",
       "</body></html>",
     ].join(""));
@@ -164,6 +166,7 @@ describe("bounded audits", () => {
     expect(result.issues.find((issue) => issue.code === "seo.meta_description.missing_or_empty")?.severity).toBe("error");
     expect(result.issues.find((issue) => issue.code === "seo.viewport.missing")?.severity).toBe("error");
     expect(result.issues.find((issue) => issue.code === "seo.canonical.missing")?.severity).toBe("info");
+    expect(result.issues.find((issue) => issue.code === "seo.open_graph.missing")?.severity).toBe("info");
   });
 
   it("caps SEO findings while retaining the total", () => {

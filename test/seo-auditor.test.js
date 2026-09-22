@@ -121,6 +121,8 @@ test("page metadata checks ignore body and SVG lookalikes outside the document h
     `<meta name="description" content="${description}">`,
     '<meta name="viewport" content="width=device-width">',
     '<link rel="canonical" href="https://example.com/body-only">',
+    '<meta property="og:title" content="Body-only title">',
+    '<meta property="og:image" content="https://example.com/body-only.png">',
     "<h1>Page heading</h1>",
     "</body></html>",
   ].join(""));
@@ -129,6 +131,7 @@ test("page metadata checks ignore body and SVG lookalikes outside the document h
   assert.equal(issues.find((issue) => issue.code === "seo.meta_description.missing_or_empty")?.severity, "error");
   assert.equal(issues.find((issue) => issue.code === "seo.viewport.missing")?.severity, "error");
   assert.equal(issues.find((issue) => issue.code === "seo.canonical.missing")?.severity, "info");
+  assert.equal(issues.find((issue) => issue.code === "seo.open_graph.missing")?.severity, "info");
 });
 
 test("title-length guidance keeps editorial thresholds without claiming a fixed Google limit", () => {

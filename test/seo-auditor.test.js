@@ -118,6 +118,31 @@ test("canonical audit distinguishes an optional missing preference from an unusa
   });
 });
 
+test("canonical audit reports ambiguous and Google-ignored canonical declarations", () => {
+  const multiple = auditSeoMetadata([
+    "<html><head>",
+    '<link rel="canonical" href="https://example.com/a">',
+    '<link rel="canonical" href="https://example.com/b">',
+    "</head><body></body></html>",
+  ].join(""));
+  assert.deepEqual(multiple.find((issue) => issue.code === "seo.canonical.multiple"), {
+    code: "seo.canonical.multiple",
+    severity: "warning",
+    category: "SEO",
+    message: "Multiple usable canonical link relations are declared. Keep one unambiguous canonical target.",
+  });
+
+  for (const attribute of ['hreflang="en"', 'lang="en"', 'media="print"', 'type="text/html"']) {
+    const ignored = auditSeoMetadata(`<link rel="canonical" href="https://example.com/page" ${attribute}>`);
+    assert.deepEqual(ignored.find((issue) => issue.code === "seo.canonical.unusable"), {
+      code: "seo.canonical.unusable",
+      severity: "warning",
+      category: "SEO",
+      message: "Canonical link is present but uses attributes Google ignores for canonicalization. Use a plain rel=\"canonical\" link in <head>.",
+    });
+  }
+});
+
 test("meta description name matching follows HTML ASCII case-insensitive semantics", () => {
   const description = "D".repeat(140);
   const issues = auditSeoMetadata(`<meta name="Description" content="${description}">`);

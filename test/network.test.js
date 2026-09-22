@@ -280,6 +280,46 @@ test("bounded public text fetch honors a UTF-16 BOM for XHTML without an HTTP ch
   }
 });
 
+test("XML BOM takes precedence over a conflicting HTTP charset", async () => {
+  const originalFetch = globalThis.fetch;
+  const xml = '<?xml version="1.0" encoding="utf-16"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Caf\u00e9</title></head></html>';
+  const body = Buffer.concat([
+    Buffer.from([0xff, 0xfe]),
+    Buffer.from(xml, "utf16le"),
+  ]);
+  globalThis.fetch = async () => new Response(body, {
+    status: 200,
+    headers: { "content-type": "application/xhtml+xml; charset=utf-8" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/xhtml-conflicting-http-charset", {
+      acceptedContentTypes: ["application/xhtml+xml"],
+    });
+    assert.equal(result.text, xml);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("HTTP charset keeps precedence over an XML declaration when no BOM is present", async () => {
+  const originalFetch = globalThis.fetch;
+  const xml = '<?xml version="1.0" encoding="windows-1252"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Caf\u00e9</title></head></html>';
+  globalThis.fetch = async () => new Response(Buffer.from(xml, "utf8"), {
+    status: 200,
+    headers: { "content-type": "application/xhtml+xml; charset=utf-8" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/xhtml-http-charset", {
+      acceptedContentTypes: ["application/xhtml+xml"],
+    });
+    assert.equal(result.text, xml);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("bounded public text fetch honors an XML encoding declaration for XHTML without an HTTP charset", async () => {
   const originalFetch = globalThis.fetch;
   const prefix = '<?xml version="1.0" encoding="windows-1252"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Caf';

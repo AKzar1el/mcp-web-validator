@@ -257,19 +257,13 @@ function isSupportedCharacterEncoding(encoding: string): boolean {
   }
 }
 
-function getXmlCharacterEncoding(bytes: Uint8Array): string {
+function getXmlBomCharacterEncoding(bytes: Uint8Array): string | undefined {
   if (bytes.length >= 4) {
     if (bytes[0] === 0x00 && bytes[1] === 0x00 && bytes[2] === 0xfe && bytes[3] === 0xff) {
       return "utf-32be";
     }
     if (bytes[0] === 0xff && bytes[1] === 0xfe && bytes[2] === 0x00 && bytes[3] === 0x00) {
       return "utf-32le";
-    }
-    if (bytes[0] === 0x00 && bytes[1] === 0x3c && bytes[2] === 0x00 && bytes[3] === 0x3f) {
-      return "utf-16be";
-    }
-    if (bytes[0] === 0x3c && bytes[1] === 0x00 && bytes[2] === 0x3f && bytes[3] === 0x00) {
-      return "utf-16le";
     }
   }
   if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
@@ -280,6 +274,22 @@ function getXmlCharacterEncoding(bytes: Uint8Array): string {
       return "utf-16be";
     }
     if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+      return "utf-16le";
+    }
+  }
+  return undefined;
+}
+
+function getXmlCharacterEncoding(bytes: Uint8Array): string {
+  const bomEncoding = getXmlBomCharacterEncoding(bytes);
+  if (bomEncoding) {
+    return bomEncoding;
+  }
+  if (bytes.length >= 4) {
+    if (bytes[0] === 0x00 && bytes[1] === 0x3c && bytes[2] === 0x00 && bytes[3] === 0x3f) {
+      return "utf-16be";
+    }
+    if (bytes[0] === 0x3c && bytes[1] === 0x00 && bytes[2] === 0x3f && bytes[3] === 0x00) {
       return "utf-16le";
     }
   }
@@ -299,6 +309,7 @@ export async function readResponseText(
   encoding?: string,
   sniffHtmlEncoding = false,
   sniffXmlEncoding = false,
+  preferXmlBom = false,
 ): Promise<string> {
   assertPositiveInteger(maxBytes, "maxBytes");
 
@@ -331,7 +342,7 @@ export async function readResponseText(
   const startDecoder = async (): Promise<void> => {
     if (decoder) return;
     let encodingLabel = encoding ?? "utf-8";
-    if (encoding === undefined && (sniffHtmlEncoding || sniffXmlEncoding)) {
+    if ((encoding === undefined && (sniffHtmlEncoding || sniffXmlEncoding)) || preferXmlBom) {
       const sniffLength = Math.min(pendingBytes, HTML_ENCODING_SNIFF_BYTES);
       const sniffBytes = new Uint8Array(sniffLength);
       let copied = 0;
@@ -341,12 +352,16 @@ export async function readResponseText(
         sniffBytes.set(chunk.subarray(0, length), copied);
         copied += length;
       }
-      encodingLabel = sniffXmlEncoding
-        ? getXmlCharacterEncoding(sniffBytes)
-        : getEncoding(sniffBytes, {
-            maxBytes: HTML_ENCODING_SNIFF_BYTES,
-            defaultEncoding: "utf-8",
-          });
+      if (preferXmlBom) {
+        encodingLabel = getXmlBomCharacterEncoding(sniffBytes) ?? encodingLabel;
+      } else {
+        encodingLabel = sniffXmlEncoding
+          ? getXmlCharacterEncoding(sniffBytes)
+          : getEncoding(sniffBytes, {
+              maxBytes: HTML_ENCODING_SNIFF_BYTES,
+              defaultEncoding: "utf-8",
+            });
+      }
     }
     decoder = await createDecoder(encodingLabel);
     for (const chunk of pendingChunks) {
@@ -356,7 +371,7 @@ export async function readResponseText(
     pendingBytes = 0;
   };
 
-  if (encoding !== undefined || (!sniffHtmlEncoding && !sniffXmlEncoding)) {
+  if (!preferXmlBom && (encoding !== undefined || (!sniffHtmlEncoding && !sniffXmlEncoding))) {
     await startDecoder();
   }
 
@@ -526,9 +541,11 @@ export async function fetchPublicText(
   const declaredEncoding = getDeclaredCharacterEncoding(contentTypeHeader);
   const shouldSniffHtmlEncoding = contentType === "text/html"
     && (declaredEncoding === undefined || !isSupportedCharacterEncoding(declaredEncoding));
-  const shouldSniffXmlEncoding = declaredEncoding === undefined
-    && contentType !== null
+  const isXmlContentType = contentType !== null
     && (contentType === "application/xml" || contentType === "text/xml" || contentType.endsWith("+xml"));
+  const shouldSniffXmlEncoding = declaredEncoding === undefined
+    && isXmlContentType;
+  const shouldPreferXmlBom = declaredEncoding !== undefined && isXmlContentType;
   return {
     text: await readResponseText(
       response,
@@ -536,6 +553,7 @@ export async function fetchPublicText(
       shouldSniffHtmlEncoding || shouldSniffXmlEncoding ? undefined : declaredEncoding,
       shouldSniffHtmlEncoding,
       shouldSniffXmlEncoding,
+      shouldPreferXmlBom,
     ),
     url: url.href,
     status: response.status,

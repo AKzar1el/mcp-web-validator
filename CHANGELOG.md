@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.21] - 2026-09-22
+
+### Fixed
+
+- Flagged multiple simultaneously usable `rel="canonical"` declarations and ignored canonical annotations that Google does not use for canonicalization, while preserving existing head scoping, rel-token, and empty-target behavior.
+- Aligned the lazily installed Chrome Headless Shell build with Puppeteer Core 25.11.0's declared supported revision and added a regression guard to prevent future runtime drift.
+
+### Changed
+
+- Upgraded `encoding-sniffer` to 1.0.2 and refreshed the Puppeteer screenshot runtime dependency set to Puppeteer/Puppeteer Core 25.11.0 with `@puppeteer/browsers` 3.2.2.
+
 ## [1.3.20] - 2026-09-22
 
 ### Fixed

@@ -161,6 +161,30 @@ test("robots meta audit reports noindex-equivalent directives that affect Google
   assert.equal(allowed.find((issue) => issue.code === "seo.robots.noindex"), undefined);
 });
 
+test("SEO and JSON-LD audits ignore inert template contents", () => {
+  const html = [
+    "<html><head></head><body>",
+    "<template>",
+    '<meta name="robots" content="noindex">',
+    "<h1>Template heading</h1>",
+    '<img src="template.png">',
+    '<script type="application/ld+json">{</script>',
+    "</template>",
+    "<h1>Visible heading</h1>",
+    '<img src="visible.png" alt="Visible">',
+    "</body></html>",
+  ].join("");
+
+  const seo = auditSeoMetadata(html);
+  assert.equal(seo.find((issue) => issue.code === "seo.robots.noindex"), undefined);
+  assert.equal(seo.find((issue) => issue.code === "seo.h1.multiple"), undefined);
+  assert.equal(seo.find((issue) => issue.code === "accessibility.image_alt.missing"), undefined);
+
+  const schema = validateSchemaMarkupDetailed(html);
+  assert.equal(schema.totalIssues, 0);
+  assert.deepEqual(schema.issues, []);
+});
+
 test("meta description name matching follows HTML ASCII case-insensitive semantics", () => {
   const description = "D".repeat(140);
   const issues = auditSeoMetadata(`<meta name="Description" content="${description}">`);

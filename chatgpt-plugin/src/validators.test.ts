@@ -172,6 +172,31 @@ describe("bounded audits", () => {
     }
   });
 
+  it("ignores inert template contents in SEO and JSON-LD audits", () => {
+    const html = [
+      "<html><head></head><body>",
+      "<template>",
+      '<meta name="robots" content="noindex">',
+      "<h1>Template heading</h1>",
+      '<img src="template.png">',
+      '<script type="application/ld+json">{</script>',
+      "</template>",
+      "<h1>Visible heading</h1>",
+      '<img src="visible.png" alt="Visible">',
+      "</body></html>",
+    ].join("");
+
+    const seo = auditSeoMetadata(html);
+    expect(seo.issues.find((issue) => issue.code === "seo.robots.noindex")).toBeUndefined();
+    expect(seo.issues.find((issue) => issue.code === "seo.h1.multiple")).toBeUndefined();
+    expect(seo.issues.find((issue) => issue.code === "accessibility.image_alt.missing")).toBeUndefined();
+
+    const schema = validateSchemaMarkup(html);
+    expect(schema.total).toBe(0);
+    expect(schema.blocksChecked).toBe(0);
+    expect(schema.issues).toEqual([]);
+  });
+
   it("keeps title and meta-description length heuristics as informational guidance", () => {
     const result = auditSeoMetadata([
       "<html><head>",

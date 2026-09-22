@@ -88,6 +88,33 @@ test("validation report preserves full HTML counts when returned diagnostics are
   assert.match(reportContent(report), /first 200 of 205 HTML diagnostics/i);
 });
 
+test("validation report preserves full CSS counts when returned diagnostics are capped", async () => {
+  const cappedMessages = Array.from({ length: 200 }, (_, index) => ({
+    type: "error",
+    line: index + 1,
+    message: `CSS issue ${index + 1}`,
+  }));
+  const report = await runReport({
+    validateCssContent: async () => cappedMessages,
+    validateCssContentDetailed: async () => ({
+      messages: cappedMessages,
+      total: 205,
+      truncated: true,
+      counts: { error: 205, compatibilityLimitation: 0 },
+    }),
+    auditSeoMetadata: () => [],
+    validateSchemaMarkup: () => [],
+    checkBrokenLinks: async () => [],
+  }, { cssFilePath: "page.css" });
+
+  assert.equal(report.cssMessages.length, 200);
+  assert.equal(report.cssTotalMessages, 205);
+  assert.equal(report.cssTruncated, true);
+  assert.equal(report.summary.cssErrors, 205);
+  assert.match(report.report, /200 shown of 205/);
+  assert.match(reportContent(report), /first 200 of 205 CSS diagnostics/i);
+});
+
 test("validation report keeps local and link results when HTML validation fails", async () => {
   const report = await runReport({
     validateHtmlContent: async () => { throw new Error("Nu HTML Checker unavailable"); },

@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserved full Jigsaw CSS diagnostic totals and actionable/compatibility counts when local/package output is capped at 200 messages, with explicit truncation metadata/disclosure so validation-report summaries and heuristic scoring no longer undercount large result sets.
+
 ## [1.3.18] - 2026-09-22
 
 ### Fixed

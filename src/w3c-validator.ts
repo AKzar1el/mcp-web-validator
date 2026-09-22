@@ -44,6 +44,16 @@ export interface CSSMessage {
   compatibility?: "known-validator-limitation";
 }
 
+export interface CssValidationResult {
+  messages: CSSMessage[];
+  total: number;
+  truncated: boolean;
+  counts: {
+    error: number;
+    compatibilityLimitation: number;
+  };
+}
+
 const VALIDATOR_TIMEOUT_MS = 20_000;
 const MAX_HTML_BYTES = 2_000_000;
 export const MAX_CSS_VALIDATION_BYTES = 128_000;
@@ -147,10 +157,8 @@ export async function validateHtmlContent(htmlContent: string): Promise<W3CMessa
   return (await validateHtmlContentDetailed(htmlContent)).messages;
 }
 
-/**
- * Validates CSS using the W3C Jigsaw CSS Validator API
- */
-export async function validateCssContent(cssContent: string): Promise<CSSMessage[]> {
+/** Validates CSS using the W3C Jigsaw CSS Validator API and retains bounded-output metadata. */
+export async function validateCssContentDetailed(cssContent: string): Promise<CssValidationResult> {
   const url = "https://jigsaw.w3.org/css-validator/validator";
 
   try {
@@ -205,7 +213,7 @@ export async function validateCssContent(cssContent: string): Promise<CSSMessage
     }
 
     const errors = data.cssvalidation.errors || [];
-    return errors.slice(0, MAX_VALIDATION_MESSAGES).map((err) => {
+    const normalized = errors.map((err) => {
       const message = err.message ? err.message.trim() : "Unknown CSS validation error";
       return {
         line: err.line || 0,
@@ -217,7 +225,24 @@ export async function validateCssContent(cssContent: string): Promise<CSSMessage
           : {}),
       };
     });
+    const compatibilityLimitation = normalized.filter(
+      (message) => message.compatibility === "known-validator-limitation",
+    ).length;
+    return {
+      messages: normalized.slice(0, MAX_VALIDATION_MESSAGES),
+      total: normalized.length,
+      truncated: normalized.length > MAX_VALIDATION_MESSAGES,
+      counts: {
+        error: normalized.length - compatibilityLimitation,
+        compatibilityLimitation,
+      },
+    };
   } catch (error: unknown) {
     throw new Error(`CSS validation failed: ${getErrorMessage(error)}`);
   }
+}
+
+/** Backwards-compatible convenience API returning capped CSS diagnostics only. */
+export async function validateCssContent(cssContent: string): Promise<CSSMessage[]> {
+  return (await validateCssContentDetailed(cssContent)).messages;
 }

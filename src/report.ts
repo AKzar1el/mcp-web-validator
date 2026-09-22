@@ -33,6 +33,8 @@ export interface ValidationReport {
   htmlTotalMessages: number;
   htmlTruncated: boolean;
   cssMessages: CSSMessage[];
+  cssTotalMessages: number;
+  cssTruncated: boolean;
   seoIssues: SEOIssue[];
   schemaIssues: SEOIssue[];
   links: LinkStatus[];
@@ -48,6 +50,9 @@ export interface ValidationReportInput {
   htmlTruncated?: boolean;
   htmlCounts?: { error: number; warning: number; info: number };
   cssMessages: CSSMessage[];
+  cssTotalMessages?: number;
+  cssTruncated?: boolean;
+  cssCounts?: { error: number; compatibilityLimitation: number };
   seoIssues: SEOIssue[];
   schemaIssues: SEOIssue[];
   links: LinkStatus[];
@@ -89,10 +94,11 @@ export function createValidationReport(input: ValidationReportInput): Validation
     ?? input.htmlMessages.filter((message) => getW3CMessageSeverity(message) === "warning").length;
   const htmlTotalMessages = input.htmlTotalMessages ?? input.htmlMessages.length;
   const htmlTruncated = input.htmlTruncated ?? htmlTotalMessages > input.htmlMessages.length;
-  const cssCompatibilityLimitations = input.cssMessages.filter(
-    (message) => message.compatibility === "known-validator-limitation",
-  ).length;
-  const cssErrors = input.cssMessages.length - cssCompatibilityLimitations;
+  const cssTotalMessages = input.cssTotalMessages ?? input.cssMessages.length;
+  const cssTruncated = input.cssTruncated ?? cssTotalMessages > input.cssMessages.length;
+  const cssCompatibilityLimitations = input.cssCounts?.compatibilityLimitation
+    ?? input.cssMessages.filter((message) => message.compatibility === "known-validator-limitation").length;
+  const cssErrors = input.cssCounts?.error ?? input.cssMessages.length - cssCompatibilityLimitations;
   const seoErrors = input.seoIssues.filter((issue) => issue.severity === "error").length;
   const seoWarnings = input.seoIssues.filter((issue) => issue.severity === "warning").length;
   const schemaErrors = input.schemaIssues.filter((issue) => issue.severity === "error").length;
@@ -176,10 +182,13 @@ export function createValidationReport(input: ValidationReportInput): Validation
   }
 
   if (input.cssAudited) {
-    report.push("", `## CSS diagnostics (${input.cssMessages.length})`);
+    report.push("", `## CSS diagnostics (${cssTruncated ? `${input.cssMessages.length} shown of ${cssTotalMessages}` : cssTotalMessages})`);
     if (input.cssMessages.length === 0) {
       report.push("No CSS validation errors were returned.");
     } else {
+      if (cssTruncated) {
+        report.push(`The structured CSS diagnostics are capped; showing the first ${input.cssMessages.length} of ${cssTotalMessages}. Summary counts and scoring use all returned Jigsaw diagnostics.`);
+      }
       report.push("", "| Line | Context | Message |", "| :---: | :--- | :--- |");
       for (const message of input.cssMessages) {
         report.push(
@@ -227,6 +236,8 @@ export function createValidationReport(input: ValidationReportInput): Validation
     htmlTotalMessages,
     htmlTruncated,
     cssMessages: input.cssMessages,
+    cssTotalMessages,
+    cssTruncated,
     seoIssues: input.seoIssues,
     schemaIssues: input.schemaIssues,
     links: input.links,

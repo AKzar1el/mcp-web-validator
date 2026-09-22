@@ -34,12 +34,14 @@ export interface FetchPublicHtmlOptions {
 }
 
 export interface FetchPublicTextOptions {
-  /** Restricts the requested URL and every redirect to this exact origin. */
+  /** Restricts the requested URL to this exact origin. Redirects stay there unless explicitly allowed below. */
   allowedOrigin: string;
   acceptedContentTypes: readonly string[];
   maxBytes: number;
   maxRedirects?: number;
   timeoutMs?: number;
+  /** Allows validated public redirect hops to leave allowedOrigin. Intended for standards-defined cases such as robots.txt. */
+  allowCrossOriginRedirects?: boolean;
 }
 
 export type PublicHtmlFetchErrorCode =
@@ -346,7 +348,8 @@ export async function fetchPublicHtml(
 /**
  * Fetches a small public text resource (for example robots.txt or a sitemap)
  * with the same URL, redirect, credential, timeout, and response-size guards
- * as the public HTML fetcher. Callers must lock requests to a crawl origin.
+ * as the public HTML fetcher. Callers lock the initial request to a crawl origin;
+ * redirects remain same-origin unless a standards-specific caller opts in.
  */
 export async function fetchPublicText(
   value: string,
@@ -355,6 +358,7 @@ export async function fetchPublicText(
   const requestedUrl = requirePublicPageUrl(value);
   requireAllowedOrigin(requestedUrl, options.allowedOrigin);
   const maxRedirects = options.maxRedirects ?? MAX_PUBLIC_HTML_REDIRECTS;
+  const allowCrossOriginRedirects = options.allowCrossOriginRedirects ?? false;
   let currentUrl = requestedUrl;
   const visited = new Set<string>();
   const controller = new AbortController();
@@ -362,7 +366,7 @@ export async function fetchPublicText(
 
   try {
     for (let redirectsFollowed = 0; ; redirectsFollowed += 1) {
-      requireAllowedOrigin(currentUrl, options.allowedOrigin);
+      if (!allowCrossOriginRedirects) requireAllowedOrigin(currentUrl, options.allowedOrigin);
       if (visited.has(currentUrl.href)) {
         throw new PublicHtmlFetchError("redirect", "The resource returned a redirect loop.");
       }
@@ -394,7 +398,7 @@ export async function fetchPublicText(
         }
 
         const nextUrl = requirePublicPageUrl(location, currentUrl.href);
-        requireAllowedOrigin(nextUrl, options.allowedOrigin);
+        if (!allowCrossOriginRedirects) requireAllowedOrigin(nextUrl, options.allowedOrigin);
         if (currentUrl.protocol === "https:" && nextUrl.protocol === "http:") {
           throw new PublicHtmlFetchError("redirect", "An HTTPS-to-HTTP redirect was blocked.");
         }

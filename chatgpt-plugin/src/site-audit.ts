@@ -127,6 +127,7 @@ interface GroupAccumulator {
 
 const SITE_AUDIT_USER_AGENT = "digestseo-web-validator";
 const SITEMAP_XML_NAMESPACE = "http://www.sitemaps.org/schemas/sitemap/0.9";
+const ATOM_XML_NAMESPACE = "http://www.w3.org/2005/Atom";
 const SITEMAP_CONTENT_TYPES = [
   "application/xml",
   "text/xml",
@@ -308,11 +309,47 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
       return { pageUrls, childSitemaps, invalid: false };
     }
 
-    if (
-      documentElementLocalName === "feed"
-      && documentElement.attr("xmlns")?.trim() === "http://www.w3.org/2005/Atom"
-    ) {
-      $("entry > link[href]").each((_index, element) => {
+    const documentElementQualifiedName = documentElement.get(0)?.name ?? documentElementName.toLowerCase();
+    const documentElementSeparator = documentElementQualifiedName.indexOf(":");
+    const documentElementPrefix = documentElementSeparator >= 0
+      ? documentElementQualifiedName.slice(0, documentElementSeparator)
+      : "";
+    const documentElementNamespaceDeclaration = documentElementPrefix
+      ? `xmlns:${documentElementPrefix}`
+      : "xmlns";
+    const documentElementNamespace = documentElement.attr(documentElementNamespaceDeclaration)?.trim();
+
+    if (documentElementLocalName === "feed" && documentElementNamespace === ATOM_XML_NAMESPACE) {
+      const atomElements = $("*").filter((_index, element) => {
+        if (element.type !== "tag") return false;
+        const qualifiedName = element.name;
+        const separator = qualifiedName.indexOf(":");
+        const prefix = separator >= 0 ? qualifiedName.slice(0, separator) : "";
+        const declaration = prefix ? `xmlns:${prefix}` : "xmlns";
+        let current = $(element);
+
+        while (current.length > 0) {
+          const declaredNamespace = current.attr(declaration);
+          if (declaredNamespace !== undefined) {
+            return declaredNamespace.trim() === ATOM_XML_NAMESPACE;
+          }
+          current = current.parent();
+        }
+        return false;
+      });
+      const atomNodes = new Set(atomElements.toArray());
+
+      atomElements.each((_index, element) => {
+        const qualifiedName = String($(element).prop("tagName") ?? "");
+        const localName = qualifiedName.slice(qualifiedName.indexOf(":") + 1).toLowerCase();
+        if (localName !== "link") return;
+
+        const parent = $(element).parent().get(0);
+        if (!parent || !atomNodes.has(parent)) return;
+        const parentName = String($(parent).prop("tagName") ?? "");
+        const parentLocalName = parentName.slice(parentName.indexOf(":") + 1).toLowerCase();
+        if (parentLocalName !== "entry") return;
+
         const rel = $(element).attr("rel")?.trim().toLowerCase();
         if (rel && rel !== "alternate") return;
         const url = sameOriginCrawlUrl($(element).attr("href")?.trim() ?? "", baseUrl, origin);

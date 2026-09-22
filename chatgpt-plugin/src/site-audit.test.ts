@@ -178,6 +178,18 @@ describe("auditPublicSite", () => {
       ].join(""),
     },
     {
+      name: "prefixed Atom 1.0",
+      path: "/feed-prefixed.atom",
+      contentType: "application/atom+xml",
+      body: [
+        '<?xml version="1.0"?>',
+        '<atom:feed xmlns:atom="http://www.w3.org/2005/Atom">',
+        '<atom:entry><atom:link href="https://example.com/docs" /></atom:entry>',
+        '<atom:entry><atom:link href="http://127.0.0.1/private" /></atom:entry>',
+        '</atom:feed>',
+      ].join(""),
+    },
+    {
       name: "plain text",
       path: "/sitemap.txt",
       contentType: "text/plain",

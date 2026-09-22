@@ -248,6 +248,15 @@ function getDeclaredCharacterEncoding(contentType: string | null): string | unde
   return (match[1] ?? match[2] ?? "").trim();
 }
 
+function isSupportedCharacterEncoding(encoding: string): boolean {
+  try {
+    new TextDecoder(encoding);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function readResponseText(
   response: Response,
   maxBytes: number,
@@ -476,12 +485,14 @@ export async function fetchPublicText(
   }
 
   const declaredEncoding = getDeclaredCharacterEncoding(contentTypeHeader);
+  const shouldSniffHtmlEncoding = contentType === "text/html"
+    && (declaredEncoding === undefined || !isSupportedCharacterEncoding(declaredEncoding));
   return {
     text: await readResponseText(
       response,
       maxBytes,
-      declaredEncoding,
-      declaredEncoding === undefined && contentType === "text/html",
+      shouldSniffHtmlEncoding ? undefined : declaredEncoding,
+      shouldSniffHtmlEncoding,
     ),
     url: url.href,
     status: response.status,

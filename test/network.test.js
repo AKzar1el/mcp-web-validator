@@ -318,17 +318,56 @@ test("HTTP charset keeps precedence over an HTML meta charset", async () => {
   }
 });
 
-test("bounded public text fetch rejects an unsupported HTTP-declared character encoding", async () => {
+test("unsupported HTTP charset falls back to an early HTML meta charset", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response("<title>Example</title>", {
+  const body = Buffer.concat([
+    Buffer.from('<meta charset="windows-1252"><title>Caf', "ascii"),
+    Buffer.from([0xe9]),
+    Buffer.from("</title>", "ascii"),
+  ]);
+  globalThis.fetch = async () => new Response(body, {
     status: 200,
     headers: { "content-type": "text/html; charset=definitely-not-an-encoding" },
   });
 
   try {
+    const result = await fetchPublicText("https://1.1.1.1/unsupported-charset-meta", {
+      acceptedContentTypes: ["text/html"],
+    });
+    assert.equal(result.text, '<meta charset="windows-1252"><title>Caf\u00e9</title>');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("unsupported HTTP charset falls back to UTF-8 when HTML has no usable meta charset", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("<title>Caf\u00e9</title>", {
+    status: 200,
+    headers: { "content-type": "text/html; charset=definitely-not-an-encoding" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/unsupported-charset-default", {
+      acceptedContentTypes: ["text/html"],
+    });
+    assert.equal(result.text, "<title>Caf\u00e9</title>");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("unsupported charset remains an error for non-HTML text", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("plain text", {
+    status: 200,
+    headers: { "content-type": "text/plain; charset=definitely-not-an-encoding" },
+  });
+
+  try {
     await assert.rejects(
-      fetchPublicText("https://1.1.1.1/unsupported-charset", {
-        acceptedContentTypes: ["text/html"],
+      fetchPublicText("https://1.1.1.1/unsupported-text-charset", {
+        acceptedContentTypes: ["text/plain"],
       }),
       /unsupported response character encoding "definitely-not-an-encoding"/i,
     );

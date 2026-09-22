@@ -112,6 +112,15 @@ function getDeclaredCharacterEncoding(contentType: string | null): string | unde
   return (match[1] ?? match[2] ?? "").trim();
 }
 
+function isSupportedCharacterEncoding(encoding: string): boolean {
+  try {
+    new TextDecoder(encoding);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Reads a response body without ever buffering more than the configured cap. */
 export async function readBoundedResponseText(
   response: Response,
@@ -282,12 +291,14 @@ export async function fetchPublicHtml(
       let html: string;
       try {
         const declaredEncoding = getDeclaredCharacterEncoding(contentTypeHeader);
+        const shouldSniffHtmlEncoding = declaredEncoding === undefined
+          || !isSupportedCharacterEncoding(declaredEncoding);
         html = await readBoundedResponseText(
           response,
           MAX_PUBLIC_HTML_BYTES,
           "The page exceeds the 1 MiB download limit.",
-          declaredEncoding,
-          declaredEncoding === undefined,
+          shouldSniffHtmlEncoding ? undefined : declaredEncoding,
+          shouldSniffHtmlEncoding,
         );
       } catch (cause) {
         if (cause instanceof Error && cause.message.includes("1 MiB")) {

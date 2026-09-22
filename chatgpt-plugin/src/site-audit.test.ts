@@ -328,6 +328,37 @@ describe("auditPublicSite", () => {
     expect(result.issue_groups).toContainEqual(expect.objectContaining({ code: "accessibility.image_alt.missing" }));
   });
 
+  it("marks site issue groups truncated when page diagnostics were capped before grouping", async () => {
+    const nuMessages = [
+      ...Array.from({ length: 200 }, () => ({ type: "error", message: "Repeated diagnostic" })),
+      ...Array.from({ length: 5 }, (_, index) => ({ type: "error", message: `Hidden diagnostic ${index + 1}` })),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (target: RequestInfo | URL) => {
+        const url = String(target);
+        if (url === "https://example.com/") return htmlResponse();
+        if (url === "https://example.com/robots.txt") {
+          return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+        }
+        if (url === "https://example.com/sitemap.xml") {
+          return new Response("<urlset><url><loc>https://example.com/</loc></url></urlset>", {
+            headers: { "content-type": "application/xml" },
+          });
+        }
+        if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: nuMessages });
+        throw new Error(`Unexpected fetch target: ${url}`);
+      }),
+    );
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 1, pageOffset: 0 });
+
+    expect(result.pages[0]?.html_errors).toBe(205);
+    expect(result.issue_groups).toContainEqual(expect.objectContaining({ message: "Repeated diagnostic" }));
+    expect(result.issue_groups).not.toContainEqual(expect.objectContaining({ message: "Hidden diagnostic 1" }));
+    expect(result.issue_groups_truncated).toBe(true);
+  });
+
   it("keeps sitemap URLs that differ only by a trailing slash as distinct crawl targets", async () => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);

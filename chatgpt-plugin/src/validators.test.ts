@@ -142,6 +142,24 @@ describe("bounded audits", () => {
     }
   });
 
+  it("reports noindex-equivalent robots directives that affect Google Search", () => {
+    for (const html of [
+      '<meta name="robots" content="NOINDEX, follow">',
+      '<body><meta name="GoogleBot" content="none"></body>',
+      '<meta name="robots" content="index, follow"><meta name="googlebot" content="noindex">',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "seo.robots.noindex")).toEqual({
+        code: "seo.robots.noindex",
+        severity: "warning",
+        category: "SEO",
+        message: "A robots directive prevents Google from indexing this page. Confirm that noindex is intentional.",
+      });
+    }
+
+    const allowed = auditSeoMetadata('<meta name="robots" content="index, follow, max-image-preview:none">');
+    expect(allowed.issues.find((issue) => issue.code === "seo.robots.noindex")).toBeUndefined();
+  });
+
   it("keeps title and meta-description length heuristics as informational guidance", () => {
     const result = auditSeoMetadata([
       "<html><head>",

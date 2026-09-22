@@ -328,6 +328,48 @@ describe("auditPublicSite", () => {
     expect(result.issue_groups).toContainEqual(expect.objectContaining({ code: "accessibility.image_alt.missing" }));
   });
 
+  it("groups the same stable schema rule across pages despite instance-specific block numbers", async () => {
+    const firstPage = "<!doctype html><html><head><title>First page with a descriptive title for testing</title><meta name=description content='A useful description with enough characters to meet the normal metadata target for this focused test page.'><meta name=viewport content='width=device-width'><link rel=canonical href='https://example.com/'><script type='application/ld+json'>{not json}</script></head><body><h1>First</h1></body></html>";
+    const secondPage = "<!doctype html><html><head><title>Second page with a descriptive title for testing</title><meta name=description content='A useful description with enough characters to meet the normal metadata target for this focused test page.'><meta name=viewport content='width=device-width'><link rel=canonical href='https://example.com/second'><script type='application/ld+json'>{\"@context\":\"https://schema.org\"}</script><script type='application/ld+json'>{not json}</script></head><body><h1>Second</h1></body></html>";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (target: RequestInfo | URL) => {
+        const url = String(target);
+        if (url === "https://example.com/") return htmlResponse(firstPage);
+        if (url === "https://example.com/second") return htmlResponse(secondPage);
+        if (url === "https://example.com/robots.txt") {
+          return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+        }
+        if (url === "https://example.com/sitemap.xml") {
+          return new Response("<urlset><url><loc>https://example.com/</loc></url><url><loc>https://example.com/second</loc></url></urlset>", {
+            headers: { "content-type": "application/xml" },
+          });
+        }
+        if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+        throw new Error(`Unexpected fetch target: ${url}`);
+      }),
+    );
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 2, pageOffset: 0 });
+    const invalidJsonGroups = result.issue_groups.filter((group) => group.code === "schema.jsonld.invalid_json");
+
+    expect(result.pages[0]?.top_findings).toContainEqual(expect.objectContaining({
+      code: "schema.jsonld.invalid_json",
+      message: "JSON-LD block #1 is not valid JSON.",
+    }));
+    expect(result.pages[1]?.top_findings).toContainEqual(expect.objectContaining({
+      code: "schema.jsonld.invalid_json",
+      message: "JSON-LD block #2 is not valid JSON.",
+    }));
+    expect(invalidJsonGroups).toHaveLength(1);
+    expect(invalidJsonGroups[0]).toMatchObject({
+      code: "schema.jsonld.invalid_json",
+      message: "A JSON-LD block is not valid JSON.",
+      affected_pages: 2,
+      example_urls: ["https://example.com/", "https://example.com/second"],
+    });
+  });
+
   it("marks site issue groups truncated when page diagnostics were capped before grouping", async () => {
     const nuMessages = [
       ...Array.from({ length: 200 }, () => ({ type: "error", message: "Repeated diagnostic" })),

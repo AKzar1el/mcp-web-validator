@@ -77,6 +77,53 @@ describe("robots rules", () => {
 });
 
 describe("auditPublicSite", () => {
+  it("follows five same-origin redirects when fetching robots.txt", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/robots.txt") {
+        return new Response(null, { status: 302, headers: { location: "/robots-1.txt" } });
+      }
+      if (url === "https://example.com/robots-1.txt") {
+        return new Response(null, { status: 302, headers: { location: "/robots-2.txt" } });
+      }
+      if (url === "https://example.com/robots-2.txt") {
+        return new Response(null, { status: 302, headers: { location: "/robots-3.txt" } });
+      }
+      if (url === "https://example.com/robots-3.txt") {
+        return new Response(null, { status: 302, headers: { location: "/robots-4.txt" } });
+      }
+      if (url === "https://example.com/robots-4.txt") {
+        return new Response(null, { status: 302, headers: { location: "/robots-5.txt" } });
+      }
+      if (url === "https://example.com/robots-5.txt") {
+        return new Response("User-agent: *\nSitemap: /feed.xml\n", {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === "https://example.com/feed.xml") {
+        return new Response("<urlset><url><loc>https://example.com/</loc></url><url><loc>https://example.com/docs</loc></url></urlset>", {
+          headers: { "content-type": "application/xml" },
+        });
+      }
+      if (url === "https://example.com/sitemap.xml") return new Response("missing", { status: 404 });
+      if (url === "https://example.com/docs") return htmlResponse();
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 2, pageOffset: 0 });
+
+    expect(result).toMatchObject({
+      discovery: "sitemap",
+      sitemap_url: "https://example.com/feed.xml",
+      pages_discovered: 2,
+      pages_selected: 2,
+      pages_audited: 2,
+    });
+  });
+
   it("treats robots.txt 4xx responses as unavailable and continues with sitemap discovery", async () => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);

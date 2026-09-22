@@ -128,6 +128,7 @@ interface GroupAccumulator {
 const SITE_AUDIT_USER_AGENT = "digestseo-web-validator";
 const SITEMAP_XML_NAMESPACE = "http://www.sitemaps.org/schemas/sitemap/0.9";
 const ATOM_XML_NAMESPACE = "http://www.w3.org/2005/Atom";
+const ROBOTS_MAX_REDIRECTS = 5;
 const SITEMAP_CONTENT_TYPES = [
   "application/xml",
   "text/xml",
@@ -505,6 +506,7 @@ async function discoverSitePages(origin: string): Promise<DiscoveryResult> {
       allowedOrigin: origin,
       acceptedContentTypes: ROBOTS_CONTENT_TYPES,
       maxBytes: SITE_AUDIT_MAX_ROBOTS_BYTES,
+      maxRedirects: ROBOTS_MAX_REDIRECTS,
     });
     robots = parseRobotsTxt(fetched.text, origin);
   } catch (cause) {

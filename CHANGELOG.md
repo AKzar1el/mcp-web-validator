@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+### Fixed
+
+- Labeled pure advisory action lists as review items instead of "Fix first" work while preserving Fix-first prioritization when errors or warnings exist.
+
 ## [1.3.15] - 2026-09-22
 
 ### Fixed

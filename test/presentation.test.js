@@ -28,6 +28,7 @@ test("finding and failure narration escapes hostile Markdown and inline HTML", (
     { type: "error", line: 7, message: hostileProse, context: hostileProse },
   ]);
   assert.match(css, /^### CSS validation: attention needed/m);
+  assert.match(css, /\*\*Fix first\*\*/);
   assert.match(css, /\*\*Error\*\*/);
   assertProseIsEscaped(css);
 

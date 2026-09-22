@@ -99,9 +99,11 @@ function toolContent(options: {
   if (options.note) {
     sections.push(collapseWhitespace(options.note, 500));
   }
-  const actions = formatActions(options.actions ?? []);
+  const actionItems = options.actions ?? [];
+  const actions = formatActions(actionItems);
   if (actions) {
-    sections.push(`**Fix first**\n${actions}`);
+    const actionHeading = actionItems.some((item) => item.priority < 2) ? "Fix first" : "Review";
+    sections.push(`**${actionHeading}**\n${actions}`);
   }
   sections.push(`**Next step:** ${collapseWhitespace(options.nextStep, 400)}`);
   return sections.join("\n\n");

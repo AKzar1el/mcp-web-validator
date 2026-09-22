@@ -124,6 +124,51 @@ describe("auditPublicSite", () => {
     });
   });
 
+  it("follows a public cross-authority robots redirect while applying rules to the initial authority", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/robots.txt") {
+        return new Response(null, {
+          status: 302,
+          headers: { location: "https://robots.example.net/policy.txt" },
+        });
+      }
+      if (url === "https://robots.example.net/policy.txt") {
+        return new Response("User-agent: *\nDisallow: /blocked\nSitemap: /sitemap.xml\n", {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response([
+          "<urlset>",
+          "<url><loc>https://example.com/</loc></url>",
+          "<url><loc>https://example.com/allowed</loc></url>",
+          "<url><loc>https://example.com/blocked</loc></url>",
+          "</urlset>",
+        ].join(""), { headers: { "content-type": "application/xml" } });
+      }
+      if (url === "https://example.com/allowed") return htmlResponse();
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 3, pageOffset: 0 });
+
+    expect(result).toMatchObject({
+      discovery: "sitemap",
+      sitemap_url: "https://example.com/sitemap.xml",
+      pages_discovered: 3,
+      pages_selected: 2,
+      pages_audited: 2,
+      pages_skipped_robots: 1,
+    });
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://robots.example.net/policy.txt")).toBe(true);
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/sitemap.xml")).toBe(true);
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/blocked")).toBe(false);
+  });
+
   it("treats robots.txt 4xx responses as unavailable and continues with sitemap discovery", async () => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);

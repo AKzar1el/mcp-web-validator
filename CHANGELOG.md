@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The project follows [Se
 ### Fixed
 
 - Kept known upstream CSS validator limitations separate from trusted CSS error counts in validation-report summaries while preserving the raw diagnostic and compatibility-limited score withholding.
+- Rejected scalar and scalar-array top-level values in JSON-LD syntax checks so valid JSON that is not a JSON-LD document no longer passes cleanly.
 
 ## [1.3.16] - 2026-09-22
 

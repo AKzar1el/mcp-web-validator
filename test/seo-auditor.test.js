@@ -52,6 +52,23 @@ test("JSON-LD audit recognizes media-type parameters without matching unrelated 
   assert.match(detailed.issues[0].message, /Invalid JSON-LD schema syntax/);
 });
 
+test("JSON-LD audit rejects non-document top-level JSON shapes", () => {
+  const invalid = validateSchemaMarkupDetailed([
+    '<script type="application/ld+json">42</script>',
+    '<script type="application/ld+json">[42]</script>',
+  ].join(""));
+  assert.equal(invalid.totalIssues, 2);
+  assert.deepEqual(invalid.issues.map((issue) => issue.code), [
+    "schema.jsonld.invalid_document",
+    "schema.jsonld.invalid_document",
+  ]);
+
+  const valid = validateSchemaMarkupDetailed([
+    '<script type="application/ld+json">{}</script>',
+    '<script type="application/ld+json">[{}]</script>',
+  ].join(""));
+  assert.equal(valid.totalIssues, 0);
+});
 test("audit findings expose stable machine-readable rule codes", () => {
   const html = [
     "<html><head>",

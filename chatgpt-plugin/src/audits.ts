@@ -48,6 +48,13 @@ function isJsonLdScriptType(type: string | undefined): boolean {
   return type?.split(";", 1)[0].trim().toLowerCase() === "application/ld+json";
 }
 
+function hasJsonLdDocumentShape(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.every((entry) => typeof entry === "object" && entry !== null && !Array.isArray(entry));
+  }
+  return typeof value === "object" && value !== null;
+}
+
 /**
  * Checks on-page metadata and accessibility signals without fetching or storing
  * any external content.
@@ -204,7 +211,15 @@ export function validateSchemaMarkup(html: string): AuditResult & { blocksChecke
     }
 
     try {
-      JSON.parse(value);
+      const parsed = JSON.parse(value) as unknown;
+      if (!hasJsonLdDocumentShape(parsed)) {
+        collector.add({
+          code: "schema.jsonld.invalid_document",
+          severity: "error",
+          category: "Schema",
+          message: `JSON-LD block #${index + 1} must have an object or an array of objects at the top level.`,
+        });
+      }
     } catch {
       collector.add({
         code: "schema.jsonld.invalid_json",

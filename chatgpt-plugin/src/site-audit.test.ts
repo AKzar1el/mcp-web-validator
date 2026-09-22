@@ -151,6 +151,73 @@ describe("auditPublicSite", () => {
     expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/docs")).toBe(true);
     expect(fetchMock.mock.calls.some(([target]) => String(target).includes("ignored"))).toBe(false);
   });
+
+  it.each([
+    {
+      name: "RSS 2.0",
+      path: "/feed.rss",
+      contentType: "application/rss+xml",
+      body: [
+        '<?xml version="1.0"?>',
+        '<rss version="2.0"><channel>',
+        '<item><link>https://example.com/docs</link></item>',
+        '<item><link>https://attacker.example/outside</link></item>',
+        '</channel></rss>',
+      ].join(""),
+    },
+    {
+      name: "Atom 1.0",
+      path: "/feed.atom",
+      contentType: "application/atom+xml",
+      body: [
+        '<?xml version="1.0"?>',
+        '<feed xmlns="http://www.w3.org/2005/Atom">',
+        '<entry><link href="https://example.com/docs" /></entry>',
+        '<entry><link href="http://127.0.0.1/private" /></entry>',
+        '</feed>',
+      ].join(""),
+    },
+    {
+      name: "plain text",
+      path: "/sitemap.txt",
+      contentType: "text/plain",
+      body: [
+        "https://example.com/docs",
+        "https://attacker.example/outside",
+        "http://127.0.0.1/private",
+      ].join("\n"),
+    },
+  ])("discovers same-origin pages from $name sitemap representations", async ({ path, contentType, body }) => {
+    const sitemapUrl = `https://example.com${path}`;
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/robots.txt") {
+        return new Response(`User-agent: *\nSitemap: ${sitemapUrl}\n`, {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === sitemapUrl) return new Response(body, { headers: { "content-type": contentType } });
+      if (url === "https://example.com/docs") return htmlResponse();
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 2, pageOffset: 0 });
+
+    expect(result).toMatchObject({
+      discovery: "sitemap",
+      sitemap_url: sitemapUrl,
+      pages_discovered: 2,
+      pages_selected: 2,
+      pages_audited: 2,
+    });
+    expect(result.discovery_error).toBeUndefined();
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/docs")).toBe(true);
+    expect(fetchMock.mock.calls.some(([target]) => String(target).includes("attacker.example"))).toBe(false);
+    expect(fetchMock.mock.calls.some(([target]) => String(target).startsWith("http://127.0.0.1"))).toBe(false);
+  });
   it("treats robots.txt 5xx responses as unreachable and does not audit crawl candidates", async () => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);

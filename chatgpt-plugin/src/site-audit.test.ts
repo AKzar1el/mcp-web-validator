@@ -77,6 +77,37 @@ describe("robots rules", () => {
 });
 
 describe("auditPublicSite", () => {
+  it("reports a seed page X-Robots-Tag noindex directive in site SEO findings", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") {
+        return new Response(
+          "<!doctype html><html><head><title>Example page title for audit</title><meta name=description content='A useful description with enough characters to meet the normal metadata target for this focused test page.'><meta name=viewport content='width=device-width'><link rel=canonical href='https://example.com/'></head><body><h1>Example</h1></body></html>",
+          {
+            headers: {
+              "content-type": "text/html; charset=utf-8",
+              "x-robots-tag": "noindex",
+            },
+          },
+        );
+      }
+      if (url === "https://example.com/robots.txt" || url === "https://example.com/sitemap.xml") {
+        return new Response("missing", { status: 404 });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 1, pageOffset: 0 });
+
+    expect(result.pages[0]?.seo_warnings).toBeGreaterThanOrEqual(1);
+    expect(result.issue_groups).toContainEqual(expect.objectContaining({
+      code: "seo.robots.noindex",
+      severity: "warning",
+    }));
+  });
+
   it("follows five same-origin redirects when fetching robots.txt", async () => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);

@@ -148,6 +148,20 @@ describe("bounded audits", () => {
     expect(result.issues.find((issue) => issue.code === "seo.viewport.missing")).toBeUndefined();
   });
 
+  it.each([
+    '<meta name="viewport">',
+    '<meta name="viewport" content="   ">',
+  ])("reports a viewport meta tag without usable content: %s", (html) => {
+    const result = auditSeoMetadata(html);
+
+    expect(result.issues).toContainEqual({
+      code: "seo.viewport.unusable",
+      severity: "error",
+      category: "SEO",
+      message: "Viewport meta tag is present but its content is empty. Provide viewport settings such as width=device-width.",
+    });
+  });
+
   it("ignores body and SVG metadata lookalikes outside the document head", () => {
     const description = "D".repeat(140);
     const result = auditSeoMetadata([

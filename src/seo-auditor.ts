@@ -201,6 +201,13 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       category: "SEO",
       message: "Missing <meta name=\"viewport\"> tag. Review mobile rendering; this tag helps browsers size and scale the page on mobile devices.",
     });
+  } else if (viewport.filter((_, element) => Boolean($(element).attr("content")?.trim())).length === 0) {
+    add({
+      code: "seo.viewport.unusable",
+      severity: "error",
+      category: "SEO",
+      message: "Viewport meta tag is present but its content is empty. Provide viewport settings such as width=device-width.",
+    });
   }
 
   // --- Heading Structure ---

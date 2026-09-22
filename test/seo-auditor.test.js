@@ -135,6 +135,17 @@ test("viewport meta name matching follows HTML ASCII case-insensitive semantics"
   assert.equal(issues.find((issue) => issue.code === "seo.viewport.missing"), undefined);
 });
 
+test("viewport meta without usable content is reported instead of treated as configured", () => {
+  for (const html of ['<meta name="viewport">', '<meta name="viewport" content="   ">']) {
+    assert.deepEqual(auditSeoMetadata(html).find((issue) => issue.code === "seo.viewport.unusable"), {
+      code: "seo.viewport.unusable",
+      severity: "error",
+      category: "SEO",
+      message: "Viewport meta tag is present but its content is empty. Provide viewport settings such as width=device-width.",
+    });
+  }
+});
+
 test("page metadata checks ignore body and SVG lookalikes outside the document head", () => {
   const description = "D".repeat(140);
   const issues = auditSeoMetadata([

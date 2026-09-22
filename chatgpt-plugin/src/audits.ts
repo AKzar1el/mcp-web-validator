@@ -135,12 +135,20 @@ export function auditSeoMetadata(html: string): AuditResult {
     });
   }
 
-  if ($('head > meta[name="viewport" i]').length === 0) {
+  const viewport = $('head > meta[name="viewport" i]');
+  if (viewport.length === 0) {
     collector.add({
       code: "seo.viewport.missing",
       severity: "error",
       category: "SEO",
       message: "Missing viewport meta tag.",
+    });
+  } else if (viewport.filter((_, element) => Boolean($(element).attr("content")?.trim())).length === 0) {
+    collector.add({
+      code: "seo.viewport.unusable",
+      severity: "error",
+      category: "SEO",
+      message: "Viewport meta tag is present but its content is empty. Provide viewport settings such as width=device-width.",
     });
   }
 

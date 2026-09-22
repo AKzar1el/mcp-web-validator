@@ -507,6 +507,7 @@ async function discoverSitePages(origin: string): Promise<DiscoveryResult> {
       acceptedContentTypes: ROBOTS_CONTENT_TYPES,
       maxBytes: SITE_AUDIT_MAX_ROBOTS_BYTES,
       maxRedirects: ROBOTS_MAX_REDIRECTS,
+      allowCrossOriginRedirects: true,
     });
     robots = parseRobotsTxt(fetched.text, origin);
   } catch (cause) {

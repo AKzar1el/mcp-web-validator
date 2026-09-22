@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchPublicHtml, PublicHtmlFetchError } from "./network";
+import { fetchPublicHtml, fetchPublicText, PublicHtmlFetchError } from "./network";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -251,5 +251,50 @@ describe("fetchPublicHtml", () => {
     const assertion = expect(pending).rejects.toMatchObject({ code: "timeout" });
     await vi.advanceTimersByTimeAsync(12_000);
     await assertion;
+  });
+});
+
+describe("fetchPublicText", () => {
+  const textOptions = {
+    allowedOrigin: "https://example.com",
+    acceptedContentTypes: ["text/plain"],
+    maxBytes: 1_024,
+    maxRedirects: 5,
+  } as const;
+
+  it("keeps redirects on the locked origin by default", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(null, { status: 302, headers: { location: "https://robots.example.net/policy.txt" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchPublicText("https://example.com/robots.txt", textOptions)).rejects.toMatchObject({
+      code: "scope",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still requires the initial request to match the locked origin when cross-origin redirects are allowed", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchPublicText("https://robots.example.net/policy.txt", {
+      ...textOptions,
+      allowCrossOriginRedirects: true,
+    })).rejects.toMatchObject({ code: "scope" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("still blocks private redirect targets when cross-origin redirects are explicitly allowed", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(null, { status: 302, headers: { location: "http://127.0.0.1/private" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchPublicText("https://example.com/robots.txt", {
+      ...textOptions,
+      allowCrossOriginRedirects: true,
+    })).rejects.toMatchObject({ code: "blocked_url" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

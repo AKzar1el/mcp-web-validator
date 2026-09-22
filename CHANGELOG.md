@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.15] - 2026-09-22
+
 ### Fixed
 
 - Pinned Chromium screenshot HTTP(S) connections to DNS answers revalidated as public at proxy connection time, closing a DNS-rebinding/TOCTOU gap while preserving the original hostname for TLS/SNI validation.

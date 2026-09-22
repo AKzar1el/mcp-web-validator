@@ -569,7 +569,9 @@ function clampScore(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
-async function auditFetchedPage(fetched: FetchedPublicHtml): Promise<SiteAuditPageSummary & { findings: SiteAuditFinding[] }> {
+async function auditFetchedPage(
+  fetched: FetchedPublicHtml,
+): Promise<SiteAuditPageSummary & { findings: SiteAuditFinding[]; findingsTruncated: boolean }> {
   const seo = auditSeoMetadata(fetched.html);
   const schema = validateSchemaMarkup(fetched.html);
   let htmlMessages: ValidationMessage[] = [];
@@ -607,6 +609,10 @@ async function auditFetchedPage(fetched: FetchedPublicHtml): Promise<SiteAuditPa
   const seoWarnings = seo.counts.warning;
   const schemaErrors = schema.counts.error;
   const schemaWarnings = schema.counts.warning;
+  const findingsTruncated =
+    htmlCounts.error + htmlCounts.warning > htmlMessages.filter((message) => message.type !== "info").length
+    || seoErrors + seoWarnings > seo.issues.filter((issue) => issue.severity !== "info").length
+    || schemaErrors + schemaWarnings > schema.issues.filter((issue) => issue.severity !== "info").length;
   const errors = htmlCounts.error + seoErrors + schemaErrors;
   const warnings = htmlCounts.warning + seoWarnings + schemaWarnings;
   const notes = htmlCounts.info + seo.counts.info + schema.counts.info;
@@ -634,6 +640,7 @@ async function auditFetchedPage(fetched: FetchedPublicHtml): Promise<SiteAuditPa
       : { failure_code: htmlValidationStatus === "timeout" ? "html_validation_timeout" : "html_validation_unavailable" }),
     top_findings: actionableFindings(findings),
     findings,
+    findingsTruncated,
   };
 }
 
@@ -659,6 +666,7 @@ async function auditPage(url: URL, origin: string, prefetched?: FetchedPublicHtm
       failure_code: failureCode,
       top_findings: [],
       findings: [],
+      findingsTruncated: false,
     };
   }
 }
@@ -680,9 +688,11 @@ async function mapWithCrawlConcurrency<T, R>(
   return results;
 }
 
-function groupFindings(pages: Array<SiteAuditPageSummary & { findings: SiteAuditFinding[] }>) {
+function groupFindings(
+  pages: Array<SiteAuditPageSummary & { findings: SiteAuditFinding[]; findingsTruncated: boolean }>,
+) {
   const groups = new Map<string, GroupAccumulator>();
-  let truncated = false;
+  let truncated = pages.some((page) => page.findingsTruncated);
   for (const page of pages) {
     for (const finding of page.findings) {
       if (finding.severity === "info") continue;
@@ -760,7 +770,7 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
   const auditedPages = await mapWithCrawlConcurrency(selected, (candidate) =>
     auditPage(candidate, origin, crawlKey(candidate) === prefetchedKey ? seed : undefined),
   );
-  const pages = auditedPages.map(({ findings: _findings, ...page }) => page);
+  const pages = auditedPages.map(({ findings: _findings, findingsTruncated: _findingsTruncated, ...page }) => page);
   const grouped = groupFindings(auditedPages);
   const pagesAudited = pages.filter((page) => page.status === "passed" || page.status === "needs_attention").length;
   const pagesPartial = pages.filter((page) => page.status === "partial").length;

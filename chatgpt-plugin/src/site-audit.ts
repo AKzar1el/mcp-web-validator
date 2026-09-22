@@ -573,7 +573,7 @@ function clampScore(value: number): number {
 async function auditFetchedPage(
   fetched: FetchedPublicHtml,
 ): Promise<SiteAuditPageSummary & { findings: SiteAuditFinding[]; findingsTruncated: boolean }> {
-  const seo = auditSeoMetadata(fetched.html);
+  const seo = auditSeoMetadata(fetched.html, { xRobotsTag: fetched.xRobotsTag });
   const schema = validateSchemaMarkup(fetched.html);
   let htmlMessages: ValidationMessage[] = [];
   let htmlCounts = { error: 0, warning: 0, info: 0 };

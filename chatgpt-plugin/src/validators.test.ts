@@ -158,6 +158,18 @@ describe("bounded audits", () => {
 
     const allowed = auditSeoMetadata('<meta name="robots" content="index, follow, max-image-preview:none">');
     expect(allowed.issues.find((issue) => issue.code === "seo.robots.noindex")).toBeUndefined();
+
+    for (const xRobotsTag of ["NOINDEX, follow", "none", "googlebot: noindex, follow"]) {
+      expect(auditSeoMetadata("<title>Page</title>", { xRobotsTag }).issues
+        .find((issue) => issue.code === "seo.robots.noindex"))
+        .toEqual(expect.objectContaining({ code: "seo.robots.noindex", severity: "warning" }));
+    }
+
+    for (const xRobotsTag of ["max-image-preview:none, follow", "otherbot: noindex, nofollow"]) {
+      expect(auditSeoMetadata("<title>Page</title>", { xRobotsTag }).issues
+        .find((issue) => issue.code === "seo.robots.noindex"))
+        .toBeUndefined();
+    }
   });
 
   it("keeps title and meta-description length heuristics as informational guidance", () => {

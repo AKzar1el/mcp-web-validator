@@ -17,6 +17,8 @@ export interface FetchedPublicHtml {
   redirectsFollowed: number;
   status: number;
   contentType: "text/html";
+  /** Final response indexing directives for live SEO analysis. */
+  xRobotsTag?: string;
 }
 
 export interface FetchedPublicText {
@@ -332,6 +334,7 @@ export async function fetchPublicHtml(
         redirectsFollowed,
         status: response.status,
         contentType: "text/html",
+        xRobotsTag: response.headers.get("x-robots-tag")?.trim() || undefined,
       };
     }
   } catch (cause) {

@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.18] - 2026-09-22
+
 ### Fixed
 
 - Treated Nu HTML Checker `non-document-error` diagnostics as errors instead of informational messages in local validation, report scoring, and narration, matching the validator's documented JSON semantics and hosted behavior.

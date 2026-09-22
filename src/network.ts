@@ -257,11 +257,48 @@ function isSupportedCharacterEncoding(encoding: string): boolean {
   }
 }
 
+function getXmlCharacterEncoding(bytes: Uint8Array): string {
+  if (bytes.length >= 4) {
+    if (bytes[0] === 0x00 && bytes[1] === 0x00 && bytes[2] === 0xfe && bytes[3] === 0xff) {
+      return "utf-32be";
+    }
+    if (bytes[0] === 0xff && bytes[1] === 0xfe && bytes[2] === 0x00 && bytes[3] === 0x00) {
+      return "utf-32le";
+    }
+    if (bytes[0] === 0x00 && bytes[1] === 0x3c && bytes[2] === 0x00 && bytes[3] === 0x3f) {
+      return "utf-16be";
+    }
+    if (bytes[0] === 0x3c && bytes[1] === 0x00 && bytes[2] === 0x3f && bytes[3] === 0x00) {
+      return "utf-16le";
+    }
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return "utf-8";
+  }
+  if (bytes.length >= 2) {
+    if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+      return "utf-16be";
+    }
+    if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+      return "utf-16le";
+    }
+  }
+
+  const declarationBytes = bytes.subarray(0, HTML_ENCODING_SNIFF_BYTES);
+  let declaration = "";
+  for (const byte of declarationBytes) {
+    declaration += byte < 0x80 ? String.fromCharCode(byte) : "\ufffd";
+  }
+  const match = /^<\?xml\s+[^?]*\bencoding\s*=\s*(["'])([^"']+)\1/i.exec(declaration);
+  return match?.[2].trim() || "utf-8";
+}
+
 export async function readResponseText(
   response: Response,
   maxBytes: number,
   encoding?: string,
   sniffHtmlEncoding = false,
+  sniffXmlEncoding = false,
 ): Promise<string> {
   assertPositiveInteger(maxBytes, "maxBytes");
 
@@ -294,7 +331,7 @@ export async function readResponseText(
   const startDecoder = async (): Promise<void> => {
     if (decoder) return;
     let encodingLabel = encoding ?? "utf-8";
-    if (encoding === undefined && sniffHtmlEncoding) {
+    if (encoding === undefined && (sniffHtmlEncoding || sniffXmlEncoding)) {
       const sniffLength = Math.min(pendingBytes, HTML_ENCODING_SNIFF_BYTES);
       const sniffBytes = new Uint8Array(sniffLength);
       let copied = 0;
@@ -304,10 +341,12 @@ export async function readResponseText(
         sniffBytes.set(chunk.subarray(0, length), copied);
         copied += length;
       }
-      encodingLabel = getEncoding(sniffBytes, {
-        maxBytes: HTML_ENCODING_SNIFF_BYTES,
-        defaultEncoding: "utf-8",
-      });
+      encodingLabel = sniffXmlEncoding
+        ? getXmlCharacterEncoding(sniffBytes)
+        : getEncoding(sniffBytes, {
+            maxBytes: HTML_ENCODING_SNIFF_BYTES,
+            defaultEncoding: "utf-8",
+          });
     }
     decoder = await createDecoder(encodingLabel);
     for (const chunk of pendingChunks) {
@@ -317,7 +356,7 @@ export async function readResponseText(
     pendingBytes = 0;
   };
 
-  if (encoding !== undefined || !sniffHtmlEncoding) {
+  if (encoding !== undefined || (!sniffHtmlEncoding && !sniffXmlEncoding)) {
     await startDecoder();
   }
 
@@ -487,12 +526,16 @@ export async function fetchPublicText(
   const declaredEncoding = getDeclaredCharacterEncoding(contentTypeHeader);
   const shouldSniffHtmlEncoding = contentType === "text/html"
     && (declaredEncoding === undefined || !isSupportedCharacterEncoding(declaredEncoding));
+  const shouldSniffXmlEncoding = declaredEncoding === undefined
+    && contentType !== null
+    && (contentType === "application/xml" || contentType === "text/xml" || contentType.endsWith("+xml"));
   return {
     text: await readResponseText(
       response,
       maxBytes,
-      shouldSniffHtmlEncoding ? undefined : declaredEncoding,
+      shouldSniffHtmlEncoding || shouldSniffXmlEncoding ? undefined : declaredEncoding,
       shouldSniffHtmlEncoding,
+      shouldSniffXmlEncoding,
     ),
     url: url.href,
     status: response.status,

@@ -4,9 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.19] - 2026-09-22
+
 ### Fixed
 
 - Preserved full Jigsaw CSS diagnostic totals and actionable/compatibility counts when local/package output is capped at 200 messages, with explicit truncation metadata/disclosure so validation-report summaries and heuristic scoring no longer undercount large result sets.
+- Preserved full SEO/accessibility and JSON-LD severity counts when structured findings are capped at 200, exposing total/truncation metadata so standalone narration and validation-report summaries/scoring no longer undercount large audits.
+- Decoded charset-less XML media types, including `application/xhtml+xml`, with XML-aware BOM, UTF-16 signature, and XML declaration encoding detection instead of silently treating non-UTF-8 XML as UTF-8.
 
 ## [1.3.18] - 2026-09-22
 

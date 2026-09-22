@@ -187,11 +187,12 @@ test("report withholds CSS and overall scores for known upstream validator limit
     links: [{ url: "https://example.test/ok", status: 200, ok: true }],
   });
 
-  assert.equal(result.summary.cssErrors, 1);
+  assert.equal(result.summary.cssErrors, 0);
   assert.equal(result.summary.cssCompatibilityLimitations, 1);
   assert.equal(result.summary.cssScore, null);
   assert.equal(result.summary.overallScore, null);
   assert.match(result.report, /CSS validation \| Compatibility-limited \| N\/A/);
+  assert.match(result.report, /CSS: 0 error\(s\), 1 known validator limitation\(s\)/);
   assert.match(result.report, /1 known validator limitation/);
   assert.match(result.report, /original Jigsaw diagnostic is preserved/i);
 });

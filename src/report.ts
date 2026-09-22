@@ -80,10 +80,10 @@ export function createValidationReport(input: ValidationReportInput): Validation
   const checkFailed = (check: ValidationReportCheck): boolean => failedChecks.includes(check);
   const htmlErrors = input.htmlMessages.filter((message) => getW3CMessageSeverity(message) === "error").length;
   const htmlWarnings = input.htmlMessages.filter((message) => getW3CMessageSeverity(message) === "warning").length;
-  const cssErrors = input.cssMessages.length;
   const cssCompatibilityLimitations = input.cssMessages.filter(
     (message) => message.compatibility === "known-validator-limitation",
   ).length;
+  const cssErrors = input.cssMessages.length - cssCompatibilityLimitations;
   const seoErrors = input.seoIssues.filter((issue) => issue.severity === "error").length;
   const seoWarnings = input.seoIssues.filter((issue) => issue.severity === "warning").length;
   const schemaErrors = input.schemaIssues.filter((issue) => issue.severity === "error").length;

@@ -378,7 +378,7 @@ export function reportContent(reportData: ValidationReportResult): string {
     ? reportData.failedChecks.includes("css")
       ? "CSS validation unavailable"
       : compatibilityLimited
-        ? `${countLabel(summary.cssErrors, "CSS error")}, including ${countLabel(summary.cssCompatibilityLimitations, "known validator limitation")}`
+        ? `${countLabel(summary.cssErrors, "CSS error")}; ${countLabel(summary.cssCompatibilityLimitations, "known validator limitation")}`
         : "CSS not audited"
     : countLabel(summary.cssErrors, "CSS error");
   const redirects = reportData.links.filter(isRedirect).length;

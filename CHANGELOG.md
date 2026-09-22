@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+### Fixed
+
+- Kept known upstream CSS validator limitations separate from trusted CSS error counts in validation-report summaries while preserving the raw diagnostic and compatibility-limited score withholding.
+
 ## [1.3.16] - 2026-09-22
 
 ### Fixed

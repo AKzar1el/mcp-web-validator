@@ -5,10 +5,12 @@ import {
   failureContent,
   htmlValidationContent,
   linkCheckContent,
+  reportContent,
   schemaValidationContent,
   screenshotCaptureContent,
   seoAuditContent,
 } from "../dist/presentation.js";
+import { createValidationReport } from "../dist/report.js";
 
 const hostileProse =
   '**bold** <img src="https://evil.test/pixel"> [link](https://evil.test) ![pixel](https://evil.test/pixel) `code` \\path';
@@ -117,6 +119,28 @@ test("CSS narration treats known Jigsaw parser gaps as review items while preser
   assert.doesNotMatch(output, /\*\*Error\*\*/);
 });
 
+test("report narration separates known CSS limitations from trusted CSS errors", () => {
+  const reportData = createValidationReport({
+    htmlFilePath: "index.html",
+    cssAudited: true,
+    htmlMessages: [],
+    cssMessages: [
+      {
+        type: "error",
+        line: 1,
+        message: "Unrecognized at-rule @container",
+        compatibility: "known-validator-limitation",
+      },
+    ],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/ok", status: 200, ok: true }],
+  });
+  const output = reportContent(reportData);
+
+  assert.match(output, /0 CSS errors; 1 known validator limitation/);
+  assert.doesNotMatch(output, /0 CSS errors, including 1 known validator limitation/);
+});
 test("link narration treats redirects as review items instead of broken links", () => {
   const output = linkCheckContent([
     { url: "https://example.test/redirect", status: 301, ok: true, message: "Redirect not followed" },

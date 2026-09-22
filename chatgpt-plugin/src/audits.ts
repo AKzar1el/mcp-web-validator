@@ -60,6 +60,16 @@ function hasJsonLdDocumentShape(value: unknown): boolean {
   return typeof value === "object" && value !== null;
 }
 
+function isInTemplateContents(element: unknown): boolean {
+  type ParentNode = { name?: string; parent?: unknown };
+  let node = element as ParentNode | null;
+  while (node) {
+    if (node.name?.toLowerCase() === "template") return true;
+    node = (node.parent ?? null) as ParentNode | null;
+  }
+  return false;
+}
+
 function hasIndexBlockingXRobotsTagForGoogle(value: string | undefined): boolean {
   if (!value) return false;
   const parameterizedRules = new Set([
@@ -183,6 +193,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
 
   // Google Search respects robots meta directives in both the head and body.
   const indexBlockingRobotsMeta = $('meta[name]').filter((_, element) => {
+    if (isInTemplateContents(element)) return false;
     const name = ($(element).attr("name") ?? "").trim().toLowerCase();
     if (name !== "robots" && name !== "googlebot") return false;
     const content = $(element).attr("content") ?? "";
@@ -216,7 +227,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
     });
   }
 
-  const h1Count = $("h1").length;
+  const h1Count = $("h1").filter((_, element) => !isInTemplateContents(element)).length;
   if (h1Count === 0) {
     collector.add({
       code: "seo.h1.missing",
@@ -233,7 +244,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
     });
   }
 
-  $("img").each((_, element) => {
+  $("img").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
     const alt = $(element).attr("alt");
     if (alt === undefined) {
       collector.add({
@@ -268,7 +279,9 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
 export function validateSchemaMarkup(html: string): AuditResult & { blocksChecked: number } {
   const $ = cheerio.load(html);
   const collector = createAuditCollector();
-  const blocks = $("script[type]").filter((_, element) => isJsonLdScriptType($(element).attr("type")));
+  const blocks = $("script[type]").filter(
+    (_, element) => !isInTemplateContents(element) && isJsonLdScriptType($(element).attr("type")),
+  );
 
   blocks.each((index, element) => {
     const value = $(element).html()?.trim() ?? "";

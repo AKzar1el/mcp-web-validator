@@ -110,12 +110,19 @@ function toolContent(options: {
   return sections.join("\n\n");
 }
 
-export function htmlValidationContent(messages: W3CMessage[], source?: string): string {
-  const errorCount = messages.filter((message) => getW3CMessageSeverity(message) === "error").length;
-  const warningCount = messages.filter((message) => getW3CMessageSeverity(message) === "warning").length;
-  const infoCount = messages.length - errorCount - warningCount;
+export function htmlValidationContent(
+  messages: W3CMessage[],
+  source?: string,
+  totalMessages = messages.length,
+  counts?: { error: number; warning: number; info: number },
+): string {
+  const errorCount = counts?.error
+    ?? messages.filter((message) => getW3CMessageSeverity(message) === "error").length;
+  const warningCount = counts?.warning
+    ?? messages.filter((message) => getW3CMessageSeverity(message) === "warning").length;
+  const infoCount = counts?.info ?? Math.max(0, totalMessages - errorCount - warningCount);
   const sourceText = source ? ` for ${markdownCode(source, 180)}` : "";
-  if (messages.length === 0) {
+  if (totalMessages === 0) {
     return toolContent({
       title: "HTML validation",
       status: "clean",
@@ -137,6 +144,9 @@ export function htmlValidationContent(messages: W3CMessage[], source?: string): 
     nextStep: hasActionableDiagnostics
       ? "Fix errors first, then warnings, and rerun HTML validation to confirm the markup is clean."
       : "Review the informational diagnostics, then rerun validation after relevant markup changes.",
+    note: totalMessages > messages.length
+      ? `Showing the first ${messages.length} of ${totalMessages} HTML diagnostics in structured output; severity totals include all returned Nu diagnostics.`
+      : undefined,
   });
 }
 
@@ -398,6 +408,10 @@ export function reportContent(reportData: ValidationReportResult): string {
   const unavailableChecks = reportData.failedChecks
     .filter((check) => check !== "input")
     .map((check) => checkLabels[check]);
+  const scoreNote = "The score is a triage heuristic based on these checks, not a Lighthouse score or a search-ranking prediction.";
+  const truncationNote = reportData.htmlTruncated
+    ? `Showing the first ${reportData.htmlMessages.length} of ${reportData.htmlTotalMessages} HTML diagnostics; HTML summary counts and scoring include all returned Nu diagnostics.`
+    : undefined;
   return toolContent({
     title: "Validation report",
     status,
@@ -415,10 +429,10 @@ export function reportContent(reportData: ValidationReportResult): string {
           ? "Use the full Markdown report as the audit record and rerun it after meaningful page changes."
           : "Work through these priorities, then regenerate the report to compare the heuristic score.",
     note: partial
-      ? "No overall score is shown while one or more checks are unavailable."
+      ? ["No overall score is shown while one or more checks are unavailable.", truncationNote].filter(Boolean).join(" ")
       : compatibilityLimited
-        ? "CSS and overall scores are withheld while a known Jigsaw parser limitation is present; the original upstream diagnostic remains visible."
-        : "The score is a triage heuristic based on these checks, not a Lighthouse score or a search-ranking prediction.",
+        ? ["CSS and overall scores are withheld while a known Jigsaw parser limitation is present; the original upstream diagnostic remains visible.", truncationNote].filter(Boolean).join(" ")
+        : [scoreNote, truncationNote].filter(Boolean).join(" "),
   });
 }
 

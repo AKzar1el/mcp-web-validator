@@ -30,6 +30,8 @@ export interface ValidationReport {
   report: string;
   summary: ValidationReportSummary;
   htmlMessages: W3CMessage[];
+  htmlTotalMessages: number;
+  htmlTruncated: boolean;
   cssMessages: CSSMessage[];
   seoIssues: SEOIssue[];
   schemaIssues: SEOIssue[];
@@ -42,6 +44,9 @@ export interface ValidationReportInput {
   htmlFilePath: string;
   cssAudited: boolean;
   htmlMessages: W3CMessage[];
+  htmlTotalMessages?: number;
+  htmlTruncated?: boolean;
+  htmlCounts?: { error: number; warning: number; info: number };
   cssMessages: CSSMessage[];
   seoIssues: SEOIssue[];
   schemaIssues: SEOIssue[];
@@ -78,8 +83,12 @@ function isRedirect(link: LinkStatus): boolean {
 export function createValidationReport(input: ValidationReportInput): ValidationReport {
   const failedChecks = input.failedChecks ?? [];
   const checkFailed = (check: ValidationReportCheck): boolean => failedChecks.includes(check);
-  const htmlErrors = input.htmlMessages.filter((message) => getW3CMessageSeverity(message) === "error").length;
-  const htmlWarnings = input.htmlMessages.filter((message) => getW3CMessageSeverity(message) === "warning").length;
+  const htmlErrors = input.htmlCounts?.error
+    ?? input.htmlMessages.filter((message) => getW3CMessageSeverity(message) === "error").length;
+  const htmlWarnings = input.htmlCounts?.warning
+    ?? input.htmlMessages.filter((message) => getW3CMessageSeverity(message) === "warning").length;
+  const htmlTotalMessages = input.htmlTotalMessages ?? input.htmlMessages.length;
+  const htmlTruncated = input.htmlTruncated ?? htmlTotalMessages > input.htmlMessages.length;
   const cssCompatibilityLimitations = input.cssMessages.filter(
     (message) => message.compatibility === "known-validator-limitation",
   ).length;
@@ -145,7 +154,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
     `- JSON-LD syntax: ${schemaErrors} error(s)`,
     `- Links: ${brokenLinks} broken or unreachable, ${redirectLinks} redirect${redirectLinks === 1 ? "" : "s"} to review of ${input.links.length} checked`,
     "",
-    `## HTML diagnostics (${input.htmlMessages.length})`,
+    `## HTML diagnostics (${htmlTruncated ? `${input.htmlMessages.length} shown of ${htmlTotalMessages}` : htmlTotalMessages})`,
   ];
 
   if (failedChecks.length > 0) {
@@ -155,6 +164,9 @@ export function createValidationReport(input: ValidationReportInput): Validation
   if (input.htmlMessages.length === 0) {
     report.push("No HTML validation diagnostics were returned.");
   } else {
+    if (htmlTruncated) {
+      report.push(`The structured HTML diagnostics are capped; showing the first ${input.htmlMessages.length} of ${htmlTotalMessages}. Summary counts and scoring use all returned Nu diagnostics.`);
+    }
     report.push("", "| Line | Column | Severity | Message | Extract |", "| :---: | :---: | :--- | :--- | :--- |");
     for (const message of input.htmlMessages) {
       report.push(
@@ -212,6 +224,8 @@ export function createValidationReport(input: ValidationReportInput): Validation
     report: report.join("\n"),
     summary,
     htmlMessages: input.htmlMessages,
+    htmlTotalMessages,
+    htmlTruncated,
     cssMessages: input.cssMessages,
     seoIssues: input.seoIssues,
     schemaIssues: input.schemaIssues,

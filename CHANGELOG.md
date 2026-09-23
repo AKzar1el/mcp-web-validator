@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.30] - 2026-09-23
+
+### Added
+
+- Warned when authored viewport metadata prevents users from zooming to 200% through `user-scalable=no` or a finite non-negative `maximum-scale` below 2, while preserving non-restricting viewport controls.
+- Warned when the first valid declarative meta refresh uses a delay greater than 0 and at most 20 hours, with parsing aligned to HTML refresh semantics and immediate redirects left unflagged.
+
 ## [1.3.29] - 2026-09-23
 
 ### Added

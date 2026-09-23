@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.24] - 2026-09-23
+
+### Fixed
+
+- Rejected otherwise-unallocated addresses inside IANA's `2001::/23` IETF Protocol Assignments block from public URL targets while preserving its currently globally reachable more-specific allocations.
+- Ignored links and `<base>` elements inside inert `<template>` contents during broken-link checks so inactive markup no longer changes link results or relative-URL resolution.
+- Checked active image-map `<area href>` hyperlinks alongside ordinary anchors during broken-link checks.
+
+### Changed
+
+- Exposed the local runtime tool table under the standard `## Tools` README heading used by MCP directory extractors.
+
 ## [1.3.23] - 2026-09-23
 
 ### Fixed

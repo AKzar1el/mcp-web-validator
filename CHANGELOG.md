@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.25] - 2026-09-23
+
+### Fixed
+
+- Preserved IANA's globally reachable `192.0.0.9/32` and `192.0.0.10/32` anycast exceptions while continuing to reject the rest of the non-global `192.0.0.0/24` IETF Protocol Assignments block.
+- Reported multiple document `<title>` and meta-description declarations as ambiguous while keeping first-declaration empty/length analysis instead of merging duplicate values.
+- Escaped HTML-like validator and page fragments in generated Markdown report tables so untrusted markup is rendered literally instead of as raw HTML.
+
 ## [1.3.24] - 2026-09-23
 
 ### Fixed

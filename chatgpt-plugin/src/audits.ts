@@ -101,6 +101,66 @@ function viewportContentRestrictsZoom(content: string): boolean {
   return Number.isFinite(numericMaximumScale) && numericMaximumScale >= 0 && numericMaximumScale < 2;
 }
 
+function parseMetaRefreshDelaySeconds(content: string): number | undefined {
+  const isAsciiWhitespace = (value: string | undefined) =>
+    value === "\t" || value === "\n" || value === "\f" || value === "\r" || value === " ";
+  const isAsciiDigit = (value: string | undefined) => value !== undefined && value >= "0" && value <= "9";
+  let position = 0;
+
+  while (isAsciiWhitespace(content[position])) position += 1;
+
+  const timeStart = position;
+  while (isAsciiDigit(content[position])) position += 1;
+  const timeString = content.slice(timeStart, position);
+  let time = 0;
+  if (timeString === "") {
+    if (content[position] !== ".") return undefined;
+  } else {
+    time = Number.parseInt(timeString, 10);
+  }
+
+  while (isAsciiDigit(content[position]) || content[position] === ".") position += 1;
+
+  if (position < content.length) {
+    if (content[position] !== ";" && content[position] !== "," && !isAsciiWhitespace(content[position])) {
+      return undefined;
+    }
+    while (isAsciiWhitespace(content[position])) position += 1;
+    if (content[position] === ";" || content[position] === ",") position += 1;
+    while (isAsciiWhitespace(content[position])) position += 1;
+  }
+
+  if (position < content.length) {
+    const originalUrlStart = position;
+    if (content[position]?.toLowerCase() === "u") {
+      const candidate = content.slice(position);
+      const urlPrefix = /^url[\t\n\f\r ]*=/i.exec(candidate);
+      if (urlPrefix) {
+        position += urlPrefix[0].length;
+        while (isAsciiWhitespace(content[position])) position += 1;
+      } else {
+        position = originalUrlStart;
+      }
+    }
+
+    const quote = content[position] === "'" || content[position] === '"' ? content[position++] : "";
+    let urlString = content.slice(position);
+    if (quote) {
+      const closingQuote = urlString.indexOf(quote);
+      if (closingQuote >= 0) urlString = urlString.slice(0, closingQuote);
+    }
+
+    try {
+      const url = new URL(urlString, "https://example.invalid/");
+      if (url.protocol.toLowerCase() === "javascript:") return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  return time;
+}
+
 function hasIndexBlockingXRobotsTagForGoogle(value: string | undefined): boolean {
   if (!value) return false;
   const parameterizedRules = new Set([
@@ -289,6 +349,23 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
       severity: "warning",
       category: "Accessibility",
       message: "Viewport metadata restricts user zoom below 200%. Avoid user-scalable=no and maximum-scale values below 2.",
+    });
+  }
+
+  const metaRefreshDelay = $("meta[http-equiv]")
+    .filter((_, element) =>
+      !isInTemplateContents(element)
+      && ($(element).attr("http-equiv") ?? "").toLowerCase() === "refresh"
+    )
+    .toArray()
+    .map((element) => parseMetaRefreshDelaySeconds($(element).attr("content") ?? ""))
+    .find((delay) => delay !== undefined);
+  if (metaRefreshDelay !== undefined && metaRefreshDelay > 0 && metaRefreshDelay <= 72_000) {
+    collector.add({
+      code: "accessibility.meta_refresh.delayed",
+      severity: "warning",
+      category: "Accessibility",
+      message: "Meta refresh uses a delay between 1 second and 20 hours. Prefer an immediate redirect or user-controlled navigation.",
     });
   }
 

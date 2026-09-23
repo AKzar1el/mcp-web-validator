@@ -42,6 +42,7 @@ for (const [network, prefix] of [
   ["2001:10::", 28],
   ["2001:db8::", 32],
   ["2002::", 16],
+  ["3fff::", 20],
 ] as const) {
   blockedAddresses.addSubnet(network, prefix, "ipv6");
 }

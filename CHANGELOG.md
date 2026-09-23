@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.33] - 2026-09-24
+
+### Fixed
+
+- Preserved decorative-image semantics for ordinary `<img alt="">` elements so exact empty alternate text is not reported as a missing-alt error, while omitted and whitespace-only alternate text keep their existing diagnostics.
+- Accepted non-empty `aria-label`, resolvable non-empty `aria-labelledby` text, or non-empty `title` as bounded static alternate accessible names for ordinary `<img>` elements when `alt` is absent, while still reporting genuinely unnamed images.
+
 ## [1.3.32] - 2026-09-24
 
 ### Fixed

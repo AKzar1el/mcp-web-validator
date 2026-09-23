@@ -405,16 +405,31 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
     });
   }
 
+  const textById = new Map<string, string>();
+  $("[id]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
+    const id = $(element).attr("id");
+    if (id !== undefined && !textById.has(id)) textById.set(id, $(element).text().trim());
+  });
+
   $("img").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
-    const alt = $(element).attr("alt");
-    if (alt === undefined) {
+    const img = $(element);
+    const alt = img.attr("alt");
+    const labelledByIds = (img.attr("aria-labelledby") ?? "")
+      .trim()
+      .split(/[\t\n\f\r ]+/)
+      .filter(Boolean);
+    const hasAlternateAccessibleName = labelledByIds.some((id) => Boolean(textById.get(id)))
+      || Boolean(img.attr("aria-label")?.trim())
+      || Boolean(img.attr("title")?.trim());
+
+    if (alt === undefined && !hasAlternateAccessibleName) {
       collector.add({
         code: "accessibility.image_alt.missing",
         severity: "error",
         category: "Accessibility",
         message: "An image is missing its alt attribute.",
       });
-    } else if (alt !== "" && alt.trim() === "") {
+    } else if (alt !== undefined && alt !== "" && alt.trim() === "") {
       collector.add({
         code: "accessibility.image_alt.empty",
         severity: "info",
@@ -422,12 +437,6 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
         message: "Whitespace-only alt text does not provide an accessible name. Use alt=\"\" for a decorative image or meaningful alternative text for an informative image.",
       });
     }
-  });
-
-  const textById = new Map<string, string>();
-  $("[id]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
-    const id = $(element).attr("id");
-    if (id !== undefined && !textById.has(id)) textById.set(id, $(element).text().trim());
   });
 
   $("input[type=\"image\" i]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {

@@ -242,6 +242,21 @@ describe("bounded audits", () => {
       .toBe("info");
   });
 
+  it("accepts alternate accessible-name sources on ordinary images", () => {
+    for (const html of [
+      '<img src="chart.png" aria-label="Quarterly revenue chart">',
+      '<span id="chart-label">Quarterly revenue chart</span><img src="chart.png" aria-labelledby="chart-label">',
+      '<img src="chart.png" title="Quarterly revenue chart">',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.image_alt.missing"))
+        .toBeUndefined();
+    }
+
+    expect(auditSeoMetadata('<img src="unnamed.png">').issues
+      .find((issue) => issue.code === "accessibility.image_alt.missing")?.severity)
+      .toBe("error");
+  });
+
   it("image-map links require usable alt text", () => {
     for (const html of [
       '<map name="nav"><area href="/docs"></map>',

@@ -169,6 +169,23 @@ test("report keeps redirects visible without counting them as broken links", () 
   assert.equal(redirectsOnly.summary.linkScore, 100);
 });
 
+test("report does not count HTTP 304 as a redirect", () => {
+  const result = createValidationReport({
+    htmlFilePath: "not-modified.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/not-modified", status: 304, ok: true }],
+  });
+
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.linkScore, 100);
+  assert.match(result.report, /0 redirects to review of 1 checked/);
+  assert.doesNotMatch(result.report, /1 redirect to review/);
+});
+
 test("report withholds CSS and overall scores for known upstream validator limitations", () => {
   const result = createValidationReport({
     htmlFilePath: "index.html",

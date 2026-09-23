@@ -527,6 +527,27 @@ describe("polished tool responses", () => {
     expect(result.content[0]?.text).toContain("1 healthy link, 1 redirect, and 1 unreachable link");
   });
 
+  it("does not classify HTTP 304 as a redirect", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(null, { status: 304 })));
+
+    const result = await callTool("check_broken_links", {
+      html: '<a href="https://example.com/not-modified">Cached</a>',
+      max_links: 1,
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      links_checked: 1,
+      healthy_links: 1,
+      redirects: 0,
+      unreachable_links: 0,
+      overview: {
+        status: "passed",
+      },
+    });
+    expect(result.content[0]?.text).toContain("1 healthy link, 0 redirects, and 0 unreachable links");
+    expect(result.content[0]?.text).not.toContain("redirect status 304");
+  });
+
   it("keeps a combined report usable when HTML validation fails", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new Error("upstream unavailable"))));
 

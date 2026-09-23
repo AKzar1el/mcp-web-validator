@@ -694,6 +694,10 @@ export const WIDGET_HTML = `<!doctype html>
         return labels[source] || "";
       }
 
+      function isHttpRedirectStatus(status) {
+        return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+      }
+
       function normalizeFinding(item, source, kind) {
         if (!item || typeof item !== "object") {
           return {
@@ -707,7 +711,7 @@ export const WIDGET_HTML = `<!doctype html>
 
         const isLink = source === "links" || typeof item.url === "string";
         const numericStatus = typeof item.status === "number" ? item.status : undefined;
-        const isRedirect = isLink && numericStatus !== undefined && numericStatus >= 300 && numericStatus < 400;
+        const isRedirect = isLink && numericStatus !== undefined && isHttpRedirectStatus(numericStatus);
         let severity;
 
         if (isLink) {

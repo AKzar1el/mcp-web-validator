@@ -19,6 +19,12 @@ export interface LinkStatus {
   message?: string;
 }
 
+const HTTP_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
+  return typeof status === "number" && HTTP_REDIRECT_STATUSES.has(status);
+}
+
 export interface AuditResult {
   issues: AuditIssue[];
   total: number;
@@ -621,7 +627,7 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
       url: url.toString(),
       status: response.status,
       ok: response.status >= 200 && response.status < 400,
-      message: response.status >= 300 && response.status < 400 ? "Redirect not followed." : undefined,
+      message: isHttpRedirectStatus(response.status) ? "Redirect not followed." : undefined,
     };
   } catch {
     return {

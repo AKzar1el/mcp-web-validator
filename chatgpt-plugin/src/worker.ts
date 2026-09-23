@@ -6,7 +6,7 @@ import {
 } from "@modelcontextprotocol/ext-apps/server";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { auditSeoMetadata, checkBrokenLinks, validateSchemaMarkup } from "./audits";
+import { auditSeoMetadata, checkBrokenLinks, isHttpRedirectStatus, validateSchemaMarkup } from "./audits";
 import {
   CSS_MAX_LENGTH,
   HOSTED_MAX_LINKS,
@@ -399,9 +399,7 @@ function summarizeSeverities(counts: { errors: number; warnings: number; info: n
 }
 
 function linkCounts(links: Array<{ status: number | "blocked" | "failed"; ok: boolean }>) {
-  const redirects = links.filter(
-    (link) => typeof link.status === "number" && link.status >= 300 && link.status < 400,
-  ).length;
+  const redirects = links.filter((link) => isHttpRedirectStatus(link.status)).length;
   const unreachable = links.filter((link) => !link.ok).length;
   return {
     checked: links.length,
@@ -568,7 +566,7 @@ async function runValidationReport({
           label: "Link",
         }];
       }
-      if (typeof link.status === "number" && link.status >= 300 && link.status < 400) {
+      if (isHttpRedirectStatus(link.status)) {
         return [{
           severity: "warning" as const,
           message: `${link.url} returned redirect status ${link.status}.`,
@@ -1153,7 +1151,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
               label: String(link.status),
             }];
           }
-          if (typeof link.status === "number" && link.status >= 300 && link.status < 400) {
+          if (isHttpRedirectStatus(link.status)) {
             return [{
               severity: "warning" as const,
               message: `${link.url} returned redirect status ${link.status}; the redirect was not followed.`,

@@ -30,6 +30,12 @@ export interface LinkStatus {
   message?: string;
 }
 
+const HTTP_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
+  return typeof status === "number" && HTTP_REDIRECT_STATUSES.has(status);
+}
+
 export interface AuditCounts {
   error: number;
   warning: number;
@@ -581,7 +587,7 @@ export function validateSchemaMarkup(htmlContent: string): SEOIssue[] {
 }
 
 /**
- * Extracts and tests links, treating 3xx responses as reachable redirects and 4xx/5xx as broken.
+ * Extracts and tests links, treating redirect responses as reachable and 4xx/5xx as broken.
  */
 export async function checkBrokenLinks(
   htmlContent: string,
@@ -697,7 +703,7 @@ export async function checkBrokenLinks(
           status,
           ok,
           message:
-            status >= 300 && status < 400
+            isHttpRedirectStatus(status)
               ? "Redirect not followed"
               : finalUrl !== url
                 ? `Redirected to ${finalUrl}`
@@ -710,7 +716,7 @@ export async function checkBrokenLinks(
         status: headStatus,
         ok: headStatus >= 200 && headStatus < 400,
         message:
-          headStatus >= 300 && headStatus < 400
+          isHttpRedirectStatus(headStatus)
             ? "Redirect not followed"
             : headFinalUrl !== url
               ? `Redirected to ${headFinalUrl}`

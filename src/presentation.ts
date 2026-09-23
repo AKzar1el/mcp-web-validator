@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 import type { ValidationReport } from "./report.js";
-import type { AuditCounts, LinkStatus, SEOIssue } from "./seo-auditor.js";
+import { isHttpRedirectStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
   getW3CMessageSeverity,
   type CSSMessage,
@@ -287,7 +287,7 @@ function linkPriority(link: LinkStatus): ActionPriority {
 }
 
 function isRedirect(link: LinkStatus): boolean {
-  return typeof link.status === "number" && link.status >= 300 && link.status < 400;
+  return isHttpRedirectStatus(link.status);
 }
 
 function linkActionMessage(link: LinkStatus): string {

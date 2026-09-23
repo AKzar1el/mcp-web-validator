@@ -218,6 +218,25 @@ test("image submit buttons require a non-empty accessible name", () => {
   }
 });
 
+test("ordinary images accept an explicit empty alt as decorative", () => {
+  const decorative = auditSeoMetadata('<img src="divider.png" alt="">');
+  assert.equal(
+    decorative.find((issue) => issue.code === "accessibility.image_alt.empty"),
+    undefined,
+  );
+
+  assert.equal(
+    auditSeoMetadata('<img src="missing.png">')
+      .find((issue) => issue.code === "accessibility.image_alt.missing")?.severity,
+    "error",
+  );
+  assert.equal(
+    auditSeoMetadata('<img src="blank.png" alt="   ">')
+      .find((issue) => issue.code === "accessibility.image_alt.empty")?.severity,
+    "info",
+  );
+});
+
 test("image-map links require usable alt text", () => {
   for (const html of [
     '<map name="nav"><area href="/docs"></map>',

@@ -1,6 +1,6 @@
 {
   "name": "mcp-web-validator",
-  "version": "1.3.32",
+  "version": "1.3.33",
   "description": "Validate HTML and CSS, audit technical SEO and accessibility signals, check JSON-LD and links, and capture responsive screenshots from Cursor.",
   "author": {
     "name": "AKzar1el"

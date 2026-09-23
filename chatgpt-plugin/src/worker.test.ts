@@ -336,7 +336,7 @@ describe("validation report", () => {
       params: {
         name: "generate_validation_report",
         arguments: {
-          html: "<!doctype html><html><head><title>Hi</title></head><body><img src=x></body></html>",
+          html: "<!doctype html><html lang=\"en\"><head><title>Hi</title></head><body><img src=x></body></html>",
           check_links: false,
         },
       },
@@ -478,7 +478,7 @@ describe("polished tool responses", () => {
   it("uses tool-specific units for CSS and SEO metrics", async () => {
     const css = await callTool("validate_css", { css: "a { color: red;" });
     const seo = await callTool("audit_seo_metadata", {
-      html: "<!doctype html><html><head></head><body><h1>Test</h1></body></html>",
+      html: "<!doctype html><html lang=\"en\"><head></head><body><h1>Test</h1></body></html>",
     });
 
     expect(css.structuredContent.overview.counts).toEqual([

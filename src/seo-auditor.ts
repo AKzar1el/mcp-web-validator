@@ -99,7 +99,7 @@ function isInTemplateContents(element: unknown): boolean {
  * Audits technical SEO and accessibility basics on HTML content using Cheerio
  */
 export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
-  const $ = cheerio.load(htmlContent);
+  const $ = cheerio.load(htmlContent, { sourceCodeLocationInfo: true });
   const collector = createIssueCollector();
   const { add } = collector;
 
@@ -355,6 +355,17 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       });
     }
   });
+
+  const htmlElement = $("html").first();
+  const htmlNode = htmlElement.get(0) as { sourceCodeLocation?: unknown } | undefined;
+  if (htmlNode?.sourceCodeLocation && !htmlElement.attr("lang")?.trim()) {
+    add({
+      code: "accessibility.page_language.missing_or_empty",
+      severity: "error",
+      category: "Accessibility",
+      message: "The document <html> element needs a non-empty lang attribute so assistive technologies can determine the page language.",
+    });
+  }
 
   // --- Open Graph / Social Tags ---
   const requiredOpenGraphProperties = ["og:title", "og:type", "og:image", "og:url"] as const;

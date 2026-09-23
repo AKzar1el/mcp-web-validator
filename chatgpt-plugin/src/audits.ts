@@ -107,7 +107,7 @@ function hasIndexBlockingXRobotsTagForGoogle(value: string | undefined): boolean
  * any external content.
  */
 export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions = {}): AuditResult {
-  const $ = cheerio.load(html);
+  const $ = cheerio.load(html, { sourceCodeLocationInfo: true });
   const collector = createAuditCollector();
 
   const titleTags = $("head > title");
@@ -328,6 +328,17 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
       });
     }
   });
+
+  const htmlElement = $("html").first();
+  const htmlNode = htmlElement.get(0) as { sourceCodeLocation?: unknown } | undefined;
+  if (htmlNode?.sourceCodeLocation && !htmlElement.attr("lang")?.trim()) {
+    collector.add({
+      code: "accessibility.page_language.missing_or_empty",
+      severity: "error",
+      category: "Accessibility",
+      message: "The document <html> element needs a non-empty lang attribute so assistive technologies can determine the page language.",
+    });
+  }
 
   const requiredOpenGraphProperties = ["og:title", "og:type", "og:image", "og:url"] as const;
   const hasCompleteOpenGraphMetadata = requiredOpenGraphProperties.every((property) =>

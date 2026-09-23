@@ -150,6 +150,7 @@ test("public URL policy blocks local, reserved, credentialed, and custom-port ta
     "http://169.254.169.254/",
     "http://192.0.2.1/",
     "http://[::1]/",
+    "http://[2001:100::1]/",
     "http://[3fff::1]/",
     "https://user:password@1.1.1.1/",
     "https://1.1.1.1:8443/",
@@ -165,6 +166,10 @@ test("public URL policy blocks local, reserved, credentialed, and custom-port ta
   assert.equal(
     (await assertPublicHttpUrl("https://[2606:4700:4700::1111]/")).href,
     "https://[2606:4700:4700::1111]/",
+  );
+  assert.equal(
+    (await assertPublicHttpUrl("https://[2001:1::1]/")).href,
+    "https://[2001:1::1]/",
   );
 });
 

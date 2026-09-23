@@ -67,6 +67,7 @@ describe("public URL filtering", () => {
     "http://198.51.100.1/",
     "http://203.0.113.1/",
     "http://[::1]/",
+    "http://[2001:100::1]/",
     "http://[3fff::1]/",
     "http://[fe90::1]/",
     "http://[ff02::1]/",
@@ -81,6 +82,7 @@ describe("public URL filtering", () => {
     expect(toPublicHttpUrl("https://[2606:4700:4700::1111]/")?.toString()).toBe(
       "https://[2606:4700:4700::1111]/",
     );
+    expect(toPublicHttpUrl("https://[2001:1::1]/")?.toString()).toBe("https://[2001:1::1]/");
   });
 });
 

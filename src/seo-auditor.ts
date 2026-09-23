@@ -423,13 +423,26 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     });
   }
 
+  const textById = new Map<string, string>();
+  $("[id]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
+    const id = $(element).attr("id");
+    if (id !== undefined && !textById.has(id)) textById.set(id, $(element).text().trim());
+  });
+
   // --- Images Alt Tags (SEO + Accessibility) ---
   $("img").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
     const img = $(element);
     const src = img.attr("src") || "unknown-source";
     const alt = img.attr("alt");
+    const labelledByIds = (img.attr("aria-labelledby") ?? "")
+      .trim()
+      .split(/[\t\n\f\r ]+/)
+      .filter(Boolean);
+    const hasAlternateAccessibleName = labelledByIds.some((id) => Boolean(textById.get(id)))
+      || Boolean(img.attr("aria-label")?.trim())
+      || Boolean(img.attr("title")?.trim());
 
-    if (alt === undefined) {
+    if (alt === undefined && !hasAlternateAccessibleName) {
       add({
         code: "accessibility.image_alt.missing",
         severity: "error",
@@ -437,7 +450,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
         message: "Missing 'alt' attribute on image. This makes it inaccessible to screen readers.",
         element: `<img src="${src}">`,
       });
-    } else if (alt !== "" && alt.trim() === "") {
+    } else if (alt !== undefined && alt !== "" && alt.trim() === "") {
       add({
         code: "accessibility.image_alt.empty",
         severity: "info",
@@ -446,12 +459,6 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
         element: `<img src="${src}" alt="${alt}">`,
       });
     }
-  });
-
-  const textById = new Map<string, string>();
-  $("[id]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
-    const id = $(element).attr("id");
-    if (id !== undefined && !textById.has(id)) textById.set(id, $(element).text().trim());
   });
 
   $("input[type=\"image\" i]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {

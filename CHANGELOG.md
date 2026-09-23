@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.31] - 2026-09-23
+
+### Added
+
+- Added informational guidance for usable non-fragment relative `rel="canonical"` URLs, recommending absolute canonicals while preserving supported relative canonical behavior.
+
+### Fixed
+
+- Stopped classifying HTTP 304 Not Modified link-check responses as redirects; only 301, 302, 303, 307, and 308 are now narrated and counted as redirects while existing reachability scoring is preserved.
+
 ## [1.3.30] - 2026-09-23
 
 ### Added

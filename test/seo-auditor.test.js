@@ -429,6 +429,43 @@ test("viewport zoom audit preserves non-restricting controls", () => {
   }
 });
 
+test("delayed meta refresh directives are reported", () => {
+  for (const html of [
+    '<meta http-equiv="refresh" content="30">',
+    '<meta http-equiv="REFRESH" content="30; URL=https://example.com/next">',
+    '<meta http-equiv="refresh" content="72000">',
+  ]) {
+    assert.deepEqual(auditSeoMetadata(html).find((issue) => issue.code === "accessibility.meta_refresh.delayed"), {
+      code: "accessibility.meta_refresh.delayed",
+      severity: "warning",
+      category: "Accessibility",
+      message: "Meta refresh uses a delay between 1 second and 20 hours. Prefer an immediate redirect or user-controlled navigation.",
+    });
+  }
+});
+
+test("meta refresh audit follows first valid directive semantics and preserves safe controls", () => {
+  const delayedAfterInvalid = [
+    '<meta http-equiv="refresh" content="0: https://example.com/invalid">',
+    '<meta http-equiv="refresh" content="5; https://example.com/next">',
+  ].join("");
+  assert.equal(
+    auditSeoMetadata(delayedAfterInvalid).find((issue) => issue.code === "accessibility.meta_refresh.delayed")?.severity,
+    "warning",
+  );
+
+  for (const html of [
+    '<meta http-equiv="refresh" content="0; URL=https://example.com/next"><meta http-equiv="refresh" content="5">',
+    '<meta http-equiv="refresh" content="72001">',
+    '<meta http-equiv="refresh" content="+5; https://example.com/invalid">',
+    '<template><meta http-equiv="refresh" content="5"></template><meta http-equiv="refresh" content="0">',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.meta_refresh.delayed"),
+      undefined,
+    );
+  }
+});
 test("page metadata checks ignore body and SVG lookalikes outside the document head", () => {
   const description = "D".repeat(140);
   const issues = auditSeoMetadata([

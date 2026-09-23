@@ -117,6 +117,31 @@ describe("bounded audits", () => {
     });
   });
 
+  it("requires usable values for all Open Graph basic properties", () => {
+    const complete = auditSeoMetadata([
+      "<html><head>",
+      '<meta property="og:title" content="Example">',
+      '<meta property="og:type" content="website">',
+      '<meta property="og:image" content="https://example.com/image.png">',
+      '<meta property="og:image" content="https://example.com/image-2.png">',
+      '<meta property="og:url" content="https://example.com/">',
+      "</head><body></body></html>",
+    ].join(""));
+    expect(complete.issues.find((issue) => issue.code === "seo.open_graph.missing")).toBeUndefined();
+
+    for (const html of [
+      '<meta property="og:title" content="Example"><meta property="og:image" content="https://example.com/image.png">',
+      '<meta property="og:title" content="Example"><meta property="og:type" content="website"><meta property="og:image" content="   "><meta property="og:url" content="https://example.com/">',
+    ]) {
+      expect(auditSeoMetadata(html).issues).toContainEqual({
+        code: "seo.open_graph.missing",
+        severity: "info",
+        category: "SEO",
+        message: "Open Graph basic metadata is incomplete or empty. Provide non-empty og:title, og:type, og:image, and og:url values.",
+      });
+    }
+  });
+
   it("image submit buttons require non-empty functional alt text", () => {
     for (const html of [
       '<input type="image" src="search.png">',

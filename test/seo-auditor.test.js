@@ -121,6 +121,34 @@ test("Open Graph audit requires all basic properties to have usable content", ()
   }
 });
 
+test("explicit HTML documents require a non-empty page language", () => {
+  for (const html of [
+    "<html><head><title>Example</title></head><body></body></html>",
+    '<html lang=""><head><title>Example</title></head><body></body></html>',
+    '<html lang="   "><head><title>Example</title></head><body></body></html>',
+  ]) {
+    assert.deepEqual(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.page_language.missing_or_empty"),
+      {
+        code: "accessibility.page_language.missing_or_empty",
+        severity: "error",
+        category: "Accessibility",
+        message: "The document <html> element needs a non-empty lang attribute so assistive technologies can determine the page language.",
+      },
+    );
+  }
+
+  for (const html of [
+    '<html lang="en"><head><title>Example</title></head><body></body></html>',
+    "<title>HTML fragment</title><p>Fragment content</p>",
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.page_language.missing_or_empty"),
+      undefined,
+    );
+  }
+});
+
 test("image submit buttons require non-empty functional alt text", () => {
   for (const html of [
     '<input type="image" src="search.png">',

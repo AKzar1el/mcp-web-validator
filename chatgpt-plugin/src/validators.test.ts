@@ -142,6 +142,30 @@ describe("bounded audits", () => {
     }
   });
 
+  it("requires page language only for explicitly authored HTML documents", () => {
+    for (const html of [
+      "<html><head><title>Example</title></head><body></body></html>",
+      '<html lang=""><head><title>Example</title></head><body></body></html>',
+      '<html lang="   "><head><title>Example</title></head><body></body></html>',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.page_language.missing_or_empty"))
+        .toEqual({
+          code: "accessibility.page_language.missing_or_empty",
+          severity: "error",
+          category: "Accessibility",
+          message: "The document <html> element needs a non-empty lang attribute so assistive technologies can determine the page language.",
+        });
+    }
+
+    for (const html of [
+      '<html lang="en"><head><title>Example</title></head><body></body></html>',
+      "<title>HTML fragment</title><p>Fragment content</p>",
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.page_language.missing_or_empty"))
+        .toBeUndefined();
+    }
+  });
+
   it("image submit buttons require non-empty functional alt text", () => {
     for (const html of [
       '<input type="image" src="search.png">',
@@ -384,7 +408,7 @@ describe("bounded audits", () => {
   });
 
   it("caps SEO findings while retaining the total", () => {
-    const html = `<html><head><title>${"A".repeat(40)}</title><meta name="description" content="${"D".repeat(140)}"><meta name="viewport" content="width=device-width"><link rel="canonical" href="https://example.com"><meta property="og:title" content="x"><meta property="og:type" content="website"><meta property="og:image" content="x"><meta property="og:url" content="https://example.com"></head><body><h1>Title</h1>${"<img src=x>".repeat(150)}</body></html>`;
+    const html = `<html lang="en"><head><title>${"A".repeat(40)}</title><meta name="description" content="${"D".repeat(140)}"><meta name="viewport" content="width=device-width"><link rel="canonical" href="https://example.com"><meta property="og:title" content="x"><meta property="og:type" content="website"><meta property="og:image" content="x"><meta property="og:url" content="https://example.com"></head><body><h1>Title</h1>${"<img src=x>".repeat(150)}</body></html>`;
     const result = auditSeoMetadata(html);
     expect(result.issues).toHaveLength(100);
     expect(result.total).toBe(150);

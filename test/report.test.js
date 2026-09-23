@@ -22,7 +22,7 @@ test("report scoring does not penalize informational SEO findings", () => {
 
 test("report scoring does not penalize title and meta-description editorial length guidance", () => {
   const seoIssues = auditSeoMetadata([
-    "<html><head>",
+    '<html lang="en"><head>',
     `<title>${"T".repeat(61)}</title>`,
     `<meta name="description" content="${"D".repeat(161)}">`,
     '<meta name="viewport" content="width=device-width">',

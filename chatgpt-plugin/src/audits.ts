@@ -1,6 +1,7 @@
 import * as cheerio from "cheerio";
 import ipaddr from "ipaddr.js";
 import { HOSTED_MAX_LINKS, SERVICE_USER_AGENT } from "./constants";
+import { getPrimaryLanguageSubtag, isKnownPrimaryLanguageSubtag } from "./language-subtags";
 
 export type AuditSeverity = "error" | "warning" | "info";
 
@@ -341,13 +342,26 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
 
   const htmlElement = $("html").first();
   const htmlNode = htmlElement.get(0) as { sourceCodeLocation?: unknown } | undefined;
-  if (htmlNode?.sourceCodeLocation && !htmlElement.attr("lang")?.trim()) {
-    collector.add({
-      code: "accessibility.page_language.missing_or_empty",
-      severity: "error",
-      category: "Accessibility",
-      message: "The document <html> element needs a non-empty lang attribute so assistive technologies can determine the page language.",
-    });
+  if (htmlNode?.sourceCodeLocation) {
+    const pageLanguage = htmlElement.attr("lang")?.trim();
+    if (!pageLanguage) {
+      collector.add({
+        code: "accessibility.page_language.missing_or_empty",
+        severity: "error",
+        category: "Accessibility",
+        message: "The document <html> element needs a non-empty lang attribute so assistive technologies can determine the page language.",
+      });
+    } else {
+      const primaryLanguageSubtag = getPrimaryLanguageSubtag(pageLanguage);
+      if (!isKnownPrimaryLanguageSubtag(primaryLanguageSubtag)) {
+        collector.add({
+          code: "accessibility.page_language.invalid_primary_subtag",
+          severity: "error",
+          category: "Accessibility",
+          message: `The document <html> lang attribute uses unknown primary language subtag "${primaryLanguageSubtag}". Use a primary language subtag registered by IANA.`,
+        });
+      }
+    }
   }
 
   const requiredOpenGraphProperties = ["og:title", "og:type", "og:image", "og:url"] as const;

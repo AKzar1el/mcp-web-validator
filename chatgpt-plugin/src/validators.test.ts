@@ -170,6 +170,34 @@ describe("bounded audits", () => {
     }
   });
 
+  it("requires an explicitly authored page language to have a known primary subtag", () => {
+    for (const [lang, primary] of [
+      ["em-US", "em"],
+      ["#1", "#1"],
+      ["eng", "eng"],
+      ["i-lux", "i"],
+    ]) {
+      expect(auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head><body></body></html>`).issues
+        .find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"))
+        .toEqual({
+          code: "accessibility.page_language.invalid_primary_subtag",
+          severity: "error",
+          category: "Accessibility",
+          message: `The document <html> lang attribute uses unknown primary language subtag "${primary}". Use a primary language subtag registered by IANA.`,
+        });
+    }
+
+    for (const lang of ["FR", "en-US-GB", "de-hello", "osd", "qaa"]) {
+      expect(auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head><body></body></html>`).issues
+        .find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"))
+        .toBeUndefined();
+    }
+
+    expect(auditSeoMetadata("<title>HTML fragment</title><p>Fragment content</p>").issues
+      .find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"))
+      .toBeUndefined();
+  });
+
   it("image submit buttons require non-empty functional alt text", () => {
     for (const html of [
       '<input type="image" src="search.png">',

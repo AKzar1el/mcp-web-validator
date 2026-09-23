@@ -6,6 +6,7 @@ import {
   getErrorMessage,
   PublicUrlError,
 } from "./network.js";
+import { getPrimaryLanguageSubtag, isKnownPrimaryLanguageSubtag } from "./language-subtags.js";
 import { PACKAGE_VERSION } from "./version.js";
 
 export const MAX_AUDIT_ISSUES = 200;
@@ -366,13 +367,26 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
 
   const htmlElement = $("html").first();
   const htmlNode = htmlElement.get(0) as { sourceCodeLocation?: unknown } | undefined;
-  if (htmlNode?.sourceCodeLocation && !htmlElement.attr("lang")?.trim()) {
-    add({
-      code: "accessibility.page_language.missing_or_empty",
-      severity: "error",
-      category: "Accessibility",
-      message: "The document <html> element needs a non-empty lang attribute so assistive technologies can determine the page language.",
-    });
+  if (htmlNode?.sourceCodeLocation) {
+    const pageLanguage = htmlElement.attr("lang")?.trim();
+    if (!pageLanguage) {
+      add({
+        code: "accessibility.page_language.missing_or_empty",
+        severity: "error",
+        category: "Accessibility",
+        message: "The document <html> element needs a non-empty lang attribute so assistive technologies can determine the page language.",
+      });
+    } else {
+      const primaryLanguageSubtag = getPrimaryLanguageSubtag(pageLanguage);
+      if (!isKnownPrimaryLanguageSubtag(primaryLanguageSubtag)) {
+        add({
+          code: "accessibility.page_language.invalid_primary_subtag",
+          severity: "error",
+          category: "Accessibility",
+          message: `The document <html> lang attribute uses unknown primary language subtag "${primaryLanguageSubtag}". Use a primary language subtag registered by IANA.`,
+        });
+      }
+    }
   }
 
   // --- Open Graph / Social Tags ---

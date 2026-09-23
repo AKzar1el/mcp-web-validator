@@ -63,6 +63,8 @@ describe("public URL filtering", () => {
     "http://127.0.0.1/",
     "http://10.0.0.1/",
     "http://169.254.169.254/",
+    "http://192.0.0.8/",
+    "http://192.0.0.11/",
     "http://192.0.2.1/",
     "http://198.51.100.1/",
     "http://203.0.113.1/",
@@ -79,6 +81,8 @@ describe("public URL filtering", () => {
 
   it("accepts ordinary public HTTPS URLs", () => {
     expect(toPublicHttpUrl("https://example.com/path")?.toString()).toBe("https://example.com/path");
+    expect(toPublicHttpUrl("https://192.0.0.9/")?.toString()).toBe("https://192.0.0.9/");
+    expect(toPublicHttpUrl("https://192.0.0.10/")?.toString()).toBe("https://192.0.0.10/");
     expect(toPublicHttpUrl("https://[2606:4700:4700::1111]/")?.toString()).toBe(
       "https://[2606:4700:4700::1111]/",
     );

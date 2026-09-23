@@ -362,6 +362,24 @@ describe("link checks", () => {
     );
   });
 
+  it("ignores base and anchor elements inside inert template contents", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks(
+      '<template><base href="https://8.8.8.8/inert/"><a href="ghost">Ghost</a></template><base href="https://1.1.1.1/live/"><a href="page">Page</a>',
+      "https://1.1.1.1/fallback/",
+      5,
+    )).resolves.toEqual([
+      { url: "https://1.1.1.1/live/page", status: 204, ok: true, message: undefined },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL("https://1.1.1.1/live/page"),
+      expect.objectContaining({ method: "HEAD", redirect: "manual" }),
+    );
+  });
+
   it("does not resolve relative links through the fallback when the document base is unsafe", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);

@@ -110,7 +110,16 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   const $ = cheerio.load(html);
   const collector = createAuditCollector();
 
-  const title = $("head > title").first().text().trim();
+  const titleTags = $("head > title");
+  if (titleTags.length > 1) {
+    collector.add({
+      code: "seo.title.multiple",
+      severity: "warning",
+      category: "SEO",
+      message: "Multiple <title> elements are declared in the document head. Keep one unambiguous page title.",
+    });
+  }
+  const title = titleTags.first().text().trim();
   if (!title) {
     collector.add({
       code: "seo.title.missing_or_empty",
@@ -134,7 +143,16 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
     });
   }
 
-  const description = $('head > meta[name="description" i]').first().attr("content")?.trim() ?? "";
+  const metaDescriptions = $('head > meta[name="description" i]');
+  if (metaDescriptions.length > 1) {
+    collector.add({
+      code: "seo.meta_description.multiple",
+      severity: "warning",
+      category: "SEO",
+      message: "Multiple meta descriptions are declared in the document head. Keep one unambiguous page description.",
+    });
+  }
+  const description = metaDescriptions.first().attr("content")?.trim() ?? "";
   if (!description) {
     collector.add({
       code: "seo.meta_description.missing_or_empty",

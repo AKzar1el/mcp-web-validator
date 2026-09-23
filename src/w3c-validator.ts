@@ -17,6 +17,7 @@ export interface W3CMessage {
 }
 
 export type W3CMessageSeverity = "error" | "warning" | "info";
+export type HtmlValidationMediaType = "text/html" | "application/xhtml+xml";
 
 export interface HtmlValidationResult {
   messages: W3CMessage[];
@@ -106,8 +107,11 @@ function normalizeW3CMessage(message: unknown): W3CMessage {
   return normalized;
 }
 
-/** Validates HTML using the W3C Nu HTML Checker API and retains bounded-output metadata. */
-export async function validateHtmlContentDetailed(htmlContent: string): Promise<HtmlValidationResult> {
+/** Validates HTML/XHTML using the W3C Nu HTML Checker API and retains bounded-output metadata. */
+export async function validateHtmlContentDetailed(
+  htmlContent: string,
+  mediaType: HtmlValidationMediaType = "text/html",
+): Promise<HtmlValidationResult> {
   const url = "https://validator.w3.org/nu/?out=json";
 
   try {
@@ -115,7 +119,7 @@ export async function validateHtmlContentDetailed(htmlContent: string): Promise<
     const response = await fetch(url, {
       method: "POST",
       headers: {
-        "Content-Type": "text/html; charset=utf-8",
+        "Content-Type": `${mediaType}; charset=utf-8`,
         "User-Agent": USER_AGENT,
       },
       body: htmlContent,

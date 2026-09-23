@@ -96,6 +96,34 @@ test("audit findings expose stable machine-readable rule codes", () => {
   assert.equal(schema[0]?.code, "schema.jsonld.invalid_json");
 });
 
+test("image submit buttons require non-empty functional alt text", () => {
+  for (const html of [
+    '<input type="image" src="search.png">',
+    '<input type="IMAGE" src="search.png" alt="">',
+    '<input type="image" src="search.png" alt="   ">',
+  ]) {
+    assert.deepEqual(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.input_image_alt.missing_or_empty"),
+      {
+        code: "accessibility.input_image_alt.missing_or_empty",
+        severity: "error",
+        category: "Accessibility",
+        message: "Image submit buttons need non-empty alt text that labels the button's function.",
+      },
+    );
+  }
+
+  for (const html of [
+    '<input type="image" src="search.png" alt="Search">',
+    '<input type="text" alt="">',
+    '<template><input type="image" src="search.png"></template>',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.input_image_alt.missing_or_empty"),
+      undefined,
+    );
+  }
+});
 
 test("canonical audit distinguishes an optional missing preference from an unusable declaration", () => {
   const valid = auditSeoMetadata('<link rel="Alternate CANONICAL" href="https://example.com/page">');

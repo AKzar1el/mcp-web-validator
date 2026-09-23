@@ -318,6 +318,18 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     }
   });
 
+  $("input[type=\"image\" i]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
+    const alt = $(element).attr("alt");
+    if (alt === undefined || alt.trim() === "") {
+      add({
+        code: "accessibility.input_image_alt.missing_or_empty",
+        severity: "error",
+        category: "Accessibility",
+        message: "Image submit buttons need non-empty alt text that labels the button's function.",
+      });
+    }
+  });
+
   // --- Open Graph / Social Tags ---
   const ogTitle = $('head > meta[property="og:title"]');
   const ogImage = $('head > meta[property="og:image"]');

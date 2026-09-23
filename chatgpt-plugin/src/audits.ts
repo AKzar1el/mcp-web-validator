@@ -291,6 +291,18 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
     }
   });
 
+  $("input[type=\"image\" i]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
+    const alt = $(element).attr("alt");
+    if (alt === undefined || alt.trim() === "") {
+      collector.add({
+        code: "accessibility.input_image_alt.missing_or_empty",
+        severity: "error",
+        category: "Accessibility",
+        message: "Image submit buttons need non-empty alt text that labels the button's function.",
+      });
+    }
+  });
+
   if ($('head > meta[property="og:title"]').length === 0 || $('head > meta[property="og:image"]').length === 0) {
     collector.add({
       code: "seo.open_graph.missing",

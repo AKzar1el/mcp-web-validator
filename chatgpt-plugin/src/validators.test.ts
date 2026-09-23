@@ -117,6 +117,32 @@ describe("bounded audits", () => {
     });
   });
 
+  it("image submit buttons require non-empty functional alt text", () => {
+    for (const html of [
+      '<input type="image" src="search.png">',
+      '<input type="IMAGE" src="search.png" alt="">',
+      '<input type="image" src="search.png" alt="   ">',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.input_image_alt.missing_or_empty"))
+        .toEqual({
+          code: "accessibility.input_image_alt.missing_or_empty",
+          severity: "error",
+          category: "Accessibility",
+          message: "Image submit buttons need non-empty alt text that labels the button's function.",
+        });
+    }
+
+    for (const html of [
+      '<input type="image" src="search.png" alt="Search">',
+      '<input type="text" alt="">',
+      '<template><input type="image" src="search.png"></template>',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.input_image_alt.missing_or_empty"))
+        .toBeUndefined();
+    }
+  });
+
+
   it("recognizes canonical rel tokens case-insensitively and rejects empty href values", () => {
     const valid = auditSeoMetadata('<link rel="alternate CANONICAL" href="https://example.com/page">');
     expect(valid.issues.find((issue) => issue.code === "seo.canonical.missing")).toBeUndefined();

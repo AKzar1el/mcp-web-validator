@@ -114,6 +114,26 @@ test("HTML validator reports full totals when structured diagnostics are capped"
   }
 });
 
+test("HTML validator preserves XHTML media type for Nu checker requests", async () => {
+  const originalFetch = globalThis.fetch;
+  let observedContentType;
+  globalThis.fetch = async (_url, init) => {
+    observedContentType = new Headers(init?.headers).get("content-type");
+    return Response.json({ messages: [] });
+  };
+
+  try {
+    const validatorModule = await import("../dist/w3c-validator.js");
+    await validatorModule.validateHtmlContentDetailed(
+      '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Example</title></head><body /></html>',
+      "application/xhtml+xml",
+    );
+    assert.equal(observedContentType, "application/xhtml+xml; charset=utf-8");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("empty CSS validator responses fail instead of producing a clean result", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response("  \n", { status: 200 });

@@ -413,7 +413,13 @@ export function createServer(): McpServer {
         if (fetched.status < 200 || fetched.status >= 300) {
           throw new Error(`Target URL returned HTTP ${fetched.status}.`);
         }
-        const validation = await validateHtmlContentDetailed(fetched.text);
+        const validationMediaType = fetched.contentType
+          ?.split(";", 1)[0]
+          .trim()
+          .toLowerCase() === "application/xhtml+xml"
+          ? "application/xhtml+xml"
+          : "text/html";
+        const validation = await validateHtmlContentDetailed(fetched.text, validationMediaType);
         return result(
           {
             errors: validation.messages,

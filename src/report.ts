@@ -87,8 +87,7 @@ function markdownCell(value: unknown): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/\\/g, "\\\\")
-    .replace(/\|/g, "\\|")
-    .replace(/`/g, "\\`")
+    .replace(/([`*_[\]|~])/g, "\\$1")
     .replace(/[\r\n]+/g, " ")
     .trim();
 }

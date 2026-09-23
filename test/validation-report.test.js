@@ -181,6 +181,29 @@ test("validation report renders untrusted HTML-like diagnostics as literal Markd
   assert.match(report.report, /&lt;meta name="description" content="unsafe"&gt;/);
 });
 
+test("validation report renders untrusted Markdown syntax as literal table text", async () => {
+  const report = await runReport({
+    validateHtmlContent: async () => [{
+      type: "error",
+      message: "Bad ![pixel](https://tracker.example/pixel) **bold** [link](https://example.test)",
+      extract: "# heading _emphasis_",
+    }],
+    auditSeoMetadata: () => [{
+      severity: "warning",
+      category: "SEO",
+      message: "Review [metadata](https://example.test/meta)",
+      element: "![preview](https://tracker.example/image)",
+    }],
+    validateSchemaMarkup: () => [],
+    checkBrokenLinks: async () => [],
+  });
+
+  assert.doesNotMatch(report.report, /!\[pixel\]\(|\*\*bold\*\*|\[link\]\(/);
+  assert.ok(report.report.includes("Bad !\\[pixel\\](https://tracker.example/pixel) \\*\\*bold\\*\\* \\[link\\](https://example.test)"));
+  assert.ok(report.report.includes("# heading \\_emphasis\\_"));
+  assert.ok(report.report.includes("Review \\[metadata\\](https://example.test/meta)"));
+  assert.ok(report.report.includes("!\\[preview\\](https://tracker.example/image)"));
+});
 test("validation report keeps local and link results when HTML validation fails", async () => {
   const report = await runReport({
     validateHtmlContent: async () => { throw new Error("Nu HTML Checker unavailable"); },

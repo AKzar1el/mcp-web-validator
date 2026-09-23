@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.28] - 2026-09-23
+
+### Fixed
+
+- Reported explicitly authored root `<html>` elements whose `lang` attribute is missing or empty, while leaving fragment-oriented metadata audits unaffected by Cheerio's synthesized wrapper.
+- Warned when a usable `rel="canonical"` href contains a URL fragment, matching Google Search canonicalization guidance while preserving supported non-fragment relative canonicals.
+
 ## [1.3.27] - 2026-09-23
 
 ### Fixed

@@ -329,12 +329,18 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
     }
   });
 
-  if ($('head > meta[property="og:title"]').length === 0 || $('head > meta[property="og:image"]').length === 0) {
+  const requiredOpenGraphProperties = ["og:title", "og:type", "og:image", "og:url"] as const;
+  const hasCompleteOpenGraphMetadata = requiredOpenGraphProperties.every((property) =>
+    $(`head > meta[property="${property}"]`).filter(
+      (_, element) => Boolean($(element).attr("content")?.trim()),
+    ).length > 0
+  );
+  if (!hasCompleteOpenGraphMetadata) {
     collector.add({
       code: "seo.open_graph.missing",
       severity: "info",
       category: "SEO",
-      message: "Open Graph title or image metadata is missing.",
+      message: "Open Graph basic metadata is incomplete or empty. Provide non-empty og:title, og:type, og:image, and og:url values.",
     });
   }
 

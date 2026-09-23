@@ -303,6 +303,27 @@ test("canonical audit warns when the canonical href contains a URL fragment", ()
   assert.equal(relative.find((issue) => issue.code === "seo.canonical.fragment_unsupported"), undefined);
 });
 
+test("canonical audit recommends absolute href values while preserving relative canonical support", () => {
+  for (const href of ["/page", "page", "../page", "//example.com/page"]) {
+    const issues = auditSeoMetadata(`<link rel="canonical" href="${href}">`);
+    assert.deepEqual(issues.find((issue) => issue.code === "seo.canonical.relative_not_recommended"), {
+      code: "seo.canonical.relative_not_recommended",
+      severity: "info",
+      category: "SEO",
+      message: "Canonical href is relative. Google supports relative canonical URLs but recommends absolute URLs to avoid long-term canonicalization mistakes.",
+    });
+  }
+
+  for (const html of [
+    '<link rel="canonical" href="https://example.com/page">',
+    '<link rel="canonical" href="/page#section">',
+    '<link rel="canonical" href="/page" media="print">',
+  ]) {
+    const issues = auditSeoMetadata(html);
+    assert.equal(issues.find((issue) => issue.code === "seo.canonical.relative_not_recommended"), undefined);
+  }
+});
+
 test("robots meta audit reports noindex-equivalent directives that affect Google Search", () => {
   for (const html of [
     '<meta name="robots" content="NOINDEX, follow">',

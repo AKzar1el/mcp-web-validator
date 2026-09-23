@@ -292,6 +292,19 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       message: "Canonical URL contains a fragment. Google generally does not support URL fragments for canonicalization; remove the #fragment from the canonical href.",
     });
   }
+  if (
+    usableCanonical.filter((_, element) => {
+      const href = ($(element).attr("href") ?? "").trim();
+      return !href.includes("#") && !/^[a-z][a-z0-9+.-]*:/i.test(href);
+    }).length > 0
+  ) {
+    add({
+      code: "seo.canonical.relative_not_recommended",
+      severity: "info",
+      category: "SEO",
+      message: "Canonical href is relative. Google supports relative canonical URLs but recommends absolute URLs to avoid long-term canonicalization mistakes.",
+    });
+  }
   if (canonicalLinks.length === 0) {
     add({
       code: "seo.canonical.missing",

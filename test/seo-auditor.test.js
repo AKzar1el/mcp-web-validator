@@ -96,7 +96,6 @@ test("audit findings expose stable machine-readable rule codes", () => {
   assert.equal(schema[0]?.code, "schema.jsonld.invalid_json");
 });
 
-
 test("image submit buttons require non-empty functional alt text", () => {
   for (const html of [
     '<input type="image" src="search.png">',
@@ -125,7 +124,6 @@ test("image submit buttons require non-empty functional alt text", () => {
     );
   }
 });
-
 
 test("canonical audit distinguishes an optional missing preference from an unusable declaration", () => {
   const valid = auditSeoMetadata('<link rel="Alternate CANONICAL" href="https://example.com/page">');

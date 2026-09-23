@@ -142,7 +142,6 @@ describe("bounded audits", () => {
     }
   });
 
-
   it("recognizes canonical rel tokens case-insensitively and rejects empty href values", () => {
     const valid = auditSeoMetadata('<link rel="alternate CANONICAL" href="https://example.com/page">');
     expect(valid.issues.find((issue) => issue.code === "seo.canonical.missing")).toBeUndefined();

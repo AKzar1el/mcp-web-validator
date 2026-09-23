@@ -469,7 +469,7 @@ export async function checkBrokenLinks(
   const seen = new Set<string>();
   const limit = Math.min(Math.max(maxLinks, 1), HOSTED_MAX_LINKS);
 
-  $("a[href]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
+  $("a[href], area[href]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
     if (urls.length >= limit) return;
     const href = $(element).attr("href")?.trim();
     if (!href || href.startsWith("#") || /^(mailto:|tel:|javascript:|data:)/i.test(href)) return;

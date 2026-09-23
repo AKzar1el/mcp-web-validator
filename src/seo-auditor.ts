@@ -330,6 +330,32 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     }
   });
 
+  $("area[href]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
+    const area = $(element);
+    const alt = area.attr("alt");
+    let needsAlt = alt === undefined;
+
+    if (alt !== undefined && alt.trim() === "") {
+      const href = area.attr("href")?.trim() ?? "";
+      const map = area.closest("map");
+      const hasLabeledEquivalent = map.find("area[href]").filter((_, peer) =>
+        !isInTemplateContents(peer)
+        && ($(peer).attr("href")?.trim() ?? "") === href
+        && Boolean($(peer).attr("alt")?.trim())
+      ).length > 0;
+      needsAlt = !hasLabeledEquivalent;
+    }
+
+    if (needsAlt) {
+      add({
+        code: "accessibility.area_alt.missing_or_empty",
+        severity: "error",
+        category: "Accessibility",
+        message: "Image-map links need alt text unless another area with the same href provides the label.",
+      });
+    }
+  });
+
   // --- Open Graph / Social Tags ---
   const ogTitle = $('head > meta[property="og:title"]');
   const ogImage = $('head > meta[property="og:image"]');

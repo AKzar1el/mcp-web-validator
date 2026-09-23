@@ -142,6 +142,32 @@ describe("bounded audits", () => {
     }
   });
 
+  it("image-map links require usable alt text", () => {
+    for (const html of [
+      '<map name="nav"><area href="/docs"></map>',
+      '<map name="nav"><area href="/docs" alt=""></map>',
+      '<map name="nav"><area href="/docs" alt="   "></map>',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.area_alt.missing_or_empty"))
+        .toEqual({
+          code: "accessibility.area_alt.missing_or_empty",
+          severity: "error",
+          category: "Accessibility",
+          message: "Image-map links need alt text unless another area with the same href provides the label.",
+        });
+    }
+
+    for (const html of [
+      '<map name="nav"><area href="/docs" alt="Documentation"></map>',
+      '<map name="nav"><area shape="default"></map>',
+      '<map name="nav"><area href="/docs" alt=""><area href="/docs" alt="Documentation"></map>',
+      '<template><map name="nav"><area href="/docs"></map></template>',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.area_alt.missing_or_empty"))
+        .toBeUndefined();
+    }
+  });
+
   it("recognizes canonical rel tokens case-insensitively and rejects empty href values", () => {
     const valid = auditSeoMetadata('<link rel="alternate CANONICAL" href="https://example.com/page">');
     expect(valid.issues.find((issue) => issue.code === "seo.canonical.missing")).toBeUndefined();

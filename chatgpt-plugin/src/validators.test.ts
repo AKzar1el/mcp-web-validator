@@ -238,6 +238,34 @@ describe("bounded audits", () => {
     expect(result.issues.find((issue) => issue.code === "seo.meta_description.length")).toBeUndefined();
   });
 
+  it("reports ambiguous duplicate primary metadata without merging values", () => {
+    const title = "T".repeat(40);
+    const description = "D".repeat(140);
+    const result = auditSeoMetadata([
+      "<html><head>",
+      `<title>${title}</title>`,
+      `<title>${"U".repeat(40)}</title>`,
+      `<meta name="description" content="${description}">`,
+      `<meta name="description" content="${"E".repeat(140)}">`,
+      "</head><body></body></html>",
+    ].join(""));
+
+    expect(result.issues).toContainEqual({
+      code: "seo.title.multiple",
+      severity: "warning",
+      category: "SEO",
+      message: "Multiple <title> elements are declared in the document head. Keep one unambiguous page title.",
+    });
+    expect(result.issues).toContainEqual({
+      code: "seo.meta_description.multiple",
+      severity: "warning",
+      category: "SEO",
+      message: "Multiple meta descriptions are declared in the document head. Keep one unambiguous page description.",
+    });
+    expect(result.issues.find((issue) => issue.code === "seo.title.length")).toBeUndefined();
+    expect(result.issues.find((issue) => issue.code === "seo.meta_description.length")).toBeUndefined();
+  });
+
   it("matches the viewport meta name ASCII case-insensitively", () => {
     const result = auditSeoMetadata('<meta name="ViewPort" content="width=device-width">');
 

@@ -113,7 +113,15 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       message: "Missing <title> tag. Add a concise, descriptive title to help represent the page in search results.",
     });
   } else {
-    const titleText = titleTag.text().trim();
+    if (titleTag.length > 1) {
+      add({
+        code: "seo.title.multiple",
+        severity: "warning",
+        category: "SEO",
+        message: "Multiple <title> elements are declared in the document head. Keep one unambiguous page title.",
+      });
+    }
+    const titleText = titleTag.first().text().trim();
     if (titleText.length === 0) {
       add({
         code: "seo.title.missing_or_empty",
@@ -150,7 +158,15 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       message: "Missing <meta name=\"description\">. Add a concise, accurate page summary; Google may use page content or this description to generate a snippet.",
     });
   } else {
-    const descText = metaDescription.attr("content")?.trim() || "";
+    if (metaDescription.length > 1) {
+      add({
+        code: "seo.meta_description.multiple",
+        severity: "warning",
+        category: "SEO",
+        message: "Multiple meta descriptions are declared in the document head. Keep one unambiguous page description.",
+      });
+    }
+    const descText = metaDescription.first().attr("content")?.trim() || "";
     if (descText.length === 0) {
       add({
         code: "seo.meta_description.missing_or_empty",

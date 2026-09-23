@@ -367,7 +367,7 @@ describe("link checks", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(checkBrokenLinks(
-      '<template><base href="https://8.8.8.8/inert/"><a href="ghost">Ghost</a></template><base href="https://1.1.1.1/live/"><a href="page">Page</a>',
+      '<template><base href="https://8.8.8.8/inert/"><a href="ghost">Ghost</a><map name="inert"><area href="ghost-area" alt="Ghost area"></map></template><base href="https://1.1.1.1/live/"><a href="page">Page</a>',
       "https://1.1.1.1/fallback/",
       5,
     )).resolves.toEqual([
@@ -376,6 +376,24 @@ describe("link checks", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
       new URL("https://1.1.1.1/live/page"),
+      expect.objectContaining({ method: "HEAD", redirect: "manual" }),
+    );
+  });
+
+  it("checks active image-map area hyperlinks", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks(
+      '<map name="nav"><area href="https://1.1.1.1/map-target" alt="Map target"></map>',
+      undefined,
+      5,
+    )).resolves.toEqual([
+      { url: "https://1.1.1.1/map-target", status: 204, ok: true, message: undefined },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL("https://1.1.1.1/map-target"),
       expect.objectContaining({ method: "HEAD", redirect: "manual" }),
     );
   });

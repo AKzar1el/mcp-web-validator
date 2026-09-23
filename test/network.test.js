@@ -582,12 +582,33 @@ test("link checker ignores base and anchor elements inside inert template conten
 
   try {
     const links = await checkBrokenLinks(
-      '<template><base href="https://8.8.8.8/inert/"><a href="ghost">Ghost</a></template><base href="https://1.1.1.1/live/"><a href="page">Page</a>',
+      '<template><base href="https://8.8.8.8/inert/"><a href="ghost">Ghost</a><map name="inert"><area href="ghost-area" alt="Ghost area"></map></template><base href="https://1.1.1.1/live/"><a href="page">Page</a>',
       "https://1.1.1.1/fallback/",
       5,
     );
     assert.deepEqual(links.map((link) => link.url), ["https://1.1.1.1/live/page"]);
     assert.deepEqual(requested, [{ url: "https://1.1.1.1/live/page", method: "HEAD" }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker checks active image-map area hyperlinks", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input, init) => {
+    requested.push({ url: String(input), method: init?.method });
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const links = await checkBrokenLinks(
+      '<map name="nav"><area href="https://1.1.1.1/map-target" alt="Map target"></map>',
+      undefined,
+      5,
+    );
+    assert.deepEqual(links.map((link) => link.url), ["https://1.1.1.1/map-target"]);
+    assert.deepEqual(requested, [{ url: "https://1.1.1.1/map-target", method: "HEAD" }]);
   } finally {
     globalThis.fetch = originalFetch;
   }

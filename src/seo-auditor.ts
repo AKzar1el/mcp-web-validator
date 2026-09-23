@@ -415,7 +415,7 @@ export async function checkBrokenLinks(
   const urls: string[] = [];
   const seenUrls = new Set<string>();
 
-  $("a").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
+  $("a, area").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
     if (urls.length >= linkLimit) {
       return false;
     }

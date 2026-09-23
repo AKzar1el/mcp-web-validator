@@ -43,7 +43,7 @@ https://web-validator-mcp.digestseo.com/mcp
 
 The validation, SEO, schema, link, and report tools do not download a browser during installation. The local `screenshot.capture` tool installs its pinned headless browser into Puppeteer's cache on first use, then reuses that browser for later screenshots. Set `PUPPETEER_CACHE_DIR` if you need a custom cache location.
 
-## Local server tools
+## Tools
 
 The npm package exposes these exact runtime tool names:
 

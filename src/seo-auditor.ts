@@ -357,14 +357,18 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   });
 
   // --- Open Graph / Social Tags ---
-  const ogTitle = $('head > meta[property="og:title"]');
-  const ogImage = $('head > meta[property="og:image"]');
-  if (ogTitle.length === 0 || ogImage.length === 0) {
+  const requiredOpenGraphProperties = ["og:title", "og:type", "og:image", "og:url"] as const;
+  const hasCompleteOpenGraphMetadata = requiredOpenGraphProperties.every((property) =>
+    $(`head > meta[property="${property}"]`).filter(
+      (_, element) => Boolean($(element).attr("content")?.trim()),
+    ).length > 0
+  );
+  if (!hasCompleteOpenGraphMetadata) {
     add({
       code: "seo.open_graph.missing",
       severity: "info",
       category: "SEO",
-      message: "Missing Open Graph social metadata (og:title / og:image). Add these to control preview cards on platforms like LinkedIn and X.",
+      message: "Open Graph basic metadata is incomplete or empty. Provide non-empty og:title, og:type, og:image, and og:url values.",
     });
   }
 

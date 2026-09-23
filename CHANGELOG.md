@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.26] - 2026-09-23
+
+### Fixed
+
+- Escaped Markdown control syntax in generated validation-report table cells so validator and page diagnostics render literally instead of becoming active links, images, or emphasis.
+- Reported missing or empty functional `alt` text on `<input type="image">` submit controls in package and hosted accessibility audits while preserving valid labels and inert template contents.
+
 ## [1.3.25] - 2026-09-23
 
 ### Fixed

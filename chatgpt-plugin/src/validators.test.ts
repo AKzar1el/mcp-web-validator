@@ -198,23 +198,29 @@ describe("bounded audits", () => {
       .toBeUndefined();
   });
 
-  it("image submit buttons require non-empty functional alt text", () => {
+  it("image submit buttons require a non-empty accessible name", () => {
     for (const html of [
       '<input type="image" src="search.png">',
       '<input type="IMAGE" src="search.png" alt="">',
       '<input type="image" src="search.png" alt="   ">',
+      '<input type="image" src="search.png" aria-label="   ">',
+      '<span id="blank-label">   </span><input type="image" src="search.png" aria-labelledby="blank-label">',
+      '<template><span id="template-label">Search</span></template><input type="image" src="search.png" aria-labelledby="template-label">',
     ]) {
       expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.input_image_alt.missing_or_empty"))
         .toEqual({
           code: "accessibility.input_image_alt.missing_or_empty",
           severity: "error",
           category: "Accessibility",
-          message: "Image submit buttons need non-empty alt text that labels the button's function.",
+          message: "Image submit buttons need a non-empty accessible name. Provide alt text or another supported label such as aria-label, aria-labelledby, or title.",
         });
     }
 
     for (const html of [
       '<input type="image" src="search.png" alt="Search">',
+      '<input type="image" src="search.png" aria-label="Search">',
+      '<input type="image" src="search.png" alt="" title="Search">',
+      '<span id="search-label">Search</span><input type="image" src="search.png" aria-labelledby="search-label">',
       '<input type="text" alt="">',
       '<template><input type="image" src="search.png"></template>',
     ]) {

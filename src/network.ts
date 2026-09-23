@@ -19,7 +19,6 @@ for (const [network, prefix] of [
   ["127.0.0.0", 8],
   ["169.254.0.0", 16],
   ["172.16.0.0", 12],
-  ["192.0.0.0", 24],
   ["192.0.2.0", 24],
   ["192.88.99.0", 24],
   ["192.168.0.0", 16],
@@ -49,6 +48,16 @@ for (const [network, prefix] of [
 
 const publicIpv6Addresses = new BlockList();
 publicIpv6Addresses.addSubnet("2000::", 3, "ipv6");
+
+// IANA's 192.0.0.0/24 IETF Protocol Assignments block is not globally
+// reachable by default. Only these two anycast addresses are currently
+// marked globally reachable in the IANA IPv4 Special-Purpose Address Registry.
+const ietfProtocolAssignmentsIpv4 = new BlockList();
+ietfProtocolAssignmentsIpv4.addSubnet("192.0.0.0", 24, "ipv4");
+
+const publicIetfProtocolAssignmentsIpv4 = new BlockList();
+publicIetfProtocolAssignmentsIpv4.addAddress("192.0.0.9", "ipv4");
+publicIetfProtocolAssignmentsIpv4.addAddress("192.0.0.10", "ipv4");
 
 // IANA's 2001::/23 IETF Protocol Assignments block is not globally reachable
 // by default. Only the more-specific allocations below are currently marked
@@ -148,6 +157,12 @@ function normalizeHostname(hostname: string): string {
 
 function isPublicAddress(address: string, family: number): boolean {
   if (family === 4) {
+    if (
+      ietfProtocolAssignmentsIpv4.check(address, "ipv4")
+      && !publicIetfProtocolAssignmentsIpv4.check(address, "ipv4")
+    ) {
+      return false;
+    }
     return !blockedAddresses.check(address, "ipv4");
   }
 

@@ -148,6 +148,9 @@ test("public URL policy blocks local, reserved, credentialed, and custom-port ta
   for (const url of [
     "http://127.0.0.1/",
     "http://169.254.169.254/",
+    "http://192.0.0.8/",
+    "http://192.0.0.170/",
+    "http://192.0.0.171/",
     "http://192.0.2.1/",
     "http://[::1]/",
     "http://[2001:100::1]/",
@@ -163,6 +166,9 @@ test("public URL policy blocks local, reserved, credentialed, and custom-port ta
   assert.equal((await assertPublicHttpUrl("http://1.1.1.1:80/")).href, "http://1.1.1.1/");
   assert.equal((await assertPublicHttpUrl("https://1.1.1.1:443/")).href, "https://1.1.1.1/");
   assert.equal((await assertPublicHttpUrl("https://1.1.1.1/path#fragment")).href, "https://1.1.1.1/path");
+  for (const url of ["https://192.0.0.9/", "https://192.0.0.10/"]) {
+    assert.equal((await assertPublicHttpUrl(url)).href, url);
+  }
   assert.equal(
     (await assertPublicHttpUrl("https://[2606:4700:4700::1111]/")).href,
     "https://[2606:4700:4700::1111]/",

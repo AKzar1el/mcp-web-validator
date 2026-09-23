@@ -179,6 +179,16 @@ test("link narration treats redirects as review items instead of broken links", 
   assert.doesNotMatch(redirectsOnly, /Link returned HTTP 308/);
 });
 
+test("link narration does not call HTTP 304 a redirect", () => {
+  const output = linkCheckContent([
+    { url: "https://example.test/not-modified", status: 304, ok: true },
+  ]);
+
+  assert.match(output, /^### Link check: clean/m);
+  assert.match(output, /reachable response/i);
+  assert.doesNotMatch(output, /redirect/i);
+});
+
 test("user-derived URLs, snippets, and paths remain inside unbreakable code spans", () => {
   const source = "https://example.test/`source`/[link](https://evil.test)";
   const html = htmlValidationContent([], source);

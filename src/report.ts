@@ -4,7 +4,7 @@ import {
   type CSSMessage,
   type W3CMessage,
 } from "./w3c-validator.js";
-import type { AuditCounts, LinkStatus, SEOIssue } from "./seo-auditor.js";
+import { isHttpRedirectStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 
 export const validationReportChecks = ["input", "html", "css", "seo", "schema", "links"] as const;
 export type ValidationReportCheck = (typeof validationReportChecks)[number];
@@ -93,7 +93,7 @@ function markdownCell(value: unknown): string {
 }
 
 function isRedirect(link: LinkStatus): boolean {
-  return typeof link.status === "number" && link.status >= 300 && link.status < 400;
+  return isHttpRedirectStatus(link.status);
 }
 
 /** Builds the human-readable report and its machine-readable equivalent. */

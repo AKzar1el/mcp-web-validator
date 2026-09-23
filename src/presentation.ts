@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 import type { ValidationReport } from "./report.js";
-import type { AuditCounts, LinkStatus, SEOIssue } from "./seo-auditor.js";
+import { isHttpRedirectStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
   getW3CMessageSeverity,
   type CSSMessage,
@@ -287,7 +287,7 @@ function linkPriority(link: LinkStatus): ActionPriority {
 }
 
 function isRedirect(link: LinkStatus): boolean {
-  return typeof link.status === "number" && link.status >= 300 && link.status < 400;
+  return isHttpRedirectStatus(link.status);
 }
 
 function linkActionMessage(link: LinkStatus): string {
@@ -316,8 +316,8 @@ export function linkCheckContent(links: LinkStatus[], baseUrl?: string): string 
       title: "Link check",
       status: "clean",
       outcome: links.length === 1
-        ? "The checked link returned a successful response."
-        : `All ${links.length} checked links returned a successful response.`,
+        ? "The checked link returned a reachable response."
+        : `All ${links.length} checked links returned reachable responses.`,
       nextStep: "Recheck periodically because external link availability can change.",
     });
   }

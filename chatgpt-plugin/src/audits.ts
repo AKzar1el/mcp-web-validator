@@ -32,6 +32,16 @@ export interface AuditSeoMetadataOptions {
 
 const MAX_AUDIT_ISSUES = 100;
 const REQUEST_TIMEOUT_MS = 5_000;
+const IETF_PROTOCOL_ASSIGNMENTS_IPV6 = ipaddr.parseCIDR("2001::/23");
+const GLOBALLY_REACHABLE_IETF_PROTOCOL_IPV6 = [
+  "2001:1::1/128",
+  "2001:1::2/128",
+  "2001:1::3/128",
+  "2001:3::/32",
+  "2001:4:112::/48",
+  "2001:20::/28",
+  "2001:30::/28",
+].map((range) => ipaddr.parseCIDR(range));
 
 function createAuditCollector() {
   const issues: AuditIssue[] = [];
@@ -341,6 +351,9 @@ function isPrivateOrReservedHost(hostname: string): boolean {
   if (!ipaddr.isValid(host)) return false;
   const parsed = ipaddr.parse(host);
   const address = parsed instanceof ipaddr.IPv6 && parsed.isIPv4MappedAddress() ? parsed.toIPv4Address() : parsed;
+  if (address instanceof ipaddr.IPv6 && address.match(IETF_PROTOCOL_ASSIGNMENTS_IPV6)) {
+    return !GLOBALLY_REACHABLE_IETF_PROTOCOL_IPV6.some((range) => address.match(range));
+  }
   return address.range() !== "unicast";
 }
 

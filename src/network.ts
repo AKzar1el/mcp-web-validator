@@ -50,6 +50,25 @@ for (const [network, prefix] of [
 const publicIpv6Addresses = new BlockList();
 publicIpv6Addresses.addSubnet("2000::", 3, "ipv6");
 
+// IANA's 2001::/23 IETF Protocol Assignments block is not globally reachable
+// by default. Only the more-specific allocations below are currently marked
+// globally reachable in the IANA IPv6 Special-Purpose Address Registry.
+const ietfProtocolAssignments = new BlockList();
+ietfProtocolAssignments.addSubnet("2001::", 23, "ipv6");
+
+const publicIetfProtocolAssignments = new BlockList();
+for (const [network, prefix] of [
+  ["2001:1::1", 128],
+  ["2001:1::2", 128],
+  ["2001:1::3", 128],
+  ["2001:3::", 32],
+  ["2001:4:112::", 48],
+  ["2001:20::", 28],
+  ["2001:30::", 28],
+] as const) {
+  publicIetfProtocolAssignments.addSubnet(network, prefix, "ipv6");
+}
+
 const blockedHostnames = new Set([
   "localhost",
   "localhost.localdomain",
@@ -133,6 +152,12 @@ function isPublicAddress(address: string, family: number): boolean {
   }
 
   if (family === 6) {
+    if (
+      ietfProtocolAssignments.check(address, "ipv6")
+      && !publicIetfProtocolAssignments.check(address, "ipv6")
+    ) {
+      return false;
+    }
     return publicIpv6Addresses.check(address, "ipv6")
       && !blockedAddresses.check(address, "ipv6");
   }

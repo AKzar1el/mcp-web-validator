@@ -83,6 +83,16 @@ describe("public URL filtering", () => {
       "https://[2606:4700:4700::1111]/",
     );
     expect(toPublicHttpUrl("https://[2001:1::1]/")?.toString()).toBe("https://[2001:1::1]/");
+    for (const url of [
+      "https://[2001:1::2]/",
+      "https://[2001:1::3]/",
+      "https://[2001:3::1]/",
+      "https://[2001:4:112::1]/",
+      "https://[2001:20::1]/",
+      "https://[2001:30::1]/",
+    ]) {
+      expect(toPublicHttpUrl(url)?.toString()).toBe(url);
+    }
   });
 });
 

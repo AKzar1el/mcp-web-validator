@@ -229,6 +229,19 @@ describe("bounded audits", () => {
     }
   });
 
+  it("accepts an explicit empty alt on ordinary decorative images", () => {
+    expect(auditSeoMetadata('<img src="divider.png" alt="">').issues
+      .find((issue) => issue.code === "accessibility.image_alt.empty"))
+      .toBeUndefined();
+
+    expect(auditSeoMetadata('<img src="missing.png">').issues
+      .find((issue) => issue.code === "accessibility.image_alt.missing")?.severity)
+      .toBe("error");
+    expect(auditSeoMetadata('<img src="blank.png" alt="   ">').issues
+      .find((issue) => issue.code === "accessibility.image_alt.empty")?.severity)
+      .toBe("info");
+  });
+
   it("image-map links require usable alt text", () => {
     for (const html of [
       '<map name="nav"><area href="/docs"></map>',

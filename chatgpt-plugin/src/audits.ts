@@ -414,12 +414,12 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
         category: "Accessibility",
         message: "An image is missing its alt attribute.",
       });
-    } else if (alt.trim() === "") {
+    } else if (alt !== "" && alt.trim() === "") {
       collector.add({
         code: "accessibility.image_alt.empty",
         severity: "info",
         category: "Accessibility",
-        message: "An image has an empty alt attribute; confirm that it is decorative.",
+        message: "Whitespace-only alt text does not provide an accessible name. Use alt=\"\" for a decorative image or meaningful alternative text for an informative image.",
       });
     }
   });

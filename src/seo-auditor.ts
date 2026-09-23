@@ -437,14 +437,13 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
         message: "Missing 'alt' attribute on image. This makes it inaccessible to screen readers.",
         element: `<img src="${src}">`,
       });
-    } else if (alt.trim() === "") {
-      // Empty alt is acceptable for purely decorative images, but worth warning
+    } else if (alt !== "" && alt.trim() === "") {
       add({
         code: "accessibility.image_alt.empty",
         severity: "info",
         category: "Accessibility",
-        message: "Empty 'alt' attribute found. Ensure this image is purely decorative, otherwise add descriptive text.",
-        element: `<img src="${src}" alt="">`,
+        message: "Whitespace-only 'alt' text does not provide an accessible name. Use alt=\"\" for a decorative image or meaningful alternative text for an informative image.",
+        element: `<img src="${src}" alt="${alt}">`,
       });
     }
   });

@@ -451,7 +451,10 @@ export async function checkBrokenLinks(
 
   const $ = cheerio.load(html);
   let effectiveBaseUrl = fallbackBaseUrl;
-  const documentBaseHref = $("base[href]").first().attr("href");
+  const documentBaseHref = $("base[href]")
+    .filter((_, element) => !isInTemplateContents(element))
+    .first()
+    .attr("href");
   if (documentBaseHref !== undefined) {
     try {
       const resolvedDocumentBase = fallbackBaseUrl
@@ -466,7 +469,7 @@ export async function checkBrokenLinks(
   const seen = new Set<string>();
   const limit = Math.min(Math.max(maxLinks, 1), HOSTED_MAX_LINKS);
 
-  $("a[href]").each((_, element) => {
+  $("a[href]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
     if (urls.length >= limit) return;
     const href = $(element).attr("href")?.trim();
     if (!href || href.startsWith("#") || /^(mailto:|tel:|javascript:|data:)/i.test(href)) return;

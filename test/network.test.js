@@ -572,6 +572,27 @@ test("relative document base elements resolve against the fetched page URL", asy
   }
 });
 
+test("link checker ignores base and anchor elements inside inert template contents", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input, init) => {
+    requested.push({ url: String(input), method: init?.method });
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const links = await checkBrokenLinks(
+      '<template><base href="https://8.8.8.8/inert/"><a href="ghost">Ghost</a></template><base href="https://1.1.1.1/live/"><a href="page">Page</a>',
+      "https://1.1.1.1/fallback/",
+      5,
+    );
+    assert.deepEqual(links.map((link) => link.url), ["https://1.1.1.1/live/page"]);
+    assert.deepEqual(requested, [{ url: "https://1.1.1.1/live/page", method: "HEAD" }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("unsafe document base elements do not redirect relative link checks", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];

@@ -83,6 +83,9 @@ function scoreIndicator(score: number | null): string {
 
 function markdownCell(value: unknown): string {
   return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
     .replace(/\\/g, "\\\\")
     .replace(/\|/g, "\\|")
     .replace(/`/g, "\\`")

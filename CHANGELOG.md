@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.29] - 2026-09-23
+
+### Added
+
+- Reported explicitly authored root `<html lang>` values whose primary language subtag is unknown in the current IANA Language Subtag Registry, while preserving fragment-safe audits and accepting known primary subtags with irregular later subtags.
+
+### Changed
+
+- Updated the screenshot runtime to Puppeteer/Puppeteer Core 25.12.0, `@puppeteer/browsers` 3.2.3, and the matching Chrome Headless Shell 154.0.8037.57 while retaining lazy first-use browser installation.
+
 ## [1.3.28] - 2026-09-23
 
 ### Fixed

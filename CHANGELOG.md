@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.32] - 2026-09-24
+
+### Fixed
+
+- Preserved `application/xhtml+xml` when fetched XHTML is forwarded to the Nu HTML checker so XML/XHTML well-formedness failures are not hidden by `text/html` parsing.
+- Accepted non-empty `aria-label`, `title`, or resolvable non-empty `aria-labelledby` text as valid accessible names for `input[type="image"]` controls while still reporting genuinely unnamed image submit buttons.
+
 ## [1.3.31] - 2026-09-23
 
 ### Added

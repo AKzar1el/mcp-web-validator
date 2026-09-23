@@ -433,6 +433,31 @@ describe("bounded audits", () => {
     });
   });
 
+  it.each([
+    '<meta name="viewport" content="width=device-width, user-scalable=no">',
+    '<meta name="viewport" content="width=device-width, maximum-scale=1.5">',
+  ])("reports viewport metadata that restricts 200% zoom: %s", (html) => {
+    const result = auditSeoMetadata(html);
+
+    expect(result.issues).toContainEqual({
+      code: "accessibility.viewport.zoom_restricted",
+      severity: "warning",
+      category: "Accessibility",
+      message: "Viewport metadata restricts user zoom below 200%. Avoid user-scalable=no and maximum-scale values below 2.",
+    });
+  });
+
+  it.each([
+    '<meta name="viewport" content="width=device-width, user-scalable=yes">',
+    '<meta name="viewport" content="width=device-width, maximum-scale=2">',
+    '<meta name="viewport" content="width=device-width, maximum-scale=-1">',
+    '<meta name="viewport" content="width=device-width">',
+  ])("does not flag non-restricting viewport metadata: %s", (html) => {
+    const result = auditSeoMetadata(html);
+
+    expect(result.issues.find((issue) => issue.code === "accessibility.viewport.zoom_restricted")).toBeUndefined();
+  });
+
   it("ignores body and SVG metadata lookalikes outside the document head", () => {
     const description = "D".repeat(140);
     const result = auditSeoMetadata([

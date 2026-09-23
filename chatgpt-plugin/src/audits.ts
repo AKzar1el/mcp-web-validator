@@ -83,6 +83,24 @@ function isInTemplateContents(element: unknown): boolean {
   return false;
 }
 
+function viewportContentRestrictsZoom(content: string): boolean {
+  const directives = new Map<string, string>();
+  for (const part of content.split(",")) {
+    const separatorIndex = part.indexOf("=");
+    if (separatorIndex < 0) continue;
+    const name = part.slice(0, separatorIndex).trim().toLowerCase();
+    const value = part.slice(separatorIndex + 1).trim().toLowerCase();
+    if (name) directives.set(name, value);
+  }
+
+  if (directives.get("user-scalable") === "no") return true;
+
+  const maximumScale = directives.get("maximum-scale");
+  if (maximumScale === undefined || maximumScale === "") return false;
+  const numericMaximumScale = Number(maximumScale);
+  return Number.isFinite(numericMaximumScale) && numericMaximumScale >= 0 && numericMaximumScale < 2;
+}
+
 function hasIndexBlockingXRobotsTagForGoogle(value: string | undefined): boolean {
   if (!value) return false;
   const parameterizedRules = new Set([
@@ -263,6 +281,14 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
       severity: "error",
       category: "SEO",
       message: "Viewport meta tag is present but its content is empty. Provide viewport settings such as width=device-width.",
+    });
+  }
+  if (viewport.filter((_, element) => viewportContentRestrictsZoom($(element).attr("content") ?? "")).length > 0) {
+    collector.add({
+      code: "accessibility.viewport.zoom_restricted",
+      severity: "warning",
+      category: "Accessibility",
+      message: "Viewport metadata restricts user zoom below 200%. Avoid user-scalable=no and maximum-scale values below 2.",
     });
   }
 

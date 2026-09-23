@@ -157,6 +157,30 @@ test("validation report preserves full SEO and schema counts when returned findi
   assert.match(reportContent(report), /first 200 of 205 JSON-LD findings/i);
 });
 
+test("validation report renders untrusted HTML-like diagnostics as literal Markdown text", async () => {
+  const report = await runReport({
+    validateHtmlContent: async () => [{
+      type: "error",
+      message: "Bad <script>alert(1)</script> & markup",
+      extract: '<img src=x onerror="alert(1)">',
+    }],
+    auditSeoMetadata: () => [{
+      severity: "warning",
+      category: "SEO",
+      message: "Review <meta> & metadata",
+      element: '<meta name="description" content="unsafe">',
+    }],
+    validateSchemaMarkup: () => [],
+    checkBrokenLinks: async () => [],
+  });
+
+  assert.doesNotMatch(report.report, /<script>|<img|<meta/);
+  assert.match(report.report, /Bad &lt;script&gt;alert\(1\)&lt;\/script&gt; &amp; markup/);
+  assert.match(report.report, /&lt;img src=x onerror="alert\(1\)"&gt;/);
+  assert.match(report.report, /Review &lt;meta&gt; &amp; metadata/);
+  assert.match(report.report, /&lt;meta name="description" content="unsafe"&gt;/);
+});
+
 test("validation report keeps local and link results when HTML validation fails", async () => {
   const report = await runReport({
     validateHtmlContent: async () => { throw new Error("Nu HTML Checker unavailable"); },

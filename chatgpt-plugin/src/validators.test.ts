@@ -305,6 +305,27 @@ describe("bounded audits", () => {
     expect(relative.find((issue) => issue.code === "seo.canonical.fragment_unsupported")).toBeUndefined();
   });
 
+  it("recommends absolute canonical href values while preserving relative canonical support", () => {
+    for (const href of ["/page", "page", "../page", "//example.com/page"]) {
+      const issues = auditSeoMetadata(`<link rel="canonical" href="${href}">`).issues;
+      expect(issues.find((issue) => issue.code === "seo.canonical.relative_not_recommended")).toEqual({
+        code: "seo.canonical.relative_not_recommended",
+        severity: "info",
+        category: "SEO",
+        message: "Canonical href is relative. Google supports relative canonical URLs but recommends absolute URLs to avoid long-term canonicalization mistakes.",
+      });
+    }
+
+    for (const html of [
+      '<link rel="canonical" href="https://example.com/page">',
+      '<link rel="canonical" href="/page#section">',
+      '<link rel="canonical" href="/page" media="print">',
+    ]) {
+      const issues = auditSeoMetadata(html).issues;
+      expect(issues.find((issue) => issue.code === "seo.canonical.relative_not_recommended")).toBeUndefined();
+    }
+  });
+
   it("reports noindex-equivalent robots directives that affect Google Search", () => {
     for (const html of [
       '<meta name="robots" content="NOINDEX, follow">',

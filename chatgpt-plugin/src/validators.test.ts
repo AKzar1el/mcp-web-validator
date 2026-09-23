@@ -262,6 +262,21 @@ describe("bounded audits", () => {
     }
   });
 
+  it("warns when the canonical href contains a URL fragment", () => {
+    for (const href of ["#section", "https://example.com/page#section", "/page#section"]) {
+      const issues = auditSeoMetadata(`<link rel="canonical" href="${href}">`).issues;
+      expect(issues.find((issue) => issue.code === "seo.canonical.fragment_unsupported")).toEqual({
+        code: "seo.canonical.fragment_unsupported",
+        severity: "warning",
+        category: "SEO",
+        message: "Canonical URL contains a fragment. Google generally does not support URL fragments for canonicalization; remove the #fragment from the canonical href.",
+      });
+    }
+
+    const relative = auditSeoMetadata('<link rel="canonical" href="/page">').issues;
+    expect(relative.find((issue) => issue.code === "seo.canonical.fragment_unsupported")).toBeUndefined();
+  });
+
   it("reports noindex-equivalent robots directives that affect Google Search", () => {
     for (const html of [
       '<meta name="robots" content="NOINDEX, follow">',

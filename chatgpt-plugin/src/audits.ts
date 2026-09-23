@@ -189,6 +189,14 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   const usableCanonical = nonEmptyCanonical.filter(
     (_, element) => !["hreflang", "lang", "media", "type"].some((attribute) => $(element).attr(attribute) !== undefined),
   );
+  if (usableCanonical.filter((_, element) => ($(element).attr("href") ?? "").includes("#")).length > 0) {
+    collector.add({
+      code: "seo.canonical.fragment_unsupported",
+      severity: "warning",
+      category: "SEO",
+      message: "Canonical URL contains a fragment. Google generally does not support URL fragments for canonicalization; remove the #fragment from the canonical href.",
+    });
+  }
   if (canonicalLinks.length === 0) {
     collector.add({
       code: "seo.canonical.missing",

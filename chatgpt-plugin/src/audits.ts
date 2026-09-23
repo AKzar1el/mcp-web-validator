@@ -303,6 +303,32 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
     }
   });
 
+  $("area[href]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
+    const area = $(element);
+    const alt = area.attr("alt");
+    let needsAlt = alt === undefined;
+
+    if (alt !== undefined && alt.trim() === "") {
+      const href = area.attr("href")?.trim() ?? "";
+      const map = area.closest("map");
+      const hasLabeledEquivalent = map.find("area[href]").filter((_, peer) =>
+        !isInTemplateContents(peer)
+        && ($(peer).attr("href")?.trim() ?? "") === href
+        && Boolean($(peer).attr("alt")?.trim())
+      ).length > 0;
+      needsAlt = !hasLabeledEquivalent;
+    }
+
+    if (needsAlt) {
+      collector.add({
+        code: "accessibility.area_alt.missing_or_empty",
+        severity: "error",
+        category: "Accessibility",
+        message: "Image-map links need alt text unless another area with the same href provides the label.",
+      });
+    }
+  });
+
   if ($('head > meta[property="og:title"]').length === 0 || $('head > meta[property="og:image"]').length === 0) {
     collector.add({
       code: "seo.open_graph.missing",

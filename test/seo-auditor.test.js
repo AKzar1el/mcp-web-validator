@@ -125,6 +125,36 @@ test("image submit buttons require non-empty functional alt text", () => {
   }
 });
 
+test("image-map links require usable alt text", () => {
+  for (const html of [
+    '<map name="nav"><area href="/docs"></map>',
+    '<map name="nav"><area href="/docs" alt=""></map>',
+    '<map name="nav"><area href="/docs" alt="   "></map>',
+  ]) {
+    assert.deepEqual(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.area_alt.missing_or_empty"),
+      {
+        code: "accessibility.area_alt.missing_or_empty",
+        severity: "error",
+        category: "Accessibility",
+        message: "Image-map links need alt text unless another area with the same href provides the label.",
+      },
+    );
+  }
+
+  for (const html of [
+    '<map name="nav"><area href="/docs" alt="Documentation"></map>',
+    '<map name="nav"><area shape="default"></map>',
+    '<map name="nav"><area href="/docs" alt=""><area href="/docs" alt="Documentation"></map>',
+    '<template><map name="nav"><area href="/docs"></map></template>',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.area_alt.missing_or_empty"),
+      undefined,
+    );
+  }
+});
+
 test("canonical audit distinguishes an optional missing preference from an unusable declaration", () => {
   const valid = auditSeoMetadata('<link rel="Alternate CANONICAL" href="https://example.com/page">');
   assert.equal(valid.find((issue) => issue.code === "seo.canonical.missing"), undefined);

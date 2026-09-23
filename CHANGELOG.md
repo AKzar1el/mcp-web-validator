@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.27] - 2026-09-23
+
+### Fixed
+
+- Reported active image-map `<area href>` links whose required text alternatives are missing or unusable, while preserving the same-resource labeled-area exception and ignoring dead or inert markup.
+- Required usable non-empty values for the four Open Graph basic properties (`og:title`, `og:type`, `og:image`, and `og:url`) while preserving informational severity and multiple-image semantics.
+
 ## [1.3.26] - 2026-09-23
 
 ### Fixed

@@ -449,14 +449,30 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     }
   });
 
+  const textById = new Map<string, string>();
+  $("[id]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
+    const id = $(element).attr("id");
+    if (id !== undefined && !textById.has(id)) textById.set(id, $(element).text().trim());
+  });
+
   $("input[type=\"image\" i]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
-    const alt = $(element).attr("alt");
-    if (alt === undefined || alt.trim() === "") {
+    const input = $(element);
+    const labelledByIds = (input.attr("aria-labelledby") ?? "")
+      .trim()
+      .split(/[\t\n\f\r ]+/)
+      .filter(Boolean);
+    const hasLabelledByText = labelledByIds.some((id) => Boolean(textById.get(id)));
+    const hasAccessibleName = hasLabelledByText
+      || Boolean(input.attr("aria-label")?.trim())
+      || Boolean(input.attr("alt")?.trim())
+      || Boolean(input.attr("title")?.trim());
+
+    if (!hasAccessibleName) {
       add({
         code: "accessibility.input_image_alt.missing_or_empty",
         severity: "error",
         category: "Accessibility",
-        message: "Image submit buttons need non-empty alt text that labels the button's function.",
+        message: "Image submit buttons need a non-empty accessible name. Provide alt text or another supported label such as aria-label, aria-labelledby, or title.",
       });
     }
   });

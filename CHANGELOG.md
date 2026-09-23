@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.23] - 2026-09-23
+
+### Fixed
+
+- Ignored inert `<template>` contents when auditing robots directives, H1 headings, image alternative text, and JSON-LD so inactive template markup no longer creates page findings.
+- Rejected the RFC 9637 `3fff::/20` IPv6 documentation prefix from public URL targets while preserving ordinary globally routable IPv6 support.
+
 ## [1.3.22] - 2026-09-23
 
 ### Fixed

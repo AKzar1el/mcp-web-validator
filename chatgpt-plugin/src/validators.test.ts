@@ -458,6 +458,39 @@ describe("bounded audits", () => {
     expect(result.issues.find((issue) => issue.code === "accessibility.viewport.zoom_restricted")).toBeUndefined();
   });
 
+  it.each([
+    '<meta http-equiv="refresh" content="30">',
+    '<meta http-equiv="REFRESH" content="30; URL=https://example.com/next">',
+    '<meta http-equiv="refresh" content="72000">',
+  ])("reports delayed meta refresh directives: %s", (html) => {
+    const result = auditSeoMetadata(html);
+
+    expect(result.issues).toContainEqual({
+      code: "accessibility.meta_refresh.delayed",
+      severity: "warning",
+      category: "Accessibility",
+      message: "Meta refresh uses a delay between 1 second and 20 hours. Prefer an immediate redirect or user-controlled navigation.",
+    });
+  });
+
+  it("follows first valid meta refresh semantics and preserves safe controls", () => {
+    const delayedAfterInvalid = auditSeoMetadata([
+      '<meta http-equiv="refresh" content="0: https://example.com/invalid">',
+      '<meta http-equiv="refresh" content="5; https://example.com/next">',
+    ].join(""));
+    expect(delayedAfterInvalid.issues.find((issue) => issue.code === "accessibility.meta_refresh.delayed")?.severity)
+      .toBe("warning");
+
+    for (const html of [
+      '<meta http-equiv="refresh" content="0; URL=https://example.com/next"><meta http-equiv="refresh" content="5">',
+      '<meta http-equiv="refresh" content="72001">',
+      '<meta http-equiv="refresh" content="+5; https://example.com/invalid">',
+      '<template><meta http-equiv="refresh" content="5"></template><meta http-equiv="refresh" content="0">',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.meta_refresh.delayed"))
+        .toBeUndefined();
+    }
+  });
   it("ignores body and SVG metadata lookalikes outside the document head", () => {
     const description = "D".repeat(140);
     const result = auditSeoMetadata([

@@ -185,7 +185,7 @@ test("link narration does not call HTTP 304 a redirect", () => {
   ]);
 
   assert.match(output, /^### Link check: clean/m);
-  assert.match(output, /successful response/i);
+  assert.match(output, /reachable response/i);
   assert.doesNotMatch(output, /redirect/i);
 });
 

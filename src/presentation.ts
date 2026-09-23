@@ -316,8 +316,8 @@ export function linkCheckContent(links: LinkStatus[], baseUrl?: string): string 
       title: "Link check",
       status: "clean",
       outcome: links.length === 1
-        ? "The checked link returned a successful response."
-        : `All ${links.length} checked links returned a successful response.`,
+        ? "The checked link returned a reachable response."
+        : `All ${links.length} checked links returned reachable responses.`,
       nextStep: "Recheck periodically because external link availability can change.",
     });
   }

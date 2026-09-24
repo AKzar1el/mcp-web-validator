@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.35] - 2026-09-24
+
+### Fixed
+
+- Stopped reporting missing accessible-name findings for ordinary images explicitly marked `role="none"` or `role="presentation"` when no focusability, contenteditable, or ARIA conflict restores image semantics.
+- Required a non-empty accessible name for exact-empty-alt images that explicitly retain semantic `img`/`image` roles, while preserving ordinary decorative `alt=""` behavior and supported alternate labels.
+
 ## [1.3.34] - 2026-09-24
 
 ### Fixed

@@ -52,6 +52,31 @@ Then restart Cursor or reload its window. The plugin starts the published
 package with `npx -y mcp-web-validator`; no API keys or environment variables
 are required.
 
+## OpenAI Codex
+
+Codex CLI can add the published local stdio package directly:
+
+```bash
+codex mcp add mcp-web-validator -- npx -y mcp-web-validator
+```
+
+For the separate hosted Streamable HTTP surface, use:
+
+```bash
+codex mcp add mcp-web-validator-hosted --url https://web-validator-mcp.digestseo.com/mcp
+```
+
+Verify configured servers with:
+
+```bash
+codex mcp list
+```
+
+Use the local package when Codex needs workspace-file validation or responsive
+screenshot capture. Use the hosted surface when a remote-only MCP connection is
+preferred; it cannot access local files or create screenshots. Neither setup
+requires a Web Validator API key.
+
 ## Gemini CLI
 
 Gemini CLI can add the published stdio package directly:

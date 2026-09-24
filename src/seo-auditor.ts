@@ -253,6 +253,15 @@ function parseMetaRefreshDelaySeconds(content: string): number | undefined {
   return time;
 }
 
+function canParseCanonicalHref(href: string): boolean {
+  try {
+    new URL(href, "https://example.invalid/");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Audits technical SEO and accessibility basics on HTML content using Cheerio
  */
@@ -360,9 +369,23 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       .some((token) => token.toLowerCase() === "canonical");
   });
   const nonEmptyCanonical = canonicalLinks.filter((_, element) => Boolean($(element).attr("href")?.trim()));
-  const usableCanonical = nonEmptyCanonical.filter(
+  const parseableCanonical = nonEmptyCanonical.filter((_, element) =>
+    canParseCanonicalHref(($(element).attr("href") ?? "").trim()),
+  );
+  const invalidCanonical = nonEmptyCanonical.filter((_, element) =>
+    !canParseCanonicalHref(($(element).attr("href") ?? "").trim()),
+  );
+  const usableCanonical = parseableCanonical.filter(
     (_, element) => !["hreflang", "lang", "media", "type"].some((attribute) => $(element).attr(attribute) !== undefined),
   );
+  if (invalidCanonical.length > 0) {
+    add({
+      code: "seo.canonical.invalid_url",
+      severity: "warning",
+      category: "SEO",
+      message: "Canonical link href cannot be parsed as a URL. Provide a valid canonical target or remove the declaration.",
+    });
+  }
   if (usableCanonical.filter((_, element) => ($(element).attr("href") ?? "").includes("#")).length > 0) {
     add({
       code: "seo.canonical.fragment_unsupported",
@@ -392,14 +415,14 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       message: "No rel=\"canonical\" preference is declared. This is optional unless the page needs an explicit canonicalization signal.",
     });
   } else if (usableCanonical.length === 0) {
-    if (nonEmptyCanonical.length > 0) {
+    if (parseableCanonical.length > 0) {
       add({
         code: "seo.canonical.unusable",
         severity: "warning",
         category: "SEO",
         message: "Canonical link is present but uses attributes Google ignores for canonicalization. Use a plain rel=\"canonical\" link in <head>.",
       });
-    } else {
+    } else if (nonEmptyCanonical.length === 0) {
       add({
         code: "seo.canonical.missing",
         severity: "warning",

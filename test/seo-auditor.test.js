@@ -469,6 +469,28 @@ test("canonical audit distinguishes an optional missing preference from an unusa
   });
 });
 
+test("canonical audit reports non-empty href values that cannot be parsed as URLs", () => {
+  for (const href of ["https://", "http://[::1"]) {
+    const issues = auditSeoMetadata(`<link rel="canonical" href="${href}">`);
+    assert.deepEqual(issues.find((issue) => issue.code === "seo.canonical.invalid_url"), {
+      code: "seo.canonical.invalid_url",
+      severity: "warning",
+      category: "SEO",
+      message: "Canonical link href cannot be parsed as a URL. Provide a valid canonical target or remove the declaration.",
+    });
+    assert.equal(issues.find((issue) => issue.code === "seo.canonical.unusable"), undefined);
+    assert.equal(issues.find((issue) => issue.code === "seo.canonical.relative_not_recommended"), undefined);
+  }
+
+  for (const href of ["https://example.com/page", "/page", "../page", "//example.com/page"]) {
+    assert.equal(
+      auditSeoMetadata(`<link rel="canonical" href="${href}">`)
+        .find((issue) => issue.code === "seo.canonical.invalid_url"),
+      undefined,
+    );
+  }
+});
+
 test("canonical audit reports ambiguous and Google-ignored canonical declarations", () => {
   const multiple = auditSeoMetadata([
     "<html><head>",

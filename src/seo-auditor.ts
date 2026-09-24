@@ -545,7 +545,9 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   const textById = new Map<string, string>();
   $("[id]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
     const id = $(element).attr("id");
-    if (id !== undefined && !textById.has(id)) textById.set(id, $(element).text().trim());
+    if (id !== undefined && !textById.has(id)) {
+      textById.set(id, $(element).attr("aria-label")?.trim() || $(element).text().trim());
+    }
   });
 
   // --- Images Alt Tags (SEO + Accessibility) ---

@@ -520,7 +520,9 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   const textById = new Map<string, string>();
   $("[id]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
     const id = $(element).attr("id");
-    if (id !== undefined && !textById.has(id)) textById.set(id, $(element).text().trim());
+    if (id !== undefined && !textById.has(id)) {
+      textById.set(id, $(element).attr("aria-label")?.trim() || $(element).text().trim());
+    }
   });
 
   $("img").filter((_, element) =>

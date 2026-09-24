@@ -255,6 +255,21 @@ test("iframes exposed to accessibility require a non-empty accessible name", () 
   }
 });
 
+test("aria-labelledby accepts a directly referenced aria-label as the accessible name", () => {
+  for (const [html, code] of [
+    ['<span id="label" aria-label="Search"></span><input type="image" src="search.png" aria-labelledby="label">', "accessibility.input_image_alt.missing_or_empty"],
+    ['<span id="label" aria-label="Account settings"></span><iframe src="/account" aria-labelledby="label"></iframe>', "accessibility.iframe_name.missing_or_empty"],
+    ['<span id="label" aria-label="Quarterly revenue chart"></span><img src="chart.png" aria-labelledby="label">', "accessibility.image_alt.missing"],
+    ['<span id="label" aria-label="Revenue chart"></span><div role="img" aria-labelledby="label"></div>', "accessibility.image_alt.missing"],
+    ['<span id="label" aria-label="Revenue chart"></span><svg role="img" aria-labelledby="label"></svg>', "accessibility.image_alt.missing"],
+    ['<span id="label" aria-label="Documentation"></span><map name="nav"><area href="/docs" aria-labelledby="label"></map>', "accessibility.area_alt.missing_or_empty"],
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === code),
+      undefined,
+    );
+  }
+});
 test("ordinary images accept an explicit empty alt as decorative", () => {
   const decorative = auditSeoMetadata('<img src="divider.png" alt="">');
   assert.equal(

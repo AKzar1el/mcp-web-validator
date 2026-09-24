@@ -247,6 +247,7 @@ describe("bounded audits", () => {
   it("requires a non-empty accessible name on exposed iframes", () => {
     for (const html of [
       '<iframe src="/account"></iframe>',
+      '<iframe src="/account" name="Account settings"></iframe>',
       '<iframe src="/account" title="   "></iframe>',
       '<iframe src="/account" aria-label="   "></iframe>',
       '<span id="blank-frame-label">   </span><iframe src="/account" aria-labelledby="blank-frame-label"></iframe>',

@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.36] - 2026-09-24
+
+### Fixed
+
+- Required usable accessible names on neutral generic elements such as `<div role="img">` and `<span role="image">`, while preserving supported alternate labels plus inert-template and `aria-hidden` exclusions.
+- Preserved the fetched-page/document fallback base for relative-link checks when the first active `<base href>` is malformed or uses the base-disallowed `data:`/`javascript:` schemes, while continuing to reject parseable private/non-public document bases.
+
 ## [1.3.35] - 2026-09-24
 
 ### Fixed

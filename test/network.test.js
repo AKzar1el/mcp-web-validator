@@ -7,7 +7,7 @@ import * as path from "node:path";
 import * as net from "node:net";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
-import { assertPublicHttpUrl, fetchPublicText, readResponseText } from "../dist/network.js";
+import { assertPublicHttpUrl, fetchPublicText, readResponseText, readTextFile } from "../dist/network.js";
 import { captureScreenshots } from "../dist/screenshot.js";
 import { checkBrokenLinks } from "../dist/seo-auditor.js";
 import { validateCssContent, validateHtmlContent } from "../dist/w3c-validator.js";
@@ -486,6 +486,40 @@ test("unsupported charset remains an error for non-HTML text", async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("local HTML file decoding honors an early meta charset", async (t) => {
+  const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-local-html-encoding-"));
+  t.after(() => fs.rm(temporaryDirectory, { recursive: true, force: true }));
+  const filePath = path.join(temporaryDirectory, "legacy.html");
+  const body = Buffer.concat([
+    Buffer.from('<meta charset="windows-1252"><title>Caf', "ascii"),
+    Buffer.from([0xe9]),
+    Buffer.from("</title>", "ascii"),
+  ]);
+  await fs.writeFile(filePath, body);
+
+  assert.equal(
+    await readTextFile(filePath, 10_000, "text/html"),
+    '<meta charset="windows-1252"><title>Café</title>',
+  );
+});
+
+test("local XHTML file decoding honors its XML encoding declaration", async (t) => {
+  const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-local-xhtml-encoding-"));
+  t.after(() => fs.rm(temporaryDirectory, { recursive: true, force: true }));
+  const filePath = path.join(temporaryDirectory, "legacy.xhtml");
+  const body = Buffer.concat([
+    Buffer.from('<?xml version="1.0" encoding="windows-1252"?><html><head><title>Caf', "ascii"),
+    Buffer.from([0xe9]),
+    Buffer.from("</title></head></html>", "ascii"),
+  ]);
+  await fs.writeFile(filePath, body);
+
+  assert.equal(
+    await readTextFile(filePath, 10_000, "application/xhtml+xml"),
+    '<?xml version="1.0" encoding="windows-1252"?><html><head><title>Café</title></head></html>',
+  );
 });
 
 test("link checker resolves relative links, deduplicates, and caps requests", async () => {

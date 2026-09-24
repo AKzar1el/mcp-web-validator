@@ -470,6 +470,7 @@ test("viewport metadata that restricts 200% zoom is reported", () => {
   for (const html of [
     '<meta name="viewport" content="width=device-width, user-scalable=no">',
     '<meta name="viewport" content="width=device-width, maximum-scale=1.5">',
+    '<meta name="viewport" content="width=device-width, maximum-scale=yes">',
   ]) {
     assert.deepEqual(auditSeoMetadata(html).find((issue) => issue.code === "accessibility.viewport.zoom_restricted"), {
       code: "accessibility.viewport.zoom_restricted",

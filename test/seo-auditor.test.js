@@ -256,6 +256,38 @@ test("ordinary images accept alternate accessible-name sources", () => {
   );
 });
 
+test("aria-hidden images and image submit buttons are outside accessible-name applicability", () => {
+  for (const html of [
+    '<img src="decorative.png" aria-hidden="true">',
+    '<div aria-hidden="true"><img src="nested.png"></div>',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.missing"),
+      undefined,
+    );
+  }
+
+  for (const html of [
+    '<input type="image" src="search.png" aria-hidden="true">',
+    '<div aria-hidden="true"><input type="image" src="nested-search.png"></div>',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.input_image_alt.missing_or_empty"),
+      undefined,
+    );
+  }
+
+  assert.equal(
+    auditSeoMetadata('<img src="visible.png" aria-hidden="false">')
+      .find((issue) => issue.code === "accessibility.image_alt.missing")?.severity,
+    "error",
+  );
+  assert.equal(
+    auditSeoMetadata('<input type="image" src="visible-search.png" aria-hidden="false">')
+      .find((issue) => issue.code === "accessibility.input_image_alt.missing_or_empty")?.severity,
+    "error",
+  );
+});
 test("image-map links require usable alt text", () => {
   for (const html of [
     '<map name="nav"><area href="/docs"></map>',

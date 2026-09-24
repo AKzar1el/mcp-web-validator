@@ -272,6 +272,30 @@ describe("bounded audits", () => {
       .toBe("error");
   });
 
+  it("excludes aria-hidden images and image submit buttons from accessible-name checks", () => {
+    for (const html of [
+      '<img src="decorative.png" aria-hidden="true">',
+      '<div aria-hidden="true"><img src="nested.png"></div>',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.image_alt.missing"))
+        .toBeUndefined();
+    }
+
+    for (const html of [
+      '<input type="image" src="search.png" aria-hidden="true">',
+      '<div aria-hidden="true"><input type="image" src="nested-search.png"></div>',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.input_image_alt.missing_or_empty"))
+        .toBeUndefined();
+    }
+
+    expect(auditSeoMetadata('<img src="visible.png" aria-hidden="false">').issues
+      .find((issue) => issue.code === "accessibility.image_alt.missing")?.severity)
+      .toBe("error");
+    expect(auditSeoMetadata('<input type="image" src="visible-search.png" aria-hidden="false">').issues
+      .find((issue) => issue.code === "accessibility.input_image_alt.missing_or_empty")?.severity)
+      .toBe("error");
+  });
   it("image-map links require usable alt text", () => {
     for (const html of [
       '<map name="nav"><area href="/docs"></map>',

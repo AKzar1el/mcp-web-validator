@@ -102,6 +102,16 @@ function isInTemplateContents(element: unknown): boolean {
   return false;
 }
 
+function isAriaHiddenFromAccessibilityTree(element: unknown): boolean {
+  type ParentNode = { attribs?: Record<string, string>; parent?: unknown };
+  let node = element as ParentNode | null;
+  while (node) {
+    if (node.attribs?.["aria-hidden"]?.trim().toLowerCase() === "true") return true;
+    node = (node.parent ?? null) as ParentNode | null;
+  }
+  return false;
+}
+
 function viewportContentRestrictsZoom(content: string): boolean {
   const directives = new Map<string, string>();
   for (const part of content.split(",")) {
@@ -431,7 +441,9 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   });
 
   // --- Images Alt Tags (SEO + Accessibility) ---
-  $("img").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
+  $("img").filter((_, element) =>
+    !isInTemplateContents(element) && !isAriaHiddenFromAccessibilityTree(element)
+  ).each((_, element) => {
     const img = $(element);
     const src = img.attr("src") || "unknown-source";
     const alt = img.attr("alt");
@@ -462,7 +474,9 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     }
   });
 
-  $("input[type=\"image\" i]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
+  $("input[type=\"image\" i]").filter((_, element) =>
+    !isInTemplateContents(element) && !isAriaHiddenFromAccessibilityTree(element)
+  ).each((_, element) => {
     const input = $(element);
     const labelledByIds = (input.attr("aria-labelledby") ?? "")
       .trim()

@@ -218,6 +218,42 @@ test("image submit buttons require a non-empty accessible name", () => {
   }
 });
 
+test("iframes exposed to accessibility require a non-empty accessible name", () => {
+  for (const html of [
+    '<iframe src="/account"></iframe>',
+    '<iframe src="/account" title="   "></iframe>',
+    '<iframe src="/account" aria-label="   "></iframe>',
+    '<span id="blank-frame-label">   </span><iframe src="/account" aria-labelledby="blank-frame-label"></iframe>',
+  ]) {
+    assert.deepEqual(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.iframe_name.missing_or_empty"),
+      {
+        code: "accessibility.iframe_name.missing_or_empty",
+        severity: "error",
+        category: "Accessibility",
+        message: "Iframe elements exposed to assistive technologies need a non-empty accessible name. Provide title, aria-label, or aria-labelledby.",
+      },
+    );
+  }
+
+  for (const html of [
+    '<iframe src="/account" title="Account settings"></iframe>',
+    '<iframe src="/account" aria-label="Account settings"></iframe>',
+    '<span id="frame-label">Account settings</span><iframe src="/account" aria-labelledby="frame-label"></iframe>',
+    '<iframe src="/account" aria-hidden="true"></iframe>',
+    '<div aria-hidden="true"><iframe src="/account"></iframe></div>',
+    '<iframe src="/account" tabindex="-1"></iframe>',
+    '<iframe src="/account" role="none"></iframe>',
+    '<iframe src="/account" role="presentation"></iframe>',
+    '<template><iframe src="/account"></iframe></template>',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.iframe_name.missing_or_empty"),
+      undefined,
+    );
+  }
+});
+
 test("ordinary images accept an explicit empty alt as decorative", () => {
   const decorative = auditSeoMetadata('<img src="divider.png" alt="">');
   assert.equal(

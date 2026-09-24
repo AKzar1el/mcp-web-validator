@@ -256,6 +256,28 @@ test("ordinary images accept alternate accessible-name sources", () => {
   );
 });
 
+test("presentational images are outside accessible-name applicability unless presentation conflicts", () => {
+  for (const html of [
+    '<img src="spacer.png" role="none">',
+    '<img src="divider.png" role="presentation">',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.missing"),
+      undefined,
+    );
+  }
+
+  for (const html of [
+    '<img src="focusable.png" role="none" tabindex="0">',
+    '<span id="details">Details</span><img src="described.png" role="presentation" aria-describedby="details">',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.missing")?.severity,
+      "error",
+    );
+  }
+});
+
 test("aria-hidden images and image submit buttons are outside accessible-name applicability", () => {
   for (const html of [
     '<img src="decorative.png" aria-hidden="true">',

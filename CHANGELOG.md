@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.37] - 2026-09-24
+
+### Fixed
+
+- Required usable accessible names on SVG-namespace elements explicitly exposed as `img`, `graphics-document`, or `graphics-symbol`, while preserving supported labels plus inert-template and `aria-hidden` exclusions.
+- Resolved explicit ARIA fallback-role lists from the first recognized non-abstract role across current WAI-ARIA, Graphics ARIA, and DPUB-ARIA before applying image-accessibility semantics, so invalid or abstract tokens fall through while earlier valid roles stop fallback.
 ## [1.3.36] - 2026-09-24
 
 ### Fixed

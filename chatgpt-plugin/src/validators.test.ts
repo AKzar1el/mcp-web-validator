@@ -293,6 +293,30 @@ describe("bounded audits", () => {
       .toBe("error");
   });
 
+  it("requires accessible names on generic elements with semantic image roles", () => {
+    for (const html of [
+      '<div role="img"></div>',
+      '<span role="image"></span>',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.image_alt.missing")?.severity)
+        .toBe("error");
+    }
+
+    for (const html of [
+      '<div role="img" aria-label="Company logo"></div>',
+      '<span id="chart-label">Revenue chart</span><div role="image" aria-labelledby="chart-label"></div>',
+      '<span role="img" title="Status icon"></span>',
+      '<div role="img" aria-hidden="true"></div>',
+      '<div aria-hidden="true"><span role="image"></span></div>',
+      '<template><div role="img"></div></template>',
+      '<div></div>',
+      '<span role="button"></span>',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.image_alt.missing"))
+        .toBeUndefined();
+    }
+  });
+
   it("treats unambiguous presentational images as outside accessible-name applicability", () => {
     for (const html of [
       '<img src="spacer.png" role="none">',

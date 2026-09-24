@@ -477,6 +477,30 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
     }
   });
 
+  $("div[role], span[role]").filter((_, element) =>
+    hasExplicitSemanticImageRole(element)
+    && !isInTemplateContents(element)
+    && !isAriaHiddenFromAccessibilityTree(element)
+  ).each((_, element) => {
+    const semanticImage = $(element);
+    const labelledByIds = (semanticImage.attr("aria-labelledby") ?? "")
+      .trim()
+      .split(/[\t\n\f\r ]+/)
+      .filter(Boolean);
+    const hasAccessibleName = labelledByIds.some((id) => Boolean(textById.get(id)))
+      || Boolean(semanticImage.attr("aria-label")?.trim())
+      || Boolean(semanticImage.attr("title")?.trim());
+
+    if (!hasAccessibleName) {
+      collector.add({
+        code: "accessibility.image_alt.missing",
+        severity: "error",
+        category: "Accessibility",
+        message: "Elements with a semantic image role need a non-empty accessible name. Provide aria-label, aria-labelledby, or title.",
+      });
+    }
+  });
+
   $("input[type=\"image\" i]").filter((_, element) =>
     !isInTemplateContents(element) && !isAriaHiddenFromAccessibilityTree(element)
   ).each((_, element) => {

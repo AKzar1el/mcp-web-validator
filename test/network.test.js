@@ -390,6 +390,26 @@ test("bounded public text fetch decodes the HTTP-declared character encoding", a
   }
 });
 
+test("HTML BOM takes precedence over a conflicting HTTP charset", async () => {
+  const originalFetch = globalThis.fetch;
+  const body = Buffer.concat([
+    Buffer.from([0xef, 0xbb, 0xbf]),
+    Buffer.from("<title>Caf\u00e9</title>", "utf8"),
+  ]);
+  globalThis.fetch = async () => new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/html; charset=windows-1252" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/html-bom-conflict", {
+      acceptedContentTypes: ["text/html"],
+    });
+    assert.equal(result.text, "<title>Caf\u00e9</title>");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 test("bounded public text fetch decodes an early HTML meta charset when HTTP omits one", async () => {
   const originalFetch = globalThis.fetch;
   const body = Buffer.concat([

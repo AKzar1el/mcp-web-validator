@@ -151,6 +151,21 @@ function getXmlBomCharacterEncoding(bytes: Uint8Array): string | undefined {
   return undefined;
 }
 
+function getHtmlBomCharacterEncoding(bytes: Uint8Array): string | undefined {
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return "utf-8";
+  }
+  if (bytes.length >= 2) {
+    if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+      return "utf-16be";
+    }
+    if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+      return "utf-16le";
+    }
+  }
+  return undefined;
+}
+
 function getXmlCharacterEncoding(bytes: Uint8Array): string {
   const bomEncoding = getXmlBomCharacterEncoding(bytes);
   if (bomEncoding) {
@@ -183,6 +198,7 @@ export async function readBoundedResponseText(
   sniffHtmlEncoding = false,
   sniffXmlEncoding = false,
   preferXmlBom = false,
+  preferHtmlBom = false,
 ): Promise<string> {
   const declaredLength = response.headers.get("content-length");
   if (declaredLength && /^\d+$/.test(declaredLength) && Number(declaredLength) > maxBytes) {
@@ -211,7 +227,7 @@ export async function readBoundedResponseText(
   const startDecoder = async (): Promise<void> => {
     if (decoder) return;
     let encodingLabel = encoding ?? "utf-8";
-    if ((encoding === undefined && (sniffHtmlEncoding || sniffXmlEncoding)) || preferXmlBom) {
+    if ((encoding === undefined && (sniffHtmlEncoding || sniffXmlEncoding)) || preferXmlBom || preferHtmlBom) {
       const sniffLength = Math.min(pendingBytes, HTML_ENCODING_SNIFF_BYTES);
       const sniffBytes = new Uint8Array(sniffLength);
       let copied = 0;
@@ -223,6 +239,8 @@ export async function readBoundedResponseText(
       }
       if (preferXmlBom) {
         encodingLabel = getXmlBomCharacterEncoding(sniffBytes) ?? encodingLabel;
+      } else if (preferHtmlBom) {
+        encodingLabel = getHtmlBomCharacterEncoding(sniffBytes) ?? encodingLabel;
       } else {
         encodingLabel = sniffXmlEncoding
           ? getXmlCharacterEncoding(sniffBytes)
@@ -240,7 +258,7 @@ export async function readBoundedResponseText(
     pendingBytes = 0;
   };
 
-  if (!preferXmlBom && (encoding !== undefined || (!sniffHtmlEncoding && !sniffXmlEncoding))) {
+  if (!preferXmlBom && !preferHtmlBom && (encoding !== undefined || (!sniffHtmlEncoding && !sniffXmlEncoding))) {
     await startDecoder();
   }
 
@@ -358,6 +376,9 @@ export async function fetchPublicHtml(
         );
         const shouldSniffXmlEncoding = isXhtml && declaredEncoding === undefined;
         const shouldPreferXmlBom = isXhtml && declaredEncoding !== undefined;
+        const shouldPreferHtmlBom = !isXhtml
+          && declaredEncoding !== undefined
+          && isSupportedCharacterEncoding(declaredEncoding);
         html = await readBoundedResponseText(
           response,
           MAX_PUBLIC_HTML_BYTES,
@@ -366,6 +387,7 @@ export async function fetchPublicHtml(
           shouldSniffHtmlEncoding,
           shouldSniffXmlEncoding,
           shouldPreferXmlBom,
+          shouldPreferHtmlBom,
         );
       } catch (cause) {
         if (cause instanceof Error && cause.message.includes("1 MiB")) {

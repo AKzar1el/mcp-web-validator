@@ -136,6 +136,24 @@ test("CSS narration treats known Jigsaw parser gaps as review items while preser
   assert.doesNotMatch(output, /\*\*Error\*\*/);
 });
 
+test("CSS narration presents Jigsaw warnings as review items instead of errors", () => {
+  const output = cssValidationContent([
+    {
+      type: "warning",
+      line: 1,
+      message: "You are encouraged to offer a generic family as a last alternative",
+      context: "p",
+    },
+  ]);
+
+  assert.match(output, /^### CSS validation: review suggested/m);
+  assert.match(output, /0 CSS errors, 1 CSS warning/);
+  assert.match(output, /\*\*Warning\*\*/);
+  assert.match(output, /\*\*Review\*\*/);
+  assert.doesNotMatch(output, /\*\*Fix first\*\*/);
+  assert.doesNotMatch(output, /\*\*Error\*\*/);
+});
+
 test("report narration separates known CSS limitations from trusted CSS errors", () => {
   const reportData = createValidationReport({
     htmlFilePath: "index.html",
@@ -155,7 +173,7 @@ test("report narration separates known CSS limitations from trusted CSS errors",
   });
   const output = reportContent(reportData);
 
-  assert.match(output, /0 CSS errors; 1 known validator limitation/);
+  assert.match(output, /0 CSS errors, 0 CSS warnings; 1 known validator limitation/);
   assert.doesNotMatch(output, /0 CSS errors, including 1 known validator limitation/);
 });
 test("link narration treats redirects as review items instead of broken links", () => {

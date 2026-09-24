@@ -108,6 +108,7 @@ test("report produces matching machine-readable counts", () => {
       htmlErrors: result.summary.htmlErrors,
       htmlWarnings: result.summary.htmlWarnings,
       cssErrors: result.summary.cssErrors,
+      cssWarnings: result.summary.cssWarnings,
       seoErrors: result.summary.seoErrors,
       seoWarnings: result.summary.seoWarnings,
       schemaErrors: result.summary.schemaErrors,
@@ -117,6 +118,7 @@ test("report produces matching machine-readable counts", () => {
       htmlErrors: 1,
       htmlWarnings: 1,
       cssErrors: 1,
+      cssWarnings: 0,
       seoErrors: 1,
       seoWarnings: 1,
       schemaErrors: 1,
@@ -186,6 +188,31 @@ test("report does not count HTTP 304 as a redirect", () => {
   assert.doesNotMatch(result.report, /1 redirect to review/);
 });
 
+test("report surfaces CSS warnings without counting them as CSS errors", () => {
+  const result = createValidationReport({
+    htmlFilePath: "index.html",
+    cssAudited: true,
+    htmlMessages: [],
+    cssMessages: [
+      {
+        type: "warning",
+        line: 1,
+        message: "You are encouraged to offer a generic family as a last alternative",
+        context: "p",
+      },
+    ],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/ok", status: 200, ok: true }],
+  });
+
+  assert.equal(result.summary.cssErrors, 0);
+  assert.equal(result.summary.cssWarnings, 1);
+  assert.equal(result.summary.cssScore, 100);
+  assert.match(result.report, /CSS: 0 error\(s\), 1 warning\(s\)/);
+  assert.match(result.report, /\| 1 \| warning \| p \| You are encouraged/);
+});
+
 test("report withholds CSS and overall scores for known upstream validator limitations", () => {
   const result = createValidationReport({
     htmlFilePath: "index.html",
@@ -209,7 +236,7 @@ test("report withholds CSS and overall scores for known upstream validator limit
   assert.equal(result.summary.cssScore, null);
   assert.equal(result.summary.overallScore, null);
   assert.match(result.report, /CSS validation \| Compatibility-limited \| N\/A/);
-  assert.match(result.report, /CSS: 0 error\(s\), 1 known validator limitation\(s\)/);
+  assert.match(result.report, /CSS: 0 error\(s\), 0 warning\(s\), 1 known validator limitation\(s\)/);
   assert.match(result.report, /1 known validator limitation/);
   assert.match(result.report, /original Jigsaw diagnostic is preserved/i);
 });

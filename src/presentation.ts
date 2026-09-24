@@ -153,13 +153,13 @@ export function htmlValidationContent(
 export function cssValidationContent(
   messages: CSSMessage[],
   totalMessages = messages.length,
-  counts?: { error: number; compatibilityLimitation: number },
+  counts?: { error: number; warning?: number; compatibilityLimitation: number },
 ): string {
   if (totalMessages === 0) {
     return toolContent({
       title: "CSS validation",
       status: "clean",
-      outcome: "The W3C validator returned no CSS errors.",
+      outcome: "The W3C validator returned no CSS errors or warnings.",
       nextStep: "Validate again after the next stylesheet change.",
     });
   }
@@ -168,22 +168,30 @@ export function cssValidationContent(
     (message) => message.compatibility === "known-validator-limitation",
   );
   const compatibilityLimitationCount = counts?.compatibilityLimitation ?? compatibilityLimitations.length;
-  const actionableErrors = counts?.error ?? messages.length - compatibilityLimitations.length;
+  const warningCount = counts?.warning
+    ?? messages.filter((message) => message.type.toLowerCase() === "warning").length;
+  const actionableErrors = counts?.error
+    ?? messages.filter(
+      (message) => message.type.toLowerCase() !== "warning"
+        && message.compatibility !== "known-validator-limitation",
+    ).length;
 
   return toolContent({
     title: "CSS validation",
     status: actionableErrors > 0 ? "attention needed" : "review suggested",
-    outcome: compatibilityLimitationCount > 0
-      ? `The W3C validator returned ${countLabel(totalMessages, "CSS diagnostic")}; ${countLabel(compatibilityLimitationCount, "diagnostic")} ${compatibilityLimitationCount === 1 ? "matches" : "match"} a known validator limitation.`
-      : `The W3C validator returned ${countLabel(actionableErrors, "CSS error")}.`,
+    outcome: `The W3C validator returned ${countLabel(actionableErrors, "CSS error")}, ${countLabel(warningCount, "CSS warning")}, and ${countLabel(compatibilityLimitationCount, "known validator limitation")}.`,
     actions: messages.map((message) => ({
-      priority: message.compatibility === "known-validator-limitation" ? 2 : 0,
+      priority: message.compatibility === "known-validator-limitation"
+        ? 2
+        : priorityForSeverity(message.type),
       message: message.context ? `${message.message} Context: ${message.context}` : message.message,
       location: formatLocation(message.line),
     })),
     nextStep: actionableErrors > 0
-      ? "Correct the actionable errors, then rerun CSS validation because one syntax issue can cause later diagnostics."
-      : "Review the marked @container diagnostic against current CSS specifications; do not treat it as invalid CSS by itself.",
+      ? "Correct the actionable errors, review warnings, then rerun CSS validation because one syntax issue can cause later diagnostics."
+      : warningCount > 0
+        ? "Review the warnings, then rerun CSS validation after relevant stylesheet changes."
+        : "Review the marked @container diagnostic against current CSS specifications; do not treat it as invalid CSS by itself.",
     note: [
       compatibilityLimitationCount > 0
         ? "Jigsaw currently does not recognize the standards-defined @container rule. The upstream diagnostic is preserved and marked as a known validator limitation."
@@ -361,7 +369,9 @@ function reportActionItems(reportData: ValidationReportResult): ActionItem[] {
       location: formatLocation(message.lastLine ?? message.firstLine, message.lastColumn ?? message.firstColumn),
     })),
     ...reportData.cssMessages.map((message) => ({
-      priority: message.compatibility === "known-validator-limitation" ? 2 as const : 0 as const,
+      priority: message.compatibility === "known-validator-limitation"
+        ? 2 as const
+        : priorityForSeverity(message.type),
       message: `CSS: ${message.message}`,
       location: formatLocation(message.line),
     })),
@@ -386,6 +396,7 @@ function reportActionItems(reportData: ValidationReportResult): ActionItem[] {
 
 export function reportContent(reportData: ValidationReportResult): string {
   const { summary } = reportData;
+  const cssWarnings = summary.cssWarnings ?? 0;
   const actions = reportActionItems(reportData);
   const partial = reportData.failedChecks.length > 0;
   const compatibilityLimited = summary.cssCompatibilityLimitations > 0;
@@ -403,9 +414,9 @@ export function reportContent(reportData: ValidationReportResult): string {
     ? reportData.failedChecks.includes("css")
       ? "CSS validation unavailable"
       : compatibilityLimited
-        ? `${countLabel(summary.cssErrors, "CSS error")}; ${countLabel(summary.cssCompatibilityLimitations, "known validator limitation")}`
+        ? `${countLabel(summary.cssErrors, "CSS error")}, ${countLabel(cssWarnings, "CSS warning")}; ${countLabel(summary.cssCompatibilityLimitations, "known validator limitation")}`
         : "CSS not audited"
-    : countLabel(summary.cssErrors, "CSS error");
+    : `${countLabel(summary.cssErrors, "CSS error")} and ${countLabel(cssWarnings, "CSS warning")}`;
   const redirects = reportData.links.filter(isRedirect).length;
   const linkSummary = summary.linkScore === null
     ? reportData.failedChecks.includes("links")

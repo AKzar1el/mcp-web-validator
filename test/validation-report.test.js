@@ -124,7 +124,7 @@ test("validation report preserves full CSS counts when returned diagnostics are 
       messages: cappedMessages,
       total: 205,
       truncated: true,
-      counts: { error: 205, compatibilityLimitation: 0 },
+      counts: { error: 205, warning: 0, compatibilityLimitation: 0 },
     }),
     auditSeoMetadata: () => [],
     validateSchemaMarkup: () => [],

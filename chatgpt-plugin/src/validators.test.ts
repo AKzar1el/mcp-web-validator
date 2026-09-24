@@ -317,6 +317,30 @@ describe("bounded audits", () => {
     }
   });
 
+  it("requires accessible names on explicit SVG image roles", () => {
+    for (const html of [
+      '<svg role="img"></svg>',
+      '<svg role="graphics-document"><title>   </title></svg>',
+      '<svg><circle role="graphics-symbol"></circle></svg>',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.image_alt.missing")?.severity)
+        .toBe("error");
+    }
+
+    for (const html of [
+      '<svg role="img"><title>Quarterly chart</title></svg>',
+      '<svg role="graphics-document" aria-label="Process diagram"></svg>',
+      '<span id="chart-label">Revenue chart</span><svg role="img" aria-labelledby="chart-label"></svg>',
+      '<svg role="img" aria-hidden="true"></svg>',
+      '<div aria-hidden="true"><svg role="graphics-document"></svg></div>',
+      '<template><svg role="img"></svg></template>',
+      '<svg><circle role="graphics-symbol" aria-label="Data point"></circle></svg>',
+      '<svg></svg>',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.image_alt.missing"))
+        .toBeUndefined();
+    }
+  });
   it("treats unambiguous presentational images as outside accessible-name applicability", () => {
     for (const html of [
       '<img src="spacer.png" role="none">',

@@ -141,6 +141,17 @@ function hasExplicitSemanticImageRole(element: unknown): boolean {
   return firstRole === "img" || firstRole === "image";
 }
 
+function hasExplicitSvgImageRole(element: unknown): boolean {
+  type ElementNode = { attribs?: Record<string, string>; namespace?: string };
+  const node = element as ElementNode | null;
+  if (node?.namespace !== "http://www.w3.org/2000/svg") return false;
+  const firstRole = (node.attribs?.role ?? "")
+    .trim()
+    .split(/[\t\n\f\r ]+/)[0]
+    ?.toLowerCase();
+  return firstRole === "img" || firstRole === "graphics-document" || firstRole === "graphics-symbol";
+}
+
 function viewportContentRestrictsZoom(content: string): boolean {
   const directives = new Map<string, string>();
   for (const part of content.split(",")) {
@@ -526,6 +537,30 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
         severity: "error",
         category: "Accessibility",
         message: "Elements with a semantic image role need a non-empty accessible name. Provide aria-label, aria-labelledby, or title.",
+      });
+    }
+  });
+
+  $("[role]").filter((_, element) =>
+    hasExplicitSvgImageRole(element)
+    && !isInTemplateContents(element)
+    && !isAriaHiddenFromAccessibilityTree(element)
+  ).each((_, element) => {
+    const svgImage = $(element);
+    const labelledByIds = (svgImage.attr("aria-labelledby") ?? "")
+      .trim()
+      .split(/[\t\n\f\r ]+/)
+      .filter(Boolean);
+    const hasAccessibleName = labelledByIds.some((id) => Boolean(textById.get(id)))
+      || Boolean(svgImage.attr("aria-label")?.trim())
+      || Boolean(svgImage.children("title").first().text().trim());
+
+    if (!hasAccessibleName) {
+      add({
+        code: "accessibility.image_alt.missing",
+        severity: "error",
+        category: "Accessibility",
+        message: "SVG elements explicitly exposed as images need a non-empty accessible name. Provide aria-label, aria-labelledby, or a direct child <title>.",
       });
     }
   });

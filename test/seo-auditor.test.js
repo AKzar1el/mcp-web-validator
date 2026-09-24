@@ -309,6 +309,34 @@ test("generic elements with semantic image roles require a non-empty accessible 
   }
 });
 
+test("explicit SVG image roles require a non-empty accessible name", () => {
+  for (const html of [
+    '<svg role="img"></svg>',
+    '<svg role="graphics-document"><title>   </title></svg>',
+    '<svg><circle role="graphics-symbol"></circle></svg>',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.missing")?.severity,
+      "error",
+    );
+  }
+
+  for (const html of [
+    '<svg role="img"><title>Quarterly chart</title></svg>',
+    '<svg role="graphics-document" aria-label="Process diagram"></svg>',
+    '<span id="chart-label">Revenue chart</span><svg role="img" aria-labelledby="chart-label"></svg>',
+    '<svg role="img" aria-hidden="true"></svg>',
+    '<div aria-hidden="true"><svg role="graphics-document"></svg></div>',
+    '<template><svg role="img"></svg></template>',
+    '<svg><circle role="graphics-symbol" aria-label="Data point"></circle></svg>',
+    '<svg></svg>',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.missing"),
+      undefined,
+    );
+  }
+});
 test("presentational images are outside accessible-name applicability unless presentation conflicts", () => {
   for (const html of [
     '<img src="spacer.png" role="none">',

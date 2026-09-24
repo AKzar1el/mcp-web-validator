@@ -269,6 +269,38 @@
               "additionalProperties": false
             }
           },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "line": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "type": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "context": {
+                  "type": "string"
+                },
+                "compatibility": {
+                  "type": "string",
+                  "const": "known-validator-limitation"
+                }
+              },
+              "required": [
+                "line",
+                "type",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
           "totalMessages": {
             "type": "integer",
             "minimum": 0,
@@ -744,6 +776,11 @@
                 "maximum": 9007199254740991
               },
               "cssErrors": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "cssWarnings": {
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 9007199254740991

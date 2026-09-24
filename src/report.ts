@@ -18,6 +18,7 @@ export interface ValidationReportSummary {
   htmlErrors: number;
   htmlWarnings: number;
   cssErrors: number;
+  cssWarnings?: number;
   cssCompatibilityLimitations: number;
   seoErrors: number;
   seoWarnings: number;
@@ -56,7 +57,7 @@ export interface ValidationReportInput {
   cssMessages: CSSMessage[];
   cssTotalMessages?: number;
   cssTruncated?: boolean;
-  cssCounts?: { error: number; compatibilityLimitation: number };
+  cssCounts?: { error: number; warning?: number; compatibilityLimitation: number };
   seoIssues: SEOIssue[];
   seoTotalIssues?: number;
   seoTruncated?: boolean;
@@ -110,7 +111,10 @@ export function createValidationReport(input: ValidationReportInput): Validation
   const cssTruncated = input.cssTruncated ?? cssTotalMessages > input.cssMessages.length;
   const cssCompatibilityLimitations = input.cssCounts?.compatibilityLimitation
     ?? input.cssMessages.filter((message) => message.compatibility === "known-validator-limitation").length;
-  const cssErrors = input.cssCounts?.error ?? input.cssMessages.length - cssCompatibilityLimitations;
+  const cssWarnings = input.cssCounts?.warning
+    ?? input.cssMessages.filter((message) => message.type.toLowerCase() === "warning").length;
+  const cssErrors = input.cssCounts?.error
+    ?? input.cssMessages.length - cssWarnings - cssCompatibilityLimitations;
   const seoTotalIssues = input.seoTotalIssues ?? input.seoIssues.length;
   const seoTruncated = input.seoTruncated ?? seoTotalIssues > input.seoIssues.length;
   const schemaTotalIssues = input.schemaTotalIssues ?? input.schemaIssues.length;
@@ -147,6 +151,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
     htmlErrors,
     htmlWarnings,
     cssErrors,
+    cssWarnings,
     cssCompatibilityLimitations,
     seoErrors,
     seoWarnings,
@@ -171,7 +176,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
     "## Summary",
     "",
     `- HTML: ${htmlErrors} error(s), ${htmlWarnings} warning(s)` ,
-    `- CSS: ${input.cssAudited ? `${cssErrors} error(s)${cssCompatibilityLimitations > 0 ? `, ${cssCompatibilityLimitations} known validator limitation(s)` : ""}` : "not audited"}`,
+    `- CSS: ${input.cssAudited ? `${cssErrors} error(s), ${cssWarnings} warning(s)${cssCompatibilityLimitations > 0 ? `, ${cssCompatibilityLimitations} known validator limitation(s)` : ""}` : "not audited"}`,
     `- SEO and accessibility: ${seoErrors} error(s), ${seoWarnings} warning(s)`,
     `- JSON-LD syntax: ${schemaErrors} error(s)`,
     `- Links: ${brokenLinks} broken or unreachable, ${redirectLinks} redirect${redirectLinks === 1 ? "" : "s"} to review of ${input.links.length} checked`,
@@ -200,15 +205,15 @@ export function createValidationReport(input: ValidationReportInput): Validation
   if (input.cssAudited) {
     report.push("", `## CSS diagnostics (${cssTruncated ? `${input.cssMessages.length} shown of ${cssTotalMessages}` : cssTotalMessages})`);
     if (input.cssMessages.length === 0) {
-      report.push("No CSS validation errors were returned.");
+      report.push("No CSS validation errors or warnings were returned.");
     } else {
       if (cssTruncated) {
         report.push(`The structured CSS diagnostics are capped; showing the first ${input.cssMessages.length} of ${cssTotalMessages}. Summary counts and scoring use all returned Jigsaw diagnostics.`);
       }
-      report.push("", "| Line | Context | Message |", "| :---: | :--- | :--- |");
+      report.push("", "| Line | Severity | Context | Message |", "| :---: | :--- | :--- | :--- |");
       for (const message of input.cssMessages) {
         report.push(
-          `| ${message.line} | ${markdownCell(message.context ?? "N/A")} | ${markdownCell(message.message)} |`,
+          `| ${message.line} | ${markdownCell(message.compatibility === "known-validator-limitation" ? "known validator limitation" : message.type)} | ${markdownCell(message.context ?? "N/A")} | ${markdownCell(message.message)} |`,
         );
       }
       if (cssCompatibilityLimitations > 0) {

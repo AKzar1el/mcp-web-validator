@@ -51,6 +51,7 @@ export interface CssValidationResult {
   truncated: boolean;
   counts: {
     error: number;
+    warning?: number;
     compatibilityLimitation: number;
   };
 }
@@ -173,7 +174,7 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
     const form = new FormData();
     form.set("text", cssContent);
     form.set("output", "json");
-    form.set("warning", "0");
+    form.set("warning", "2");
     form.set("profile", "css3svg");
 
     const response = await fetch(url, {
@@ -220,7 +221,8 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
     }
 
     const errors = data.cssvalidation.errors || [];
-    const normalized = errors.map((err) => {
+    const warnings = data.cssvalidation.warnings || [];
+    const normalizedErrors = errors.map((err) => {
       const message = err.message ? err.message.trim() : "Unknown CSS validation error";
       return {
         line: err.line || 0,
@@ -232,7 +234,14 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
           : {}),
       };
     });
-    const compatibilityLimitation = normalized.filter(
+    const normalizedWarnings = warnings.map((warning) => ({
+      line: warning.line || 0,
+      type: "warning",
+      message: warning.message ? warning.message.trim() : "Unknown CSS validation warning",
+      context: warning.context || undefined,
+    }));
+    const normalized = [...normalizedErrors, ...normalizedWarnings];
+    const compatibilityLimitation = normalizedErrors.filter(
       (message) => message.compatibility === "known-validator-limitation",
     ).length;
     return {
@@ -240,7 +249,8 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
       total: normalized.length,
       truncated: normalized.length > MAX_VALIDATION_MESSAGES,
       counts: {
-        error: normalized.length - compatibilityLimitation,
+        error: normalizedErrors.length - compatibilityLimitation,
+        warning: normalizedWarnings.length,
         compatibilityLimitation,
       },
     };

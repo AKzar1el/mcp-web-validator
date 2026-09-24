@@ -120,6 +120,7 @@ const reportSummarySchema = z.object({
   htmlErrors: z.number().int().nonnegative(),
   htmlWarnings: z.number().int().nonnegative(),
   cssErrors: z.number().int().nonnegative(),
+  cssWarnings: z.number().int().nonnegative().optional(),
   cssCompatibilityLimitations: z.number().int().nonnegative(),
   seoErrors: z.number().int().nonnegative(),
   seoWarnings: z.number().int().nonnegative(),
@@ -172,6 +173,7 @@ function failedReport(filePath: string, error: string): ValidationReport {
       htmlErrors: 0,
       htmlWarnings: 0,
       cssErrors: 0,
+      cssWarnings: 0,
       cssCompatibilityLimitations: 0,
       seoErrors: 0,
       seoWarnings: 0,
@@ -266,7 +268,7 @@ export async function generateValidationReport(
         messages: [],
         total: 0,
         truncated: false,
-        counts: { error: 0, compatibilityLimitation: 0 },
+        counts: { error: 0, warning: 0, compatibilityLimitation: 0 },
       })
     : dependencies.validateCssContentDetailed
       ? dependencies.validateCssContentDetailed(css)
@@ -274,12 +276,14 @@ export async function generateValidationReport(
           const compatibilityLimitation = messages.filter(
             (message) => message.compatibility === "known-validator-limitation",
           ).length;
+          const warning = messages.filter((message) => message.type.toLowerCase() === "warning").length;
           return {
             messages,
             total: messages.length,
             truncated: false,
             counts: {
-              error: messages.length - compatibilityLimitation,
+              error: messages.length - warning - compatibilityLimitation,
+              warning,
               compatibilityLimitation,
             },
           };
@@ -466,6 +470,7 @@ export function createServer(): McpServer {
       },
       outputSchema: {
         errors: z.array(cssMessageSchema),
+        warnings: z.array(cssMessageSchema).optional(),
         totalMessages: z.number().int().nonnegative(),
         truncated: z.boolean(),
         error: z.string().optional(),
@@ -478,7 +483,8 @@ export function createServer(): McpServer {
         const validation = await validateCssContentDetailed(css);
         return result(
           {
-            errors: validation.messages,
+            errors: validation.messages.filter((message) => message.type.toLowerCase() !== "warning"),
+            warnings: validation.messages.filter((message) => message.type.toLowerCase() === "warning"),
             totalMessages: validation.total,
             truncated: validation.truncated,
           },
@@ -487,7 +493,7 @@ export function createServer(): McpServer {
       } catch (cause) {
         const error = getErrorMessage(cause);
         return result(
-          { errors: [], totalMessages: 0, truncated: false, error },
+          { errors: [], warnings: [], totalMessages: 0, truncated: false, error },
           failureContent(
             "CSS validation",
             error,

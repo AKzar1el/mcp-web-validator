@@ -119,6 +119,30 @@ Marketplace or add the repository from Cursor's plugin UI. The plugin bundles
 the same local stdio server and does not require API keys or environment
 variables.
 
+### OpenAI Codex
+
+Codex CLI can add the published local stdio package directly:
+
+```bash
+codex mcp add mcp-web-validator -- npx -y mcp-web-validator
+```
+
+Or add the existing hosted Streamable HTTP surface instead:
+
+```bash
+codex mcp add mcp-web-validator-hosted --url https://web-validator-mcp.digestseo.com/mcp
+```
+
+Verify either configuration with:
+
+```bash
+codex mcp list
+```
+
+The local package includes workspace-file validation and responsive screenshot
+capture. The hosted surface is remote-only and cannot access local files or
+create screenshots.
+
 ### Gemini CLI
 
 Gemini CLI supports local stdio MCP servers. Add the published package with:

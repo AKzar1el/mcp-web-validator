@@ -430,13 +430,18 @@ test("image-map links require usable alt text", () => {
         code: "accessibility.area_alt.missing_or_empty",
         severity: "error",
         category: "Accessibility",
-        message: "Image-map links need alt text unless another area with the same href provides the label.",
+        message: "Image-map links need a non-empty accessible name. Provide alt text or another supported label such as aria-label, aria-labelledby, or title.",
       },
     );
   }
 
   for (const html of [
     '<map name="nav"><area href="/docs" alt="Documentation"></map>',
+    '<span id="map-label">Documentation</span><map name="nav"><area href="/docs" aria-labelledby="map-label"></map>',
+    '<map name="nav"><area href="/docs" aria-label="Documentation"></map>',
+    '<map name="nav"><area href="/docs" title="Documentation"></map>',
+    '<map name="nav"><area href="/docs" aria-hidden="true"></map>',
+    '<div aria-hidden="true"><map name="nav"><area href="/docs"></map></div>',
     '<map name="nav"><area shape="default"></map>',
     '<map name="nav"><area href="/docs" alt=""><area href="/docs" alt="Documentation"></map>',
     '<template><map name="nav"><area href="/docs"></map></template>',

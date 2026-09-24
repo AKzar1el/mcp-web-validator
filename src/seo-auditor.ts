@@ -634,28 +634,38 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     }
   });
 
-  $("area[href]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
+  $("area[href]").filter((_, element) =>
+    !isInTemplateContents(element) && !isAriaHiddenFromAccessibilityTree(element)
+  ).each((_, element) => {
     const area = $(element);
-    const alt = area.attr("alt");
-    let needsAlt = alt === undefined;
+    const labelledByIds = (area.attr("aria-labelledby") ?? "")
+      .trim()
+      .split(/[\t\n\f\r ]+/)
+      .filter(Boolean);
+    const hasAccessibleName = labelledByIds.some((id) => Boolean(textById.get(id)))
+      || Boolean(area.attr("aria-label")?.trim())
+      || Boolean(area.attr("alt")?.trim())
+      || Boolean(area.attr("title")?.trim());
+    let needsAccessibleName = !hasAccessibleName;
 
-    if (alt !== undefined && alt.trim() === "") {
+    if (needsAccessibleName) {
       const href = area.attr("href")?.trim() ?? "";
       const map = area.closest("map");
       const hasLabeledEquivalent = map.find("area[href]").filter((_, peer) =>
         !isInTemplateContents(peer)
+        && !isAriaHiddenFromAccessibilityTree(peer)
         && ($(peer).attr("href")?.trim() ?? "") === href
         && Boolean($(peer).attr("alt")?.trim())
       ).length > 0;
-      needsAlt = !hasLabeledEquivalent;
+      needsAccessibleName = !hasLabeledEquivalent;
     }
 
-    if (needsAlt) {
+    if (needsAccessibleName) {
       add({
         code: "accessibility.area_alt.missing_or_empty",
         severity: "error",
         category: "Accessibility",
-        message: "Image-map links need alt text unless another area with the same href provides the label.",
+        message: "Image-map links need a non-empty accessible name. Provide alt text or another supported label such as aria-label, aria-labelledby, or title.",
       });
     }
   });

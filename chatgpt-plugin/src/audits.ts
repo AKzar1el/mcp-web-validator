@@ -128,6 +128,19 @@ function explicitSemanticRole(element: unknown): string | undefined {
     .map((token) => token.toLowerCase())
     .find((token) => VALID_NON_ABSTRACT_ARIA_ROLES.has(token));
 }
+
+function hasNegativeTabIndex(element: unknown): boolean {
+  type ElementNode = { attribs?: Record<string, string> };
+  const value = (element as ElementNode | null)?.attribs?.tabindex?.trim();
+  if (!value || !/^[+-]?\d+$/.test(value)) return false;
+  return Number(value) < 0;
+}
+
+function isDecorativeIframe(element: unknown): boolean {
+  const role = explicitSemanticRole(element);
+  return role === "none" || role === "presentation";
+}
+
 function isUnambiguouslyPresentationalImage(element: unknown): boolean {
   type ElementNode = { attribs?: Record<string, string> };
   const attribs = (element as ElementNode | null)?.attribs ?? {};
@@ -611,6 +624,31 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
         severity: "error",
         category: "Accessibility",
         message: "Image submit buttons need a non-empty accessible name. Provide alt text or another supported label such as aria-label, aria-labelledby, or title.",
+      });
+    }
+  });
+
+  $("iframe").filter((_, element) =>
+    !isInTemplateContents(element)
+    && !isAriaHiddenFromAccessibilityTree(element)
+    && !hasNegativeTabIndex(element)
+    && !isDecorativeIframe(element)
+  ).each((_, element) => {
+    const iframe = $(element);
+    const labelledByIds = (iframe.attr("aria-labelledby") ?? "")
+      .trim()
+      .split(/[\t\n\f\r ]+/)
+      .filter(Boolean);
+    const hasAccessibleName = labelledByIds.some((id) => Boolean(textById.get(id)))
+      || Boolean(iframe.attr("aria-label")?.trim())
+      || Boolean(iframe.attr("title")?.trim());
+
+    if (!hasAccessibleName) {
+      collector.add({
+        code: "accessibility.iframe_name.missing_or_empty",
+        severity: "error",
+        category: "Accessibility",
+        message: "Iframe elements exposed to assistive technologies need a non-empty accessible name. Provide title, aria-label, or aria-labelledby.",
       });
     }
   });

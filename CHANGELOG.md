@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.38] - 2026-09-24
+
+### Fixed
+
+- Reported non-empty `rel="canonical"` href values that cannot be parsed as URLs instead of treating them as usable canonical targets, while preserving valid relative canonical support.
+- Recognized supported `aria-labelledby`, `aria-label`, and `title` accessible names on active image-map area links and excluded `aria-hidden` areas from the accessible-name check while preserving `alt` and same-href labeled equivalents.
+
 ## [1.3.37] - 2026-09-24
 
 ### Fixed

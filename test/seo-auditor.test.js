@@ -281,6 +281,34 @@ test("ordinary images accept alternate accessible-name sources", () => {
   );
 });
 
+test("generic elements with semantic image roles require a non-empty accessible name", () => {
+  for (const html of [
+    '<div role="img"></div>',
+    '<span role="image"></span>',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.missing")?.severity,
+      "error",
+    );
+  }
+
+  for (const html of [
+    '<div role="img" aria-label="Company logo"></div>',
+    '<span id="chart-label">Revenue chart</span><div role="image" aria-labelledby="chart-label"></div>',
+    '<span role="img" title="Status icon"></span>',
+    '<div role="img" aria-hidden="true"></div>',
+    '<div aria-hidden="true"><span role="image"></span></div>',
+    '<template><div role="img"></div></template>',
+    '<div></div>',
+    '<span role="button"></span>',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.missing"),
+      undefined,
+    );
+  }
+});
+
 test("presentational images are outside accessible-name applicability unless presentation conflicts", () => {
   for (const html of [
     '<img src="spacer.png" role="none">',

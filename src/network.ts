@@ -336,6 +336,45 @@ function getHtmlBomCharacterEncoding(bytes: Uint8Array): string | undefined {
   return undefined;
 }
 
+function getCssCharacterEncoding(bytes: Uint8Array): string {
+  const bomEncoding = getHtmlBomCharacterEncoding(bytes);
+  if (bomEncoding) {
+    return bomEncoding;
+  }
+
+  const sniffBytes = bytes.subarray(0, HTML_ENCODING_SNIFF_BYTES);
+  const prefix = '@charset "';
+  if (sniffBytes.byteLength < prefix.length + 2) {
+    return "utf-8";
+  }
+  for (let index = 0; index < prefix.length; index += 1) {
+    if (sniffBytes[index] !== prefix.charCodeAt(index)) {
+      return "utf-8";
+    }
+  }
+
+  let label = "";
+  for (let index = prefix.length; index + 1 < sniffBytes.byteLength; index += 1) {
+    const byte = sniffBytes[index];
+    if (byte === 0x22) {
+      if (sniffBytes[index + 1] !== 0x3b) {
+        return "utf-8";
+      }
+      try {
+        const encoding = new TextDecoder(label).encoding;
+        return encoding === "utf-16be" || encoding === "utf-16le" ? "utf-8" : encoding;
+      } catch {
+        return "utf-8";
+      }
+    }
+    if (byte > 0x7f) {
+      return "utf-8";
+    }
+    label += String.fromCharCode(byte);
+  }
+  return "utf-8";
+}
+
 function getXmlCharacterEncoding(bytes: Uint8Array): string {
   const bomEncoding = getXmlBomCharacterEncoding(bytes);
   if (bomEncoding) {
@@ -624,11 +663,11 @@ export async function fetchPublicText(
   };
 }
 
-/** Reads a bounded regular text file, optionally applying HTML/XHTML encoding sniffing. */
+/** Reads a bounded regular text file, optionally applying HTML/XHTML/CSS byte-decoding rules. */
 export async function readTextFile(
   filePath: string,
   maxBytes: number,
-  markupMediaType?: "text/html" | "application/xhtml+xml",
+  markupMediaType?: "text/html" | "application/xhtml+xml" | "text/css",
 ): Promise<string> {
   assertPositiveInteger(maxBytes, "maxBytes");
   const resolvedPath = path.resolve(filePath);
@@ -652,10 +691,12 @@ export async function readTextFile(
   const sniffBytes = contents.subarray(0, HTML_ENCODING_SNIFF_BYTES);
   const encoding = markupMediaType === "application/xhtml+xml"
     ? getXmlCharacterEncoding(sniffBytes)
-    : getEncoding(sniffBytes, {
-        maxBytes: HTML_ENCODING_SNIFF_BYTES,
-        defaultEncoding: "utf-8",
-      });
+    : markupMediaType === "text/css"
+      ? getCssCharacterEncoding(sniffBytes)
+      : getEncoding(sniffBytes, {
+          maxBytes: HTML_ENCODING_SNIFF_BYTES,
+          defaultEncoding: "utf-8",
+        });
   try {
     return new TextDecoder(encoding).decode(contents);
   } catch {

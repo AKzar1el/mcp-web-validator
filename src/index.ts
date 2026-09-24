@@ -250,7 +250,7 @@ export async function generateValidationReport(
   let css: string | undefined;
   if (cssFilePath) {
     try {
-      css = await dependencies.readTextFile(cssFilePath, CSS_MAX_BYTES);
+      css = await dependencies.readTextFile(cssFilePath, CSS_MAX_BYTES, "text/css");
     } catch (cause) {
       recordFailure("css", "CSS validation", cause);
     }
@@ -480,7 +480,7 @@ export function createServer(): McpServer {
     },
     async ({ filePath }) => {
       try {
-        const css = await readTextFile(filePath, CSS_MAX_BYTES);
+        const css = await readTextFile(filePath, CSS_MAX_BYTES, "text/css");
         const validation = await validateCssContentDetailed(css);
         return result(
           {

@@ -89,10 +89,10 @@ test("validation report preserves full HTML counts when returned diagnostics are
 });
 
 test("validation report validates local .xhtml files with XHTML media-type semantics", async () => {
-  let validationMediaType;
-  const report = await runReport({
+  const validationMediaTypes = [];
+  const overrides = {
     validateHtmlContentDetailed: async (_markup, mediaType) => {
-      validationMediaType = mediaType;
+      validationMediaTypes.push(mediaType);
       return {
         messages: [],
         total: 0,
@@ -103,10 +103,13 @@ test("validation report validates local .xhtml files with XHTML media-type seman
     auditSeoMetadata: () => [],
     validateSchemaMarkup: () => [],
     checkBrokenLinks: async () => [],
-  }, { htmlFilePath: "page.xhtml" });
+  };
+  const xhtmlReport = await runReport(overrides, { htmlFilePath: "page.XHTML" });
+  const htmlReport = await runReport(overrides, { htmlFilePath: "page.html" });
 
-  assert.equal(validationMediaType, "application/xhtml+xml");
-  assert.deepEqual(report.failedChecks, []);
+  assert.deepEqual(validationMediaTypes, ["application/xhtml+xml", "text/html"]);
+  assert.deepEqual(xhtmlReport.failedChecks, []);
+  assert.deepEqual(htmlReport.failedChecks, []);
 });
 
 test("validation report preserves full CSS counts when returned diagnostics are capped", async () => {

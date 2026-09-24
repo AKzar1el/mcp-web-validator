@@ -157,8 +157,11 @@ export async function validateHtmlContentDetailed(
 }
 
 /** Backwards-compatible convenience API returning capped diagnostics only. */
-export async function validateHtmlContent(htmlContent: string): Promise<W3CMessage[]> {
-  return (await validateHtmlContentDetailed(htmlContent)).messages;
+export async function validateHtmlContent(
+  htmlContent: string,
+  mediaType: HtmlValidationMediaType = "text/html",
+): Promise<W3CMessage[]> {
+  return (await validateHtmlContentDetailed(htmlContent, mediaType)).messages;
 }
 
 /** Validates CSS using the W3C Jigsaw CSS Validator API and retains bounded-output metadata. */

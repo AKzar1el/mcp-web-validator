@@ -33,6 +33,7 @@ import {
 import { PACKAGE_VERSION } from "./version.js";
 import {
   getW3CMessageSeverity,
+  type HtmlValidationMediaType,
   MAX_CSS_VALIDATION_BYTES,
   validateCssContent,
   validateCssContentDetailed,
@@ -46,6 +47,12 @@ const HTML_MAX_BYTES = 2_000_000;
 const CSS_MAX_BYTES = MAX_CSS_VALIDATION_BYTES;
 const PATH_MAX_LENGTH = 4_096;
 const MAX_VIEWPORTS = 8;
+
+function localHtmlValidationMediaType(filePath: string): HtmlValidationMediaType {
+  return path.extname(filePath).toLowerCase() === ".xhtml"
+    ? "application/xhtml+xml"
+    : "text/html";
+}
 
 const filePathSchema = z.string().trim().min(1).max(PATH_MAX_LENGTH);
 const htmlContentSchema = z.string().min(1).max(HTML_MAX_BYTES);
@@ -228,6 +235,7 @@ export async function generateValidationReport(
   dependencies: ValidationReportDependencies = validationReportDependencies,
 ): Promise<ValidationReport> {
   const html = await dependencies.readTextFile(htmlFilePath, HTML_MAX_BYTES);
+  const htmlMediaType = localHtmlValidationMediaType(htmlFilePath);
   const failedChecks: ValidationReportCheck[] = [];
   const errors: string[] = [];
   const recordFailure = (check: ValidationReportCheck, label: string, cause: unknown): void => {
@@ -247,8 +255,8 @@ export async function generateValidationReport(
   }
 
   const htmlValidation = dependencies.validateHtmlContentDetailed
-    ? dependencies.validateHtmlContentDetailed(html)
-    : dependencies.validateHtmlContent(html).then((messages) => {
+    ? dependencies.validateHtmlContentDetailed(html, htmlMediaType)
+    : dependencies.validateHtmlContent(html, htmlMediaType).then((messages) => {
         const counts = { error: 0, warning: 0, info: 0 };
         for (const message of messages) counts[getW3CMessageSeverity(message)] += 1;
         return { messages, total: messages.length, truncated: false, counts };
@@ -345,9 +353,9 @@ export function createServer(): McpServer {
     {
       title: "Validate local HTML",
       description:
-        "Reads a bounded local HTML file and sends its markup to the W3C Nu HTML Checker. Use only files the user is authorized to share.",
+        "Reads a bounded local HTML or .xhtml file and sends its markup to the W3C Nu HTML Checker. .xhtml files use application/xhtml+xml parsing semantics. Use only files the user is authorized to share.",
       inputSchema: {
-        filePath: filePathSchema.describe("Absolute or workspace-relative path to an HTML file."),
+        filePath: filePathSchema.describe("Absolute or workspace-relative path to an HTML or .xhtml file."),
       },
       outputSchema: {
         errors: z.array(w3cMessageSchema),
@@ -360,7 +368,10 @@ export function createServer(): McpServer {
     async ({ filePath }) => {
       try {
         const html = await readTextFile(filePath, HTML_MAX_BYTES);
-        const validation = await validateHtmlContentDetailed(html);
+        const validation = await validateHtmlContentDetailed(
+          html,
+          localHtmlValidationMediaType(filePath),
+        );
         return result(
           { errors: validation.messages, totalMessages: validation.total, truncated: validation.truncated },
           htmlValidationContent(validation.messages, undefined, validation.total, validation.counts),
@@ -619,7 +630,7 @@ export function createServer(): McpServer {
       description:
         "Combines W3C HTML/CSS validation, local SEO/accessibility checks, JSON-LD syntax checks, and a bounded public-link check into a Markdown and structured report.",
       inputSchema: {
-        htmlFilePath: filePathSchema.describe("Absolute or workspace-relative HTML file path."),
+        htmlFilePath: filePathSchema.describe("Absolute or workspace-relative HTML or .xhtml file path."),
         cssFilePath: filePathSchema
           .optional()
           .describe("Optional absolute or workspace-relative CSS file path."),

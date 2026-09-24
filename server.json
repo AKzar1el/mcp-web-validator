@@ -22,7 +22,7 @@
     {
       "name": "html.local",
       "title": "Validate local HTML",
-      "description": "Reads a bounded local HTML file and sends its markup to the W3C Nu HTML Checker. Use only files the user is authorized to share.",
+      "description": "Reads a bounded local HTML or .xhtml file and sends its markup to the W3C Nu HTML Checker. .xhtml files use application/xhtml+xml parsing semantics. Use only files the user is authorized to share.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -30,7 +30,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 4096,
-            "description": "Absolute or workspace-relative path to an HTML file."
+            "description": "Absolute or workspace-relative path to an HTML or .xhtml file."
           }
         },
         "required": [
@@ -645,7 +645,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 4096,
-            "description": "Absolute or workspace-relative HTML file path."
+            "description": "Absolute or workspace-relative HTML or .xhtml file path."
           },
           "cssFilePath": {
             "description": "Optional absolute or workspace-relative CSS file path.",

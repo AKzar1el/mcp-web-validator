@@ -88,6 +88,27 @@ test("validation report preserves full HTML counts when returned diagnostics are
   assert.match(reportContent(report), /first 200 of 205 HTML diagnostics/i);
 });
 
+test("validation report validates local .xhtml files with XHTML media-type semantics", async () => {
+  let validationMediaType;
+  const report = await runReport({
+    validateHtmlContentDetailed: async (_markup, mediaType) => {
+      validationMediaType = mediaType;
+      return {
+        messages: [],
+        total: 0,
+        truncated: false,
+        counts: { error: 0, warning: 0, info: 0 },
+      };
+    },
+    auditSeoMetadata: () => [],
+    validateSchemaMarkup: () => [],
+    checkBrokenLinks: async () => [],
+  }, { htmlFilePath: "page.xhtml" });
+
+  assert.equal(validationMediaType, "application/xhtml+xml");
+  assert.deepEqual(report.failedChecks, []);
+});
+
 test("validation report preserves full CSS counts when returned diagnostics are capped", async () => {
   const cappedMessages = Array.from({ length: 200 }, (_, index) => ({
     type: "error",

@@ -121,6 +121,26 @@ test("validation report validates local .xhtml files with XHTML media-type seman
   assert.deepEqual(htmlReport.failedChecks, []);
 });
 
+test("validation report reads local CSS using stylesheet byte-decoding semantics", async () => {
+  const readMediaTypes = [];
+  const report = await runReport({
+    readTextFile: async (filePath, _maxBytes, mediaType) => {
+      readMediaTypes.push([filePath, mediaType]);
+      return filePath.endsWith(".css") ? "body {}" : html;
+    },
+    validateCssContent: async () => [],
+    auditSeoMetadata: () => [],
+    validateSchemaMarkup: () => [],
+    checkBrokenLinks: async () => [],
+  }, { htmlFilePath: "page.html", cssFilePath: "page.css" });
+
+  assert.deepEqual(readMediaTypes, [
+    ["page.html", "text/html"],
+    ["page.css", "text/css"],
+  ]);
+  assert.deepEqual(report.failedChecks, []);
+});
+
 test("validation report preserves full CSS counts when returned diagnostics are capped", async () => {
   const cappedMessages = Array.from({ length: 200 }, (_, index) => ({
     type: "error",

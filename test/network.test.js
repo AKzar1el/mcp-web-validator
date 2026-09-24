@@ -542,6 +542,39 @@ test("local XHTML file decoding honors its XML encoding declaration", async (t) 
   );
 });
 
+test("local CSS file decoding honors an exact leading @charset declaration", async (t) => {
+  const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-local-css-encoding-"));
+  t.after(() => fs.rm(temporaryDirectory, { recursive: true, force: true }));
+  const filePath = path.join(temporaryDirectory, "legacy.css");
+  const body = Buffer.concat([
+    Buffer.from('@charset "windows-1252"; .label::before { content: "Caf', "ascii"),
+    Buffer.from([0xe9]),
+    Buffer.from('"; }', "ascii"),
+  ]);
+  await fs.writeFile(filePath, body);
+
+  assert.equal(
+    await readTextFile(filePath, 10_000, "text/css"),
+    '@charset "windows-1252"; .label::before { content: "Caf\u00e9"; }',
+  );
+});
+
+test("local CSS file decoding gives a BOM precedence over @charset", async (t) => {
+  const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-local-css-bom-"));
+  t.after(() => fs.rm(temporaryDirectory, { recursive: true, force: true }));
+  const filePath = path.join(temporaryDirectory, "utf16.css");
+  const body = Buffer.concat([
+    Buffer.from([0xff, 0xfe]),
+    Buffer.from('@charset "windows-1252"; .label::before { content: "Caf\u00e9"; }', "utf16le"),
+  ]);
+  await fs.writeFile(filePath, body);
+
+  assert.equal(
+    await readTextFile(filePath, 10_000, "text/css"),
+    '@charset "windows-1252"; .label::before { content: "Caf\u00e9"; }',
+  );
+});
+
 test("link checker resolves relative links, deduplicates, and caps requests", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];

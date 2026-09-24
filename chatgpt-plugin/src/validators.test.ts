@@ -317,6 +317,29 @@ describe("bounded audits", () => {
     }
   });
 
+  it("uses the first valid non-abstract ARIA role token for image applicability", () => {
+    for (const html of [
+      '<div role="not-a-role img"></div>',
+      '<span role="command image"></span>',
+      '<svg role="bogus graphics-document"></svg>',
+      '<img src="logo.png" alt="" role="range img">',
+      '<img src="focusable.png" role="bogus presentation" tabindex="0">',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.image_alt.missing")?.severity)
+        .toBe("error");
+    }
+
+    for (const html of [
+      '<div role="button img"></div>',
+      '<div role="sectionheader img"></div>',
+      '<div role="doc-cover img"></div>',
+      '<svg role="graphics-object graphics-symbol"></svg>',
+      '<img src="divider.png" role="bogus presentation">',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.image_alt.missing"))
+        .toBeUndefined();
+    }
+  });
   it("requires accessible names on explicit SVG image roles", () => {
     for (const html of [
       '<svg role="img"></svg>',

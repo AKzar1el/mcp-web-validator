@@ -99,11 +99,40 @@ function isAriaHiddenFromAccessibilityTree(element: unknown): boolean {
   return false;
 }
 
+// Explicit role fallback uses the first recognized non-abstract role across WAI-ARIA, Graphics ARIA, and DPUB-ARIA.
+const VALID_NON_ABSTRACT_ARIA_ROLES = new Set([
+  "alert", "alertdialog", "application", "article", "banner", "blockquote", "button", "caption", "cell",
+  "checkbox", "code", "columnheader", "combobox", "comment", "complementary", "contentinfo", "definition",
+  "deletion", "dialog", "directory", "document", "emphasis", "feed", "figure", "form", "generic", "grid",
+  "gridcell", "group", "heading", "image", "img", "insertion", "link", "list", "listbox", "listitem", "log",
+  "main", "mark", "marquee", "math", "menu", "menubar", "menuitem", "menuitemcheckbox", "menuitemradio", "meter",
+  "navigation", "none", "note", "option", "paragraph", "presentation", "progressbar", "radio", "radiogroup", "region",
+  "row", "rowgroup", "rowheader", "scrollbar", "search", "searchbox", "sectionfooter", "sectionheader", "separator",
+  "slider", "spinbutton", "status", "strong", "subscript", "suggestion", "superscript", "switch", "tab", "table",
+  "tablist", "tabpanel", "term", "textbox", "time", "timer", "toolbar", "tooltip", "tree", "treegrid", "treeitem",
+  "graphics-document", "graphics-object", "graphics-symbol",
+  "doc-abstract", "doc-acknowledgments", "doc-afterword", "doc-appendix", "doc-backlink", "doc-biblioentry",
+  "doc-bibliography", "doc-biblioref", "doc-chapter", "doc-colophon", "doc-conclusion", "doc-cover", "doc-credit",
+  "doc-credits", "doc-dedication", "doc-endnote", "doc-endnotes", "doc-epigraph", "doc-epilogue", "doc-errata",
+  "doc-example", "doc-footnote", "doc-foreword", "doc-glossary", "doc-glossref", "doc-index", "doc-introduction",
+  "doc-noteref", "doc-notice", "doc-pagebreak", "doc-pagefooter", "doc-pageheader", "doc-pagelist", "doc-part",
+  "doc-preface", "doc-prologue", "doc-pullquote", "doc-qna", "doc-subtitle", "doc-tip", "doc-toc",
+]);
+
+function explicitSemanticRole(element: unknown): string | undefined {
+  type ElementNode = { attribs?: Record<string, string> };
+  const role = (element as ElementNode | null)?.attribs?.role ?? "";
+  return role
+    .trim()
+    .split(/[\t\n\f\r ]+/)
+    .map((token) => token.toLowerCase())
+    .find((token) => VALID_NON_ABSTRACT_ARIA_ROLES.has(token));
+}
 function isUnambiguouslyPresentationalImage(element: unknown): boolean {
   type ElementNode = { attribs?: Record<string, string> };
   const attribs = (element as ElementNode | null)?.attribs ?? {};
-  const firstRole = (attribs.role ?? "").trim().split(/[\t\n\f\r ]+/)[0]?.toLowerCase();
-  if (firstRole !== "none" && firstRole !== "presentation") return false;
+  const role = explicitSemanticRole(element);
+  if (role !== "none" && role !== "presentation") return false;
 
   if (attribs.tabindex !== undefined) return false;
   const contentEditable = attribs.contenteditable?.trim().toLowerCase();
@@ -113,23 +142,16 @@ function isUnambiguouslyPresentationalImage(element: unknown): boolean {
 }
 
 function hasExplicitSemanticImageRole(element: unknown): boolean {
-  type ElementNode = { attribs?: Record<string, string> };
-  const firstRole = ((element as ElementNode | null)?.attribs?.role ?? "")
-    .trim()
-    .split(/[\t\n\f\r ]+/)[0]
-    ?.toLowerCase();
-  return firstRole === "img" || firstRole === "image";
+  const role = explicitSemanticRole(element);
+  return role === "img" || role === "image";
 }
 
 function hasExplicitSvgImageRole(element: unknown): boolean {
   type ElementNode = { attribs?: Record<string, string>; namespace?: string };
   const node = element as ElementNode | null;
   if (node?.namespace !== "http://www.w3.org/2000/svg") return false;
-  const firstRole = (node.attribs?.role ?? "")
-    .trim()
-    .split(/[\t\n\f\r ]+/)[0]
-    ?.toLowerCase();
-  return firstRole === "img" || firstRole === "graphics-document" || firstRole === "graphics-symbol";
+  const role = explicitSemanticRole(element);
+  return role === "img" || role === "graphics-document" || role === "graphics-symbol";
 }
 
 function viewportContentRestrictsZoom(content: string): boolean {

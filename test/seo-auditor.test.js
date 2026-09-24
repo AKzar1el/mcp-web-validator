@@ -309,6 +309,33 @@ test("generic elements with semantic image roles require a non-empty accessible 
   }
 });
 
+test("role fallbacks use the first valid non-abstract ARIA role", () => {
+  for (const html of [
+    '<div role="not-a-role img"></div>',
+    '<span role="command image"></span>',
+    '<svg role="bogus graphics-document"></svg>',
+    '<img src="logo.png" alt="" role="range img">',
+    '<img src="focusable.png" role="bogus presentation" tabindex="0">',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.missing")?.severity,
+      "error",
+    );
+  }
+
+  for (const html of [
+    '<div role="button img"></div>',
+    '<div role="sectionheader img"></div>',
+    '<div role="doc-cover img"></div>',
+    '<svg role="graphics-object graphics-symbol"></svg>',
+    '<img src="divider.png" role="bogus presentation">',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.missing"),
+      undefined,
+    );
+  }
+});
 test("explicit SVG image roles require a non-empty accessible name", () => {
   for (const html of [
     '<svg role="img"></svg>',

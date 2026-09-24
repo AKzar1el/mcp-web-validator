@@ -257,6 +257,27 @@ describe("bounded audits", () => {
       .toBe("info");
   });
 
+  it("requires a non-empty accessible name when an empty-alt image keeps an explicit semantic image role", () => {
+    for (const html of [
+      '<img src="logo.png" alt="" role="img">',
+      '<img src="logo.png" alt="" role="image">',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.image_alt.missing")?.severity)
+        .toBe("error");
+    }
+
+    for (const html of [
+      '<img src="divider.png" alt="">',
+      '<img src="divider.png" alt="" role="none">',
+      '<img src="divider.png" alt="" role="presentation">',
+      '<img src="logo.png" alt="" role="img" aria-label="Company logo">',
+      '<span id="logo-label">Company logo</span><img src="logo.png" alt="" role="image" aria-labelledby="logo-label">',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.image_alt.missing"))
+        .toBeUndefined();
+    }
+  });
+
   it("accepts alternate accessible-name sources on ordinary images", () => {
     for (const html of [
       '<img src="chart.png" aria-label="Quarterly revenue chart">',

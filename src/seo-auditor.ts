@@ -132,6 +132,15 @@ function isUnambiguouslyPresentationalImage(element: unknown): boolean {
   return true;
 }
 
+function hasExplicitSemanticImageRole(element: unknown): boolean {
+  type ElementNode = { attribs?: Record<string, string> };
+  const firstRole = ((element as ElementNode | null)?.attribs?.role ?? "")
+    .trim()
+    .split(/[\t\n\f\r ]+/)[0]
+    ?.toLowerCase();
+  return firstRole === "img" || firstRole === "image";
+}
+
 function viewportContentRestrictsZoom(content: string): boolean {
   const directives = new Map<string, string>();
   for (const part of content.split(",")) {
@@ -477,12 +486,13 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       || Boolean(img.attr("aria-label")?.trim())
       || Boolean(img.attr("title")?.trim());
 
-    if (alt === undefined && !hasAlternateAccessibleName) {
+    const requiresNonEmptyName = alt === undefined || (alt === "" && hasExplicitSemanticImageRole(element));
+    if (requiresNonEmptyName && !hasAlternateAccessibleName) {
       add({
         code: "accessibility.image_alt.missing",
         severity: "error",
         category: "Accessibility",
-        message: "Missing 'alt' attribute on image. This makes it inaccessible to screen readers.",
+        message: "Image needs a non-empty accessible name. Provide meaningful alt text or another supported label such as aria-label, aria-labelledby, or title.",
         element: `<img src="${src}">`,
       });
     } else if (alt !== undefined && alt !== "" && alt.trim() === "") {

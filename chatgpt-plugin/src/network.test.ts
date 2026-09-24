@@ -83,6 +83,19 @@ describe("fetchPublicHtml", () => {
     });
   });
 
+  it("gives an HTML BOM precedence over a conflicting HTTP charset", async () => {
+    const body = new Uint8Array([
+      0xef, 0xbb, 0xbf,
+      ...new TextEncoder().encode("<title>Caf\u00e9</title>"),
+    ]);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, {
+      headers: { "content-type": "text/html; charset=windows-1252" },
+    })));
+
+    await expect(fetchPublicHtml("https://example.com/html-bom-conflict")).resolves.toMatchObject({
+      html: "<title>Caf\u00e9</title>",
+    });
+  });
   it("decodes an early HTML meta charset when HTTP omits one", async () => {
     const body = new Uint8Array([
       ...new TextEncoder().encode('<meta charset="windows-1252"><title>Caf'),

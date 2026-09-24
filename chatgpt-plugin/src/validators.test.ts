@@ -677,7 +677,7 @@ describe("bounded audits", () => {
       code: "accessibility.viewport.zoom_restricted",
       severity: "warning",
       category: "Accessibility",
-      message: "Viewport metadata restricts user zoom below 200%. Avoid user-scalable=no and maximum-scale values below 2.",
+      message: "Viewport metadata restricts user zoom below 200%. Ensure user-scalable permits zoom and maximum-scale allows at least 2x zoom.",
     });
   });
 

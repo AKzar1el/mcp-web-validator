@@ -164,13 +164,23 @@ function viewportContentRestrictsZoom(content: string): boolean {
     if (name) directives.set(name, value);
   }
 
-  if (directives.get("user-scalable") === "no") return true;
+  const userScalable = directives.get("user-scalable");
+  if (userScalable !== undefined) {
+    if (userScalable !== "yes" && userScalable !== "device-width" && userScalable !== "device-height") {
+      const numericUserScalable = Number(userScalable);
+      if (!Number.isFinite(numericUserScalable) || (numericUserScalable > -1 && numericUserScalable < 1)) {
+        return true;
+      }
+    }
+  }
 
   const maximumScale = directives.get("maximum-scale");
-  if (maximumScale === undefined || maximumScale === "") return false;
+  if (maximumScale === undefined) return false;
+  if (maximumScale === "device-width" || maximumScale === "device-height") return false;
   if (maximumScale === "yes") return true;
   const numericMaximumScale = Number(maximumScale);
-  return Number.isFinite(numericMaximumScale) && numericMaximumScale >= 0 && numericMaximumScale < 2;
+  if (!Number.isFinite(numericMaximumScale)) return true;
+  return numericMaximumScale >= 0 && numericMaximumScale < 2;
 }
 
 function parseMetaRefreshDelaySeconds(content: string): number | undefined {
@@ -456,7 +466,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
       code: "accessibility.viewport.zoom_restricted",
       severity: "warning",
       category: "Accessibility",
-      message: "Viewport metadata restricts user zoom below 200%. Avoid user-scalable=no and maximum-scale values below 2.",
+      message: "Viewport metadata restricts user zoom below 200%. Ensure user-scalable permits zoom and maximum-scale allows at least 2x zoom.",
     });
   }
 

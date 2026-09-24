@@ -457,6 +457,7 @@ describe("bounded audits", () => {
         category: "SEO",
         message: "Canonical link href cannot be parsed as a URL. Provide a valid canonical target or remove the declaration.",
       });
+      expect(issues.find((issue) => issue.code === "seo.canonical.unusable")).toBeUndefined();
       expect(issues.find((issue) => issue.code === "seo.canonical.relative_not_recommended")).toBeUndefined();
     }
 

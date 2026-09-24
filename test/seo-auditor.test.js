@@ -478,6 +478,7 @@ test("canonical audit reports non-empty href values that cannot be parsed as URL
       category: "SEO",
       message: "Canonical link href cannot be parsed as a URL. Provide a valid canonical target or remove the declaration.",
     });
+    assert.equal(issues.find((issue) => issue.code === "seo.canonical.unusable"), undefined);
     assert.equal(issues.find((issue) => issue.code === "seo.canonical.relative_not_recommended"), undefined);
   }
 

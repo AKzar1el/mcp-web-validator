@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.39] - 2026-09-24
+
+### Added
+
+- Added current OpenAI Codex MCP installation guidance for both the published local stdio package and the existing hosted Streamable HTTP endpoint, including `codex mcp list` verification and capability differences between the two surfaces.
+
+### Fixed
+
+- Preserved `application/xhtml+xml` semantics when validating local `.xhtml` files through `html.local` and `report.validation`, while ordinary `.html` files continue to use `text/html`.
+- Requested and preserved W3C Jigsaw CSS warnings separately from CSS errors, exposed them additively through `css.local` and validation reports, and narrated warning-only results as review items without changing error-based CSS scoring or known `@container` limitation handling.
+
 ## [1.3.38] - 2026-09-24
 
 ### Fixed

@@ -602,8 +602,12 @@ export async function fetchPublicText(
   };
 }
 
-/** Reads a UTF-8 file only when it is a regular file within the requested cap. */
-export async function readTextFile(filePath: string, maxBytes: number): Promise<string> {
+/** Reads a bounded regular text file, optionally applying HTML/XHTML encoding sniffing. */
+export async function readTextFile(
+  filePath: string,
+  maxBytes: number,
+  markupMediaType?: "text/html" | "application/xhtml+xml",
+): Promise<string> {
   assertPositiveInteger(maxBytes, "maxBytes");
   const resolvedPath = path.resolve(filePath);
   const stats = await fs.stat(resolvedPath);
@@ -618,5 +622,21 @@ export async function readTextFile(filePath: string, maxBytes: number): Promise<
   if (contents.byteLength > maxBytes) {
     throw new Error(`File exceeds the ${maxBytes}-byte limit: ${resolvedPath}`);
   }
-  return contents.toString("utf8");
+
+  if (markupMediaType === undefined) {
+    return contents.toString("utf8");
+  }
+
+  const sniffBytes = contents.subarray(0, HTML_ENCODING_SNIFF_BYTES);
+  const encoding = markupMediaType === "application/xhtml+xml"
+    ? getXmlCharacterEncoding(sniffBytes)
+    : getEncoding(sniffBytes, {
+        maxBytes: HTML_ENCODING_SNIFF_BYTES,
+        defaultEncoding: "utf-8",
+      });
+  try {
+    return new TextDecoder(encoding).decode(contents);
+  } catch {
+    throw new Error(`Unsupported local markup character encoding "${encoding}"`);
+  }
 }

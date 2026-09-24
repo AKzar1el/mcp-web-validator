@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "mcp-web-validator",
   "display_name": "Web Validator by DigestSEO",
-  "version": "1.3.36",
+  "version": "1.3.37",
   "description": "Validate HTML/CSS, audit SEO and JSON-LD, check links, and capture responsive screenshots.",
   "author": {
     "name": "AKzar1el",

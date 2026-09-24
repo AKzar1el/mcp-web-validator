@@ -236,8 +236,8 @@ export async function generateValidationReport(
   { htmlFilePath, cssFilePath, baseUrl }: GenerateValidationReportOptions,
   dependencies: ValidationReportDependencies = validationReportDependencies,
 ): Promise<ValidationReport> {
-  const html = await dependencies.readTextFile(htmlFilePath, HTML_MAX_BYTES);
   const htmlMediaType = localHtmlValidationMediaType(htmlFilePath);
+  const html = await dependencies.readTextFile(htmlFilePath, HTML_MAX_BYTES, htmlMediaType);
   const failedChecks: ValidationReportCheck[] = [];
   const errors: string[] = [];
   const recordFailure = (check: ValidationReportCheck, label: string, cause: unknown): void => {
@@ -371,10 +371,11 @@ export function createServer(): McpServer {
     },
     async ({ filePath }) => {
       try {
-        const html = await readTextFile(filePath, HTML_MAX_BYTES);
+        const htmlMediaType = localHtmlValidationMediaType(filePath);
+        const html = await readTextFile(filePath, HTML_MAX_BYTES, htmlMediaType);
         const validation = await validateHtmlContentDetailed(
           html,
-          localHtmlValidationMediaType(filePath),
+          htmlMediaType,
         );
         return result(
           { errors: validation.messages, totalMessages: validation.total, truncated: validation.truncated },

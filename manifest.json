@@ -30,7 +30,7 @@
   "tools": [
     {
       "name": "html.local",
-      "description": "Reads a bounded local HTML file and sends its markup to the W3C Nu HTML Checker. Use only files the user is authorized to share."
+      "description": "Reads a bounded local HTML or .xhtml file and sends its markup to the W3C Nu HTML Checker. .xhtml files use application/xhtml+xml parsing semantics. Use only files the user is authorized to share."
     },
     {
       "name": "html.url",

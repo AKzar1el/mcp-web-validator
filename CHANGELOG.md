@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.42] - 2026-09-24
+
+### Fixed
+
+- Decoded local CSS files from byte-order marks and exact leading `@charset` declarations before W3C Jigsaw validation and report analysis, with UTF-8 fallback when neither declares an encoding.
+- Honored non-empty `aria-label` values on elements directly referenced by `aria-labelledby` when computing bounded accessible-name checks for images, semantic image roles, SVG image roles, image submit buttons, iframes, and image-map links.
+- Treated successful empty or whitespace-only `robots.txt` responses as an empty allow-all ruleset in hosted site-audit source so fallback `/sitemap.xml` discovery continues instead of collapsing to root-only discovery.
+
 ## [1.3.41] - 2026-09-24
 
 ### Fixed

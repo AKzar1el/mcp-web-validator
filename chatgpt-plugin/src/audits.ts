@@ -771,9 +771,11 @@ export async function checkBrokenLinks(
       const resolvedDocumentBase = fallbackBaseUrl
         ? new URL(documentBaseHref, fallbackBaseUrl)
         : new URL(documentBaseHref);
-      effectiveBaseUrl = toPublicHttpUrl(resolvedDocumentBase.href)?.toString();
+      effectiveBaseUrl = resolvedDocumentBase.protocol === "data:" || resolvedDocumentBase.protocol === "javascript:"
+        ? fallbackBaseUrl
+        : toPublicHttpUrl(resolvedDocumentBase.href)?.toString();
     } catch {
-      effectiveBaseUrl = undefined;
+      effectiveBaseUrl = fallbackBaseUrl;
     }
   }
   const urls: URL[] = [];

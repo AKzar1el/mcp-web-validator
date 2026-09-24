@@ -753,6 +753,26 @@ describe("link checks", () => {
     );
   });
 
+  it("falls back to base_url when the document base is malformed or base-disallowed", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    for (const baseHref of ["http://[", "javascript:alert(1)", "data:text/plain,ignored"]) {
+      await expect(checkBrokenLinks(
+        `<base href="${baseHref}"><a href="guide">Guide</a>`,
+        "https://example.com/docs/page.html",
+        1,
+      )).resolves.toEqual([
+        { url: "https://example.com/docs/guide", status: 204, ok: true, message: undefined },
+      ]);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    for (const call of fetchMock.mock.calls) {
+      expect(call[0]).toEqual(new URL("https://example.com/docs/guide"));
+      expect(call[1]).toMatchObject({ method: "HEAD", redirect: "manual" });
+    }
+  });
+
   it("ignores base and anchor elements inside inert template contents", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);

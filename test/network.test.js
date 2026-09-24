@@ -578,6 +578,33 @@ test("relative document base elements resolve against the fetched page URL", asy
   }
 });
 
+test("malformed or base-disallowed document bases fall back to the fetched page URL", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input, init) => {
+    requested.push({ url: String(input), method: init?.method });
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    for (const baseHref of ["http://[", "javascript:alert(1)", "data:text/plain,ignored"]) {
+      const links = await checkBrokenLinks(
+        `<base href="${baseHref}"><a href="guide">Guide</a>`,
+        "https://1.1.1.1/docs/page.html",
+        1,
+      );
+      assert.deepEqual(links.map((link) => link.url), ["https://1.1.1.1/docs/guide"]);
+    }
+    assert.deepEqual(requested, [
+      { url: "https://1.1.1.1/docs/guide", method: "HEAD" },
+      { url: "https://1.1.1.1/docs/guide", method: "HEAD" },
+      { url: "https://1.1.1.1/docs/guide", method: "HEAD" },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker ignores base and anchor elements inside inert template contents", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];

@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.34] - 2026-09-24
+
+### Fixed
+
+- Treated `maximum-scale=yes` viewport metadata as restricting 200% zoom, matching the current W3C ACT interpretation while preserving existing non-restricting controls.
+- Stopped reporting missing accessible-name findings for ordinary images and image submit buttons explicitly hidden from the accessibility tree by `aria-hidden="true"` on themselves or an ancestor.
+- Added hosted `application/xhtml+xml` support so public XHTML pages preserve XML/XHTML decoding and Nu-validation media-type semantics instead of being rejected or coerced to `text/html`.
+
 ## [1.3.33] - 2026-09-24
 
 ### Fixed

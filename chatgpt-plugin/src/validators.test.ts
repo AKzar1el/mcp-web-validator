@@ -772,6 +772,7 @@ describe("link checks", () => {
       expect(call[1]).toMatchObject({ method: "HEAD", redirect: "manual" });
     }
   });
+
   it("ignores base and anchor elements inside inert template contents", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);

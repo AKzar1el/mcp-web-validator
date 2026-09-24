@@ -705,16 +705,26 @@ export async function checkBrokenLinks(
         ? new URL(documentBaseHref, fallbackBaseUrl)
         : new URL(documentBaseHref);
     } catch {
-      parsedBaseUrl = undefined;
+      // HTML falls back to the document URL when the first base href cannot
+      // be parsed. Preserve that fallback instead of dropping relative links.
+      parsedBaseUrl = fallbackBaseUrl;
     }
     if (resolvedDocumentBase) {
-      try {
-        parsedBaseUrl = await assertPublicHttpUrl(resolvedDocumentBase);
-      } catch (error: unknown) {
-        if (!(error instanceof PublicUrlError)) {
-          throw error;
+      if (resolvedDocumentBase.protocol === "data:" || resolvedDocumentBase.protocol === "javascript:") {
+        // These schemes are not allowed to become a document base URL; the
+        // browser keeps the document fallback base URL instead.
+        parsedBaseUrl = fallbackBaseUrl;
+      } else {
+        try {
+          parsedBaseUrl = await assertPublicHttpUrl(resolvedDocumentBase);
+        } catch (error: unknown) {
+          if (!(error instanceof PublicUrlError)) {
+            throw error;
+          }
+          // A parseable but non-public base must not redirect relative link
+          // checks through the caller-provided public fallback.
+          parsedBaseUrl = undefined;
         }
-        parsedBaseUrl = undefined;
       }
     }
   }

@@ -604,6 +604,7 @@ test("malformed or base-disallowed document bases fall back to the fetched page 
     globalThis.fetch = originalFetch;
   }
 });
+
 test("link checker ignores base and anchor elements inside inert template contents", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];

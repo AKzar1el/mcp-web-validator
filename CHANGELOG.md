@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.40] - 2026-09-24
+
+### Fixed
+
+- Applied documented viewport value translations when auditing zoom restrictions, catching additional `user-scalable` and `maximum-scale` values that prevent or cap zoom while preserving safe negative/device keyword cases.
+- Decoded local HTML and XHTML validation inputs from their declared character encodings before Nu/SEO/schema/link analysis, while keeping generic CSS/text file reads on their existing UTF-8 behavior.
+
 ## [1.3.39] - 2026-09-24
 
 ### Added

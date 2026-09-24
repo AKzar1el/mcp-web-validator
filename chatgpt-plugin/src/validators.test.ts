@@ -664,8 +664,12 @@ describe("bounded audits", () => {
 
   it.each([
     '<meta name="viewport" content="width=device-width, user-scalable=no">',
+    '<meta name="viewport" content="width=device-width, user-scalable=0.5">',
+    '<meta name="viewport" content="width=device-width, user-scalable=invalid">',
     '<meta name="viewport" content="width=device-width, maximum-scale=1.5">',
     '<meta name="viewport" content="width=device-width, maximum-scale=yes">',
+    '<meta name="viewport" content="width=device-width, maximum-scale=no">',
+    '<meta name="viewport" content="width=device-width, maximum-scale=invalid">',
   ])("reports viewport metadata that restricts 200% zoom: %s", (html) => {
     const result = auditSeoMetadata(html);
 
@@ -679,8 +683,12 @@ describe("bounded audits", () => {
 
   it.each([
     '<meta name="viewport" content="width=device-width, user-scalable=yes">',
+    '<meta name="viewport" content="width=device-width, user-scalable=2">',
+    '<meta name="viewport" content="width=device-width, user-scalable=-2">',
+    '<meta name="viewport" content="width=device-width, user-scalable=device-width">',
     '<meta name="viewport" content="width=device-width, maximum-scale=2">',
     '<meta name="viewport" content="width=device-width, maximum-scale=-1">',
+    '<meta name="viewport" content="width=device-width, maximum-scale=device-width">',
     '<meta name="viewport" content="width=device-width">',
   ])("does not flag non-restricting viewport metadata: %s", (html) => {
     const result = auditSeoMetadata(html);

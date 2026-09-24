@@ -182,7 +182,45 @@ test("CSS validator reports full totals when structured diagnostics are capped",
     assert.equal(result.messages.length, 200);
     assert.equal(result.total, 205);
     assert.equal(result.truncated, true);
-    assert.deepEqual(result.counts, { error: 205, compatibilityLimitation: 0 });
+    assert.deepEqual(result.counts, { error: 205, warning: 0, compatibilityLimitation: 0 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("CSS validator requests and preserves Jigsaw warnings without reclassifying them as errors", async () => {
+  const originalFetch = globalThis.fetch;
+  let observedWarningLevel;
+  globalThis.fetch = async (_url, init) => {
+    observedWarningLevel = init?.body?.get?.("warning");
+    return Response.json({
+      cssvalidation: {
+        errors: [],
+        warnings: [
+          {
+            line: 1,
+            type: "no-generic-family",
+            message: "You are encouraged to offer a generic family as a last alternative",
+            context: "p",
+          },
+        ],
+      },
+    });
+  };
+
+  try {
+    const validatorModule = await import("../dist/w3c-validator.js");
+    const result = await validatorModule.validateCssContentDetailed("p { font-family: Arial; }");
+    assert.equal(observedWarningLevel, "2");
+    assert.deepEqual(result.messages, [
+      {
+        line: 1,
+        type: "warning",
+        message: "You are encouraged to offer a generic family as a last alternative",
+        context: "p",
+      },
+    ]);
+    assert.deepEqual(result.counts, { error: 0, warning: 1, compatibilityLimitation: 0 });
   } finally {
     globalThis.fetch = originalFetch;
   }

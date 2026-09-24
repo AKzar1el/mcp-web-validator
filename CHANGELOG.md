@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.41] - 2026-09-24
+
+### Fixed
+
+- Reported exposed `iframe` elements with empty accessible names while accepting `title`, `aria-label`, or resolvable `aria-labelledby` names and conservatively excluding hidden, decorative, and negative-tabindex cases.
+- Respected a leading HTML byte-order mark over a conflicting supported HTTP `charset`, so public HTML decoding now follows browser-equivalent WHATWG precedence before validation and auditing.
+
 ## [1.3.40] - 2026-09-24
 
 ### Fixed

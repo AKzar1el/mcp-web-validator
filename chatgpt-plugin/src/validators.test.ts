@@ -272,6 +272,24 @@ describe("bounded audits", () => {
       .toBe("error");
   });
 
+  it("treats unambiguous presentational images as outside accessible-name applicability", () => {
+    for (const html of [
+      '<img src="spacer.png" role="none">',
+      '<img src="divider.png" role="presentation">',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.image_alt.missing"))
+        .toBeUndefined();
+    }
+
+    for (const html of [
+      '<img src="focusable.png" role="none" tabindex="0">',
+      '<span id="details">Details</span><img src="described.png" role="presentation" aria-describedby="details">',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.image_alt.missing")?.severity)
+        .toBe("error");
+    }
+  });
+
   it("excludes aria-hidden images and image submit buttons from accessible-name checks", () => {
     for (const html of [
       '<img src="decorative.png" aria-hidden="true">',

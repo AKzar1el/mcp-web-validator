@@ -99,6 +99,19 @@ function isAriaHiddenFromAccessibilityTree(element: unknown): boolean {
   return false;
 }
 
+function isUnambiguouslyPresentationalImage(element: unknown): boolean {
+  type ElementNode = { attribs?: Record<string, string> };
+  const attribs = (element as ElementNode | null)?.attribs ?? {};
+  const firstRole = (attribs.role ?? "").trim().split(/[\t\n\f\r ]+/)[0]?.toLowerCase();
+  if (firstRole !== "none" && firstRole !== "presentation") return false;
+
+  if (attribs.tabindex !== undefined) return false;
+  const contentEditable = attribs.contenteditable?.trim().toLowerCase();
+  if (contentEditable !== undefined && contentEditable !== "false") return false;
+  if (Object.keys(attribs).some((name) => name.toLowerCase().startsWith("aria-"))) return false;
+  return true;
+}
+
 function viewportContentRestrictsZoom(content: string): boolean {
   const directives = new Map<string, string>();
   for (const part of content.split(",")) {
@@ -423,7 +436,9 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   });
 
   $("img").filter((_, element) =>
-    !isInTemplateContents(element) && !isAriaHiddenFromAccessibilityTree(element)
+    !isInTemplateContents(element)
+    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isUnambiguouslyPresentationalImage(element)
   ).each((_, element) => {
     const img = $(element);
     const alt = img.attr("alt");

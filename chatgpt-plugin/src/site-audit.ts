@@ -512,7 +512,8 @@ async function discoverSitePages(origin: string): Promise<DiscoveryResult> {
     robots = parseRobotsTxt(fetched.text, origin);
   } catch (cause) {
     const status = robotsHttpStatus(cause);
-    if (status !== undefined && status >= 400 && status <= 499) {
+    const emptySuccessfulRobots = cause instanceof PublicHtmlFetchError && cause.code === "empty";
+    if (emptySuccessfulRobots || (status !== undefined && status >= 400 && status <= 499)) {
       robots = { rules: [], sitemapUrls: [] };
     } else if (status !== undefined && status >= 500 && status <= 599) {
       return {

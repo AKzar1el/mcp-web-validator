@@ -8,6 +8,21 @@ afterEach(() => {
 });
 
 describe("validateHtml", () => {
+  it("preserves XHTML media type when sending XML-syntax HTML to Nu", async () => {
+    const fetchMock = vi.fn(async (_target: RequestInfo | URL, _init?: RequestInit) => Response.json({ messages: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await validateHtmlDetailed(
+      '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Example</title></head><body /></html>',
+      "application/xhtml+xml",
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    expect(init?.headers).toMatchObject({
+      "content-type": "application/xhtml+xml; charset=utf-8",
+    });
+  });
   it("preserves Nu errors, warning subtypes, and informational messages", async () => {
     vi.stubGlobal(
       "fetch",

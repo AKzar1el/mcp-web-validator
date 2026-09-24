@@ -580,7 +580,7 @@ async function auditFetchedPage(
   let htmlValidationStatus: HtmlValidationStatus = "completed";
 
   try {
-    const html = await validateHtmlDetailed(fetched.html);
+    const html = await validateHtmlDetailed(fetched.html, fetched.contentType);
     htmlMessages = html.messages;
     htmlCounts = html.counts;
   } catch (cause) {

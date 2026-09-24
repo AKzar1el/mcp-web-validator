@@ -16,7 +16,7 @@ import {
   SITE_AUDIT_MAX_PAGES,
   SITE_AUDIT_MAX_SITEMAP_URLS,
 } from "./constants";
-import { fetchPublicHtml, PublicHtmlFetchError } from "./network";
+import { fetchPublicHtml, PublicHtmlFetchError, type HtmlMediaType } from "./network";
 import {
   contentForOverview,
   overviewSchema,
@@ -413,6 +413,7 @@ type ReportCheck = "html" | "css" | "links";
 
 interface ValidationReportOptions {
   html: string;
+  htmlMediaType?: HtmlMediaType;
   css?: string;
   checkLinks: boolean;
   baseUrl?: string;
@@ -433,6 +434,7 @@ function reportNextAction(errors: number, warnings: number, rerunLabel: string):
 
 async function runValidationReport({
   html,
+  htmlMediaType,
   css,
   checkLinks,
   baseUrl,
@@ -443,7 +445,7 @@ async function runValidationReport({
 }: ValidationReportOptions) {
   const cssChecked = css !== undefined;
   const [htmlResult, cssResult, linksResult] = await Promise.allSettled([
-    validateHtmlDetailed(html),
+    validateHtmlDetailed(html, htmlMediaType),
     cssChecked ? Promise.resolve().then(() => validateCss(css)) : Promise.resolve([]),
     checkLinks ? checkBrokenLinks(html, baseUrl, maxLinks) : Promise.resolve([]),
   ]);
@@ -1263,7 +1265,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
         fetched_url: z.string().optional(),
         redirects_followed: z.number().int().min(0).max(3).optional(),
         http_status: z.number().int().min(200).max(299).optional(),
-        content_type: z.literal("text/html").optional(),
+        content_type: z.enum(["text/html", "application/xhtml+xml"]).optional(),
         page_fetched: z.boolean(),
       },
       annotations: externalReadOnlyAnnotations,
@@ -1277,6 +1279,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
         const fetched = await fetchPublicHtml(url);
         const report = await runValidationReport({
           html: fetched.html,
+          htmlMediaType: fetched.contentType,
           checkLinks: check_links,
           baseUrl: fetched.finalUrl,
           xRobotsTag: fetched.xRobotsTag,

@@ -1,6 +1,6 @@
 import postcss, { CssSyntaxError } from "postcss";
 import { SERVICE_USER_AGENT } from "./constants";
-import { readBoundedResponseText } from "./network";
+import { readBoundedResponseText, type HtmlMediaType } from "./network";
 
 export interface ValidationMessage {
   type: "error" | "warning" | "info";
@@ -39,13 +39,14 @@ async function withValidatorTimeout<T>(action: (signal: AbortSignal) => Promise<
 async function validateHtmlDetailedWithSignal(
   html: string,
   signal: AbortSignal,
+  mediaType: HtmlMediaType,
 ): Promise<HtmlValidationResult> {
   // The Nu endpoint accepts server-side validation requests over Cloudflare's
   // production transport while returning the same standard Nu JSON format.
   const response = await fetch("https://html5.validator.nu/?out=json", {
     method: "POST",
     headers: {
-      "content-type": "text/html; charset=utf-8",
+      "content-type": `${mediaType}; charset=utf-8`,
       "user-agent": SERVICE_USER_AGENT,
     },
     body: html,
@@ -125,13 +126,19 @@ async function validateHtmlDetailedWithSignal(
 }
 
 /** Sends supplied markup to the Nu HTML Checker and retains cap metadata. */
-export async function validateHtmlDetailed(html: string): Promise<HtmlValidationResult> {
-  return withValidatorTimeout((signal) => validateHtmlDetailedWithSignal(html, signal));
+export async function validateHtmlDetailed(
+  html: string,
+  mediaType: HtmlMediaType = "text/html",
+): Promise<HtmlValidationResult> {
+  return withValidatorTimeout((signal) => validateHtmlDetailedWithSignal(html, signal, mediaType));
 }
 
 /** Backwards-compatible convenience API returning capped diagnostics only. */
-export async function validateHtml(html: string): Promise<ValidationMessage[]> {
-  return (await validateHtmlDetailed(html)).messages;
+export async function validateHtml(
+  html: string,
+  mediaType: HtmlMediaType = "text/html",
+): Promise<ValidationMessage[]> {
+  return (await validateHtmlDetailed(html, mediaType)).messages;
 }
 
 /** Parses supplied CSS locally and returns syntax diagnostics without a network request. */

@@ -644,7 +644,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
       || Boolean(iframe.attr("title")?.trim());
 
     if (!hasAccessibleName) {
-      add({
+      collector.add({
         code: "accessibility.iframe_name.missing_or_empty",
         severity: "error",
         category: "Accessibility",

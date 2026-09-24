@@ -237,6 +237,31 @@ test("ordinary images accept an explicit empty alt as decorative", () => {
   );
 });
 
+test("explicit semantic image roles require a non-empty accessible name even with empty alt", () => {
+  for (const html of [
+    '<img src="logo.png" alt="" role="img">',
+    '<img src="logo.png" alt="" role="image">',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.missing")?.severity,
+      "error",
+    );
+  }
+
+  for (const html of [
+    '<img src="divider.png" alt="">',
+    '<img src="divider.png" alt="" role="none">',
+    '<img src="divider.png" alt="" role="presentation">',
+    '<img src="logo.png" alt="" role="img" aria-label="Company logo">',
+    '<span id="logo-label">Company logo</span><img src="logo.png" alt="" role="image" aria-labelledby="logo-label">',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.missing"),
+      undefined,
+    );
+  }
+});
+
 test("ordinary images accept alternate accessible-name sources", () => {
   for (const html of [
     '<img src="chart.png" aria-label="Quarterly revenue chart">',

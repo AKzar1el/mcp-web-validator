@@ -448,6 +448,25 @@ describe("bounded audits", () => {
     });
   });
 
+  it("reports non-empty canonical href values that cannot be parsed as URLs", () => {
+    for (const href of ["https://", "http://[::1"]) {
+      const issues = auditSeoMetadata(`<link rel="canonical" href="${href}">`).issues;
+      expect(issues.find((issue) => issue.code === "seo.canonical.invalid_url")).toEqual({
+        code: "seo.canonical.invalid_url",
+        severity: "warning",
+        category: "SEO",
+        message: "Canonical link href cannot be parsed as a URL. Provide a valid canonical target or remove the declaration.",
+      });
+      expect(issues.find((issue) => issue.code === "seo.canonical.relative_not_recommended")).toBeUndefined();
+    }
+
+    for (const href of ["https://example.com/page", "/page", "../page", "//example.com/page"]) {
+      expect(auditSeoMetadata(`<link rel="canonical" href="${href}">`).issues
+        .find((issue) => issue.code === "seo.canonical.invalid_url"))
+        .toBeUndefined();
+    }
+  });
+
   it("reports ambiguous and Google-ignored canonical declarations", () => {
     const multiple = auditSeoMetadata([
       "<html><head>",

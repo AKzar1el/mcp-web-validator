@@ -521,7 +521,12 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   $("[id]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
     const id = $(element).attr("id");
     if (id !== undefined && !textById.has(id)) {
-      textById.set(id, $(element).attr("aria-label")?.trim() || $(element).text().trim());
+      textById.set(
+        id,
+        $(element).attr("aria-label")?.trim()
+          || $(element).attr("title")?.trim()
+          || $(element).text().trim(),
+      );
     }
   });
 

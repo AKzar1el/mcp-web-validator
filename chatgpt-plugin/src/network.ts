@@ -10,13 +10,15 @@ const HTML_ENCODING_SNIFF_BYTES = 1_024;
 const SERVICE_HOSTNAME = "web-validator-mcp.digestseo.com";
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
+export type HtmlMediaType = "text/html" | "application/xhtml+xml";
+
 export interface FetchedPublicHtml {
   html: string;
   requestedUrl: string;
   finalUrl: string;
   redirectsFollowed: number;
   status: number;
-  contentType: "text/html";
+  contentType: HtmlMediaType;
   /** Final response indexing directives for live SEO analysis. */
   xRobotsTag?: string;
 }
@@ -126,6 +128,52 @@ function isSupportedCharacterEncoding(encoding: string): boolean {
   }
 }
 
+function getXmlBomCharacterEncoding(bytes: Uint8Array): string | undefined {
+  if (bytes.length >= 4) {
+    if (bytes[0] === 0x00 && bytes[1] === 0x00 && bytes[2] === 0xfe && bytes[3] === 0xff) {
+      return "utf-32be";
+    }
+    if (bytes[0] === 0xff && bytes[1] === 0xfe && bytes[2] === 0x00 && bytes[3] === 0x00) {
+      return "utf-32le";
+    }
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return "utf-8";
+  }
+  if (bytes.length >= 2) {
+    if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+      return "utf-16be";
+    }
+    if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+      return "utf-16le";
+    }
+  }
+  return undefined;
+}
+
+function getXmlCharacterEncoding(bytes: Uint8Array): string {
+  const bomEncoding = getXmlBomCharacterEncoding(bytes);
+  if (bomEncoding) {
+    return bomEncoding;
+  }
+  if (bytes.length >= 4) {
+    if (bytes[0] === 0x00 && bytes[1] === 0x3c && bytes[2] === 0x00 && bytes[3] === 0x3f) {
+      return "utf-16be";
+    }
+    if (bytes[0] === 0x3c && bytes[1] === 0x00 && bytes[2] === 0x3f && bytes[3] === 0x00) {
+      return "utf-16le";
+    }
+  }
+
+  const declarationBytes = bytes.subarray(0, HTML_ENCODING_SNIFF_BYTES);
+  let declaration = "";
+  for (const byte of declarationBytes) {
+    declaration += byte < 0x80 ? String.fromCharCode(byte) : "\ufffd";
+  }
+  const match = /^<\?xml\s+[^?]*\bencoding\s*=\s*(["'])([^"']+)\1/i.exec(declaration);
+  return match?.[2].trim() || "utf-8";
+}
+
 /** Reads a response body without ever buffering more than the configured cap. */
 export async function readBoundedResponseText(
   response: Response,
@@ -133,6 +181,8 @@ export async function readBoundedResponseText(
   tooLargeMessage: string,
   encoding?: string,
   sniffHtmlEncoding = false,
+  sniffXmlEncoding = false,
+  preferXmlBom = false,
 ): Promise<string> {
   const declaredLength = response.headers.get("content-length");
   if (declaredLength && /^\d+$/.test(declaredLength) && Number(declaredLength) > maxBytes) {
@@ -161,7 +211,7 @@ export async function readBoundedResponseText(
   const startDecoder = async (): Promise<void> => {
     if (decoder) return;
     let encodingLabel = encoding ?? "utf-8";
-    if (encoding === undefined && sniffHtmlEncoding) {
+    if ((encoding === undefined && (sniffHtmlEncoding || sniffXmlEncoding)) || preferXmlBom) {
       const sniffLength = Math.min(pendingBytes, HTML_ENCODING_SNIFF_BYTES);
       const sniffBytes = new Uint8Array(sniffLength);
       let copied = 0;
@@ -171,10 +221,16 @@ export async function readBoundedResponseText(
         sniffBytes.set(chunk.subarray(0, length), copied);
         copied += length;
       }
-      encodingLabel = getEncoding(sniffBytes, {
-        maxBytes: HTML_ENCODING_SNIFF_BYTES,
-        defaultEncoding: "utf-8",
-      });
+      if (preferXmlBom) {
+        encodingLabel = getXmlBomCharacterEncoding(sniffBytes) ?? encodingLabel;
+      } else {
+        encodingLabel = sniffXmlEncoding
+          ? getXmlCharacterEncoding(sniffBytes)
+          : getEncoding(sniffBytes, {
+              maxBytes: HTML_ENCODING_SNIFF_BYTES,
+              defaultEncoding: "utf-8",
+            });
+      }
     }
     decoder = await createDecoder(encodingLabel);
     for (const chunk of pendingChunks) {
@@ -184,7 +240,7 @@ export async function readBoundedResponseText(
     pendingBytes = 0;
   };
 
-  if (encoding !== undefined || !sniffHtmlEncoding) {
+  if (!preferXmlBom && (encoding !== undefined || (!sniffHtmlEncoding && !sniffXmlEncoding))) {
     await startDecoder();
   }
 
@@ -247,7 +303,7 @@ export async function fetchPublicHtml(
         cache: "no-store",
         signal: controller.signal,
         headers: {
-          accept: "text/html",
+          accept: "text/html,application/xhtml+xml;q=0.9",
           "user-agent": SERVICE_USER_AGENT,
         },
       });
@@ -285,25 +341,31 @@ export async function fetchPublicHtml(
         ?.split(";", 1)[0]
         .trim()
         .toLowerCase();
-      if (contentType !== "text/html") {
+      if (contentType !== "text/html" && contentType !== "application/xhtml+xml") {
         await cancelQuietly(response);
         throw new PublicHtmlFetchError(
           "content_type",
-          "The URL must return an HTML page with a text/html content type.",
+          "The URL must return an HTML page with a text/html or application/xhtml+xml content type.",
         );
       }
 
       let html: string;
       try {
         const declaredEncoding = getDeclaredCharacterEncoding(contentTypeHeader);
-        const shouldSniffHtmlEncoding = declaredEncoding === undefined
-          || !isSupportedCharacterEncoding(declaredEncoding);
+        const isXhtml = contentType === "application/xhtml+xml";
+        const shouldSniffHtmlEncoding = !isXhtml && (
+          declaredEncoding === undefined || !isSupportedCharacterEncoding(declaredEncoding)
+        );
+        const shouldSniffXmlEncoding = isXhtml && declaredEncoding === undefined;
+        const shouldPreferXmlBom = isXhtml && declaredEncoding !== undefined;
         html = await readBoundedResponseText(
           response,
           MAX_PUBLIC_HTML_BYTES,
           "The page exceeds the 1 MiB download limit.",
-          shouldSniffHtmlEncoding ? undefined : declaredEncoding,
+          shouldSniffHtmlEncoding || shouldSniffXmlEncoding ? undefined : declaredEncoding,
           shouldSniffHtmlEncoding,
+          shouldSniffXmlEncoding,
+          shouldPreferXmlBom,
         );
       } catch (cause) {
         if (cause instanceof Error && cause.message.includes("1 MiB")) {
@@ -333,7 +395,7 @@ export async function fetchPublicHtml(
         finalUrl: currentUrl.href,
         redirectsFollowed,
         status: response.status,
-        contentType: "text/html",
+        contentType,
         xRobotsTag: response.headers.get("x-robots-tag")?.trim() || undefined,
       };
     }

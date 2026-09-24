@@ -35,11 +35,28 @@ describe("fetchPublicHtml", () => {
       cache: "no-store",
     });
     expect(init?.headers).toEqual({
-      accept: "text/html",
+      accept: "text/html,application/xhtml+xml;q=0.9",
       "user-agent": expect.stringContaining("DigestSEO-Web-Validator/0.5.0"),
     });
   });
 
+  it("accepts XHTML and decodes its XML-declared character encoding", async () => {
+    const prefix = '<?xml version="1.0" encoding="windows-1252"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Caf';
+    const suffix = "</title></head><body /></html>";
+    const body = new Uint8Array([
+      ...new TextEncoder().encode(prefix),
+      0xe9,
+      ...new TextEncoder().encode(suffix),
+    ]);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(body, {
+      headers: { "content-type": "application/xhtml+xml" },
+    })));
+
+    await expect(fetchPublicHtml("https://example.com/page.xhtml")).resolves.toMatchObject({
+      html: `${prefix}\u00e9${suffix}`,
+      contentType: "application/xhtml+xml",
+    });
+  });
   it("preserves the final X-Robots-Tag value for live SEO analysis", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => htmlResponse(undefined, {
       headers: {
@@ -210,7 +227,6 @@ describe("fetchPublicHtml", () => {
   it.each([
     ["application/json", "{}"],
     ["text/plain", "plain text"],
-    ["application/xhtml+xml", "<html></html>"],
   ])("rejects non-HTML content type %s", async (contentType, body) => {
     vi.stubGlobal(
       "fetch",

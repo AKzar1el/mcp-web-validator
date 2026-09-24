@@ -656,6 +656,33 @@ describe("public webpage audit", () => {
     expect(result.content[0]?.text).toContain("Linked and external CSS were not checked");
   });
 
+  it("preserves XHTML media type through a public webpage audit", async () => {
+    const xhtml = '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Example XHTML page for validation</title></head><body><h1>Example</h1></body></html>';
+    const fetchMock = vi.fn(async (target: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(target);
+      if (url === "https://example.com/page.xhtml") {
+        return new Response(xhtml, { headers: { "content-type": "application/xhtml+xml; charset=utf-8" } });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callTool("audit_public_webpage", {
+      url: "https://example.com/page.xhtml",
+      check_links: false,
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      content_type: "application/xhtml+xml",
+      page_fetched: true,
+    });
+    const validatorCall = fetchMock.mock.calls.find(([target]) => String(target).startsWith("https://html5.validator.nu/"));
+    expect(validatorCall?.[1]?.headers).toMatchObject({
+      "content-type": "application/xhtml+xml; charset=utf-8",
+    });
+  });
   it("uses the final redirected URL to resolve optional relative links", async () => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL, init?: RequestInit) => {
       const url = String(target);

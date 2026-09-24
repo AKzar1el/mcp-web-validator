@@ -658,14 +658,18 @@ test("viewport meta without usable content is reported instead of treated as con
 test("viewport metadata that restricts 200% zoom is reported", () => {
   for (const html of [
     '<meta name="viewport" content="width=device-width, user-scalable=no">',
+    '<meta name="viewport" content="width=device-width, user-scalable=0.5">',
+    '<meta name="viewport" content="width=device-width, user-scalable=invalid">',
     '<meta name="viewport" content="width=device-width, maximum-scale=1.5">',
     '<meta name="viewport" content="width=device-width, maximum-scale=yes">',
+    '<meta name="viewport" content="width=device-width, maximum-scale=no">',
+    '<meta name="viewport" content="width=device-width, maximum-scale=invalid">',
   ]) {
     assert.deepEqual(auditSeoMetadata(html).find((issue) => issue.code === "accessibility.viewport.zoom_restricted"), {
       code: "accessibility.viewport.zoom_restricted",
       severity: "warning",
       category: "Accessibility",
-      message: "Viewport metadata restricts user zoom below 200%. Avoid user-scalable=no and maximum-scale values below 2.",
+      message: "Viewport metadata restricts user zoom below 200%. Ensure user-scalable permits zoom and maximum-scale allows at least 2x zoom.",
     });
   }
 });
@@ -673,8 +677,12 @@ test("viewport metadata that restricts 200% zoom is reported", () => {
 test("viewport zoom audit preserves non-restricting controls", () => {
   for (const html of [
     '<meta name="viewport" content="width=device-width, user-scalable=yes">',
+    '<meta name="viewport" content="width=device-width, user-scalable=2">',
+    '<meta name="viewport" content="width=device-width, user-scalable=-2">',
+    '<meta name="viewport" content="width=device-width, user-scalable=device-width">',
     '<meta name="viewport" content="width=device-width, maximum-scale=2">',
     '<meta name="viewport" content="width=device-width, maximum-scale=-1">',
+    '<meta name="viewport" content="width=device-width, maximum-scale=device-width">',
     '<meta name="viewport" content="width=device-width">',
   ]) {
     assert.equal(

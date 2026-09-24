@@ -491,6 +491,7 @@ describe("bounded audits", () => {
   it.each([
     '<meta name="viewport" content="width=device-width, user-scalable=no">',
     '<meta name="viewport" content="width=device-width, maximum-scale=1.5">',
+    '<meta name="viewport" content="width=device-width, maximum-scale=yes">',
   ])("reports viewport metadata that restricts 200% zoom: %s", (html) => {
     const result = auditSeoMetadata(html);
 

@@ -116,6 +116,7 @@ function viewportContentRestrictsZoom(content: string): boolean {
 
   const maximumScale = directives.get("maximum-scale");
   if (maximumScale === undefined || maximumScale === "") return false;
+  if (maximumScale === "yes") return true;
   const numericMaximumScale = Number(maximumScale);
   return Number.isFinite(numericMaximumScale) && numericMaximumScale >= 0 && numericMaximumScale < 2;
 }

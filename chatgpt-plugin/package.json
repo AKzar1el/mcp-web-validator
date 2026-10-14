@@ -15,20 +15,20 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@modelcontextprotocol/ext-apps": "^2.0.0",
-    "@modelcontextprotocol/server": "^2.0.0",
-    "agents": "^0.24.0",
+    "@modelcontextprotocol/ext-apps": "^2.0.3",
+    "@modelcontextprotocol/server": "^2.3.1",
+    "agents": "^0.28.0",
     "cheerio": "^1.0.0",
     "encoding-sniffer": "1.0.2",
     "ipaddr.js": "^2.5.0",
-    "postcss": "^8.5.28",
-    "zod": "^4.6.5"
+    "postcss": "^8.5.29",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/vitest-pool-workers": "^0.23.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11",
-    "wrangler": "^4.135.0"
+    "wrangler": "^4.149.0"
   },
   "overrides": {
     "miniflare@5.20260815.0-alpha": {

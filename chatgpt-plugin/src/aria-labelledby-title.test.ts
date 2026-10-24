@@ -24,4 +24,26 @@ describe("aria-labelledby referenced title", () => {
     const html = '<svg><g id="label"><title>SVG label</title></g></svg><img src="chart.png" aria-labelledby="label">';
     expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.image_alt.missing")).toBeUndefined();
   });
+
+  it("uses the directly referenced HTML alt or button value", () => {
+    for (const [html, code] of [
+      ['<img id="label" src="brand.png" alt="Brand logo"><iframe src="/details" aria-labelledby="label"></iframe>', "accessibility.iframe_name.missing_or_empty"],
+      ['<map name="nav"><area id="label" href="/docs" alt="Documentation"></map><img src="chart.png" aria-labelledby="label">', "accessibility.image_alt.missing"],
+      ['<input id="label" type="image" src="search.png" alt="Search"><div role="img" aria-labelledby="label"></div>', "accessibility.image_alt.missing"],
+      ['<input id="label" type="button" value="Account"><iframe src="/account" aria-labelledby="label"></iframe>', "accessibility.iframe_name.missing_or_empty"],
+      ['<input id="label" type="submit" value="Submit"><img src="status.png" aria-labelledby="label">', "accessibility.image_alt.missing"],
+      ['<input id="label" type="reset" value="Reset"><svg role="img" aria-labelledby="label"></svg>', "accessibility.image_alt.missing"],
+    ] as const) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === code), html).toBeUndefined();
+    }
+  });
+
+  it("does not resolve whitespace native alternatives", () => {
+    for (const html of [
+      '<img id="label" src="brand.png" alt="  "><iframe src="/account" aria-labelledby="label"></iframe>',
+      '<input id="label" type="button" value="  "><iframe src="/account" aria-labelledby="label"></iframe>',
+    ]) {
+      expect(auditSeoMetadata(html).issues.some((issue) => issue.code === "accessibility.iframe_name.missing_or_empty"), html).toBe(true);
+    }
+  });
 });

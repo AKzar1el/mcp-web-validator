@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.44] - 2026-10-25
+
+### Fixed
+
+- Resolved native HTML accessible names from directly referenced images, image-map areas, and applicable button inputs in local and hosted `aria-labelledby` validation.
+- Excluded hidden descendant text from visible `aria-labelledby` targets while preserving text of directly referenced hidden roots under AccName rules.
+
 ## [1.3.43] - 2026-10-24
 
 ### Security

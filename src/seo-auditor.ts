@@ -546,11 +546,18 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   $("[id]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
     const id = $(element).attr("id");
     if (id !== undefined && !textById.has(id)) {
+      const node = $(element);
+      const htmlElement = element.namespace === "http://www.w3.org/1999/xhtml";
+      const nativeName = htmlElement
+        ? (node.is("img, area, input[type='image']") ? node.attr("alt")?.trim() : undefined)
+          || (node.is("input[type='button'], input[type='submit'], input[type='reset']") ? node.attr("value")?.trim() : undefined)
+        : undefined;
       textById.set(
         id,
-        $(element).attr("aria-label")?.trim()
-          || (element.namespace === "http://www.w3.org/1999/xhtml" ? $(element).attr("title")?.trim() : "")
-          || $(element).text().trim(),
+        node.attr("aria-label")?.trim()
+          || nativeName
+          || (htmlElement ? node.attr("title")?.trim() : "")
+          || node.text().trim(),
       );
     }
   });

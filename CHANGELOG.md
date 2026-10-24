@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.43] - 2026-10-24
+
+### Security
+
+- Refreshed local MCP server and hosted Worker production dependencies to address October security advisories, including critical proxy IP trust handling, MCP SDK authorization/transport issues, and Undici denial-of-service risks.
+- Updated Puppeteer Core and the matching optional screenshot-browser revision, preserving the pinned, on-demand Chrome Headless Shell installation.
+
+### Fixed
+
+- Recognized an HTML `title` attribute when its element is referenced directly by `aria-labelledby` in local and hosted accessibility checks.
+
 ## [1.3.42] - 2026-09-24
 
 ### Fixed

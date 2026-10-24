@@ -46,4 +46,22 @@ describe("aria-labelledby referenced title", () => {
       expect(auditSeoMetadata(html).issues.some((issue) => issue.code === "accessibility.iframe_name.missing_or_empty"), html).toBe(true);
     }
   });
+  it("excludes hidden descendants of visible references but preserves directly referenced hidden roots", () => {
+    for (const hidden of [
+      "hidden",
+      'aria-hidden="true"',
+      'style="display: none"',
+      'style="visibility: hidden"',
+      'style="content-visibility: hidden"',
+    ]) {
+      const html = `<span id="ref"><b ${hidden}>Invisible</b></span><img src="chart.png" aria-labelledby="ref">`;
+      expect(auditSeoMetadata(html).issues.some((issue) => issue.code === "accessibility.image_alt.missing"), html).toBe(true);
+    }
+    for (const html of [
+      '<span id="ref" hidden><b hidden>Directly referenced hidden subtree</b></span><img src="chart.png" aria-labelledby="ref">',
+      '<span id="ref"><b hidden>Invisible</b><b>Visible name</b></span><img src="chart.png" aria-labelledby="ref">',
+    ]) {
+      expect(auditSeoMetadata(html).issues.some((issue) => issue.code === "accessibility.image_alt.missing"), html).toBe(false);
+    }
+  });
 });

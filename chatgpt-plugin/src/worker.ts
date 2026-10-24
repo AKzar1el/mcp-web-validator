@@ -1391,6 +1391,20 @@ export default {
     if (url.pathname === "/health") {
       return Response.json({ status: "ok" });
     }
+    if (url.pathname === "/.well-known/openai-apps-challenge") {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return new Response(null, { status: 405, headers: { allow: "GET, HEAD" } });
+      }
+      // Public plaintext proof of control over this hosted MCP domain.
+      const token = "Ix78gUFLB8zBbC3NIP_cXBP-JOVNIEqQKqrpKZ7LNVA";
+      return new Response(request.method === "HEAD" ? null : token, {
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+        },
+      });
+    }
     if (url.pathname === "/.well-known/glama.json") {
       return Response.json(GLAMA_CONNECTOR_METADATA);
     }

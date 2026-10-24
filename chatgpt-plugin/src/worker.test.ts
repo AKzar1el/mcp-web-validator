@@ -100,6 +100,22 @@ afterEach(() => {
 });
 
 describe("MCP HTTP boundary", () => {
+  it("serves the exact OpenAI directory domain challenge without invoking MCP", async () => {
+    const env = createEnv();
+    const url = "https://web-validator-mcp.digestseo.com/.well-known/openai-apps-challenge";
+    const response = await worker.fetch(new Request(url), env, context);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/plain");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).toBe("Ix78gUFLB8zBbC3NIP_cXBP-JOVNIEqQKqrpKZ7LNVA");
+    expect(env.MCP_RATE_LIMITER.limit).not.toHaveBeenCalled();
+
+    const blocked = await worker.fetch(new Request(url, { method: "POST" }), env, context);
+    expect(blocked.status).toBe(405);
+    expect(blocked.headers.get("allow")).toBe("GET, HEAD");
+  });
+
   it("serves the current and cached legacy widget resource URIs", async () => {
     const current = await readResource("ui://web-validator/results-v5.html");
     const legacy = await readResource("ui://web-validator/results-v4.html");

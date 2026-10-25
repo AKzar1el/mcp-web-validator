@@ -212,7 +212,7 @@ For agent-assisted installation, see [llms-install.md](llms-install.md).
 
 ## Ecosystem
 
-[![smithery badge](https://smithery.ai/badge/digestseo/web-validator)](https://smithery.ai/servers/digestseo/web-validator)
+[![LightNow capabilities](https://lightnow.ai/badge/io.github.AKzar1el/mcp-web-validator)](https://lightnow.ai/servers/io.github.AKzar1el/mcp-web-validator)
 
 ## License
 

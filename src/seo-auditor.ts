@@ -315,8 +315,8 @@ function parseMetaRefreshDelaySeconds(content: string): number | undefined {
 
 function canParseCanonicalHref(href: string): boolean {
   try {
-    new URL(href, "https://example.invalid/");
-    return true;
+    const url = new URL(href, "https://example.invalid/");
+    return url.protocol === "http:" || url.protocol === "https:";
   } catch {
     return false;
   }
@@ -443,7 +443,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       code: "seo.canonical.invalid_url",
       severity: "warning",
       category: "SEO",
-      message: "Canonical link href cannot be parsed as a URL. Provide a valid canonical target or remove the declaration.",
+      message: "Canonical link href is not a usable HTTP(S) URL. Provide an HTTP(S) canonical target or remove the declaration.",
     });
   }
   if (usableCanonical.filter((_, element) => ($(element).attr("href") ?? "").includes("#")).length > 0) {

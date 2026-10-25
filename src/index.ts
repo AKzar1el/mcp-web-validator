@@ -511,7 +511,7 @@ export function createServer(): McpServer {
     {
       title: "Audit SEO metadata",
       description:
-        "Analyzes supplied HTML locally for metadata, heading structure, viewport configuration, image alternatives, and Open Graph fields.",
+        "Audits supplied HTML offline for on-page SEO metadata, headings, viewport, image alternatives, and Open Graph issues. Use for a quick on-page check; use html.local/html.url for W3C HTML validation, schema.markup for JSON-LD syntax, or report.validation for a combined local-file report.",
       inputSchema: {
         htmlContent: htmlContentSchema.describe("Raw HTML markup to inspect locally."),
       },

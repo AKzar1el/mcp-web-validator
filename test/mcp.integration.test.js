@@ -37,6 +37,11 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "seo.metadata",
     ]);
 
+    const seoTool = tools.find((tool) => tool.name === "seo.metadata");
+    assert.ok((seoTool?.description ?? "").includes("Use for a quick on-page check"));
+    assert.ok((seoTool?.description ?? "").includes("html.local/html.url"));
+    assert.ok((seoTool?.description ?? "").includes("schema.markup"));
+    assert.ok((seoTool?.description ?? "").includes("report.validation"));
     function assertInputDescriptions(schema, path) {
       for (const [name, property] of Object.entries(schema.properties ?? {})) {
         assert.equal(

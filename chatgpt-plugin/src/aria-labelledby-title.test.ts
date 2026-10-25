@@ -65,3 +65,25 @@ describe("aria-labelledby referenced title", () => {
     }
   });
 });
+
+
+describe("aria-labelledby directly referenced editable text input value", () => {
+  it("uses nonblank current values and excludes hidden, password and nontext input values", () => {
+    for (const [html, code] of [
+      ['<input id="ref" type="text" value="Current answer"><img src="chart.png" aria-labelledby="ref">', "accessibility.image_alt.missing"],
+      ['<input id="ref" value="Search query"><iframe src="/details" aria-labelledby="ref"></iframe>', "accessibility.iframe_name.missing_or_empty"],
+      ['<input id="ref" type="search" value="Site audit"><div role="img" aria-labelledby="ref"></div>', "accessibility.image_alt.missing"],
+      ['<input id="ref" type="email" value="user@example.com"><svg role="img" aria-labelledby="ref"></svg>', "accessibility.image_alt.missing"],
+    ] as const) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === code), html).toBeUndefined();
+    }
+    for (const html of [
+      '<input id="ref" type="text" value="  "><img src="chart.png" aria-labelledby="ref">',
+      '<input id="ref" type="password" value="secret"><img src="chart.png" aria-labelledby="ref">',
+      '<input id="ref" type="hidden" value="secret"><img src="chart.png" aria-labelledby="ref">',
+      '<input id="ref" type="checkbox" value="Yes"><img src="chart.png" aria-labelledby="ref">',
+    ]) {
+      expect(auditSeoMetadata(html).issues.some((issue) => issue.code === "accessibility.image_alt.missing"), html).toBe(true);
+    }
+  });
+});

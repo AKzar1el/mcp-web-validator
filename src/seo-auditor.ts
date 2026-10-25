@@ -588,6 +588,10 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       const nativeName = htmlElement
         ? (node.is("img, area, input[type='image']") ? node.attr("alt")?.trim() : undefined)
           || (node.is("input[type='button'], input[type='submit'], input[type='reset']") ? node.attr("value")?.trim() : undefined)
+          || (node.is("input")
+              && ["", "text", "search", "email", "tel", "url"].includes((node.attr("type") ?? "").trim().toLowerCase())
+              ? node.attr("value")?.trim()
+              : undefined)
         : undefined;
       textById.set(
         id,

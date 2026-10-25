@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "mcp-web-validator",
   "display_name": "Web Validator by DigestSEO",
-  "version": "1.3.42",
+  "version": "1.3.46",
   "description": "Validate HTML/CSS, audit SEO and JSON-LD, check links, and capture responsive screenshots.",
   "author": {
     "name": "AKzar1el",
@@ -42,7 +42,7 @@
     },
     {
       "name": "seo.metadata",
-      "description": "Analyzes supplied HTML locally for metadata, heading structure, viewport configuration, image alternatives, and Open Graph fields."
+      "description": "Audits supplied HTML offline for on-page SEO metadata, headings, viewport, image alternatives, and Open Graph issues. Use for a quick on-page check; use html.local/html.url for W3C HTML validation, schema.markup for JSON-LD syntax, or report.validation for a combined local-file report."
     },
     {
       "name": "links.broken",

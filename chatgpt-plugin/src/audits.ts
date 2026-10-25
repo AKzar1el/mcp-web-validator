@@ -98,6 +98,43 @@ function isAriaHiddenFromAccessibilityTree(element: unknown): boolean {
   }
   return false;
 }
+function referencedTextContent(element: unknown): string {
+  type TextNode = {
+    type?: string;
+    data?: string;
+    attribs?: Record<string, string>;
+    children?: TextNode[];
+    parent?: TextNode | null;
+  };
+  const root = element as TextNode;
+  const isHidden = (node: TextNode): boolean => {
+    const attrs = node.attribs;
+    if (!attrs) return false;
+    if (Object.prototype.hasOwnProperty.call(attrs, "hidden")
+      || attrs["aria-hidden"]?.trim().toLowerCase() === "true") return true;
+    return (attrs.style ?? "").split(";").some((declaration) => {
+      const [property, rawValue] = declaration.split(":");
+      const value = rawValue?.trim().toLowerCase().replace(/\s*!important\s*$/, "");
+      switch (property?.trim().toLowerCase()) {
+        case "display": return value === "none";
+        case "visibility": return value === "hidden" || value === "collapse";
+        case "content-visibility": return value === "hidden";
+        default: return false;
+      }
+    });
+  };
+  // A directly referenced hidden root contributes its full subtree; hidden descendants of a visible root do not.
+  let hiddenReference = false;
+  for (let ancestor: TextNode | null | undefined = root; ancestor; ancestor = ancestor.parent) {
+    if (isHidden(ancestor)) { hiddenReference = true; break; }
+  }
+  const traverse = (node: TextNode): string => {
+    if (!hiddenReference && node !== root && isHidden(node)) return "";
+    if (node.type === "text") return node.data ?? "";
+    return (node.children ?? []).map(traverse).join("");
+  };
+  return traverse(root).trim();
+}
 
 // Explicit role fallback uses the first recognized non-abstract role across WAI-ARIA, Graphics ARIA, and DPUB-ARIA.
 const VALID_NON_ABSTRACT_ARIA_ROLES = new Set([
@@ -258,8 +295,8 @@ function parseMetaRefreshDelaySeconds(content: string): number | undefined {
 
 function canParseCanonicalHref(href: string): boolean {
   try {
-    new URL(href, "https://example.invalid/");
-    return true;
+    const url = new URL(href, "https://example.invalid/");
+    return url.protocol === "http:" || url.protocol === "https:";
   } catch {
     return false;
   }
@@ -383,7 +420,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
       code: "seo.canonical.invalid_url",
       severity: "warning",
       category: "SEO",
-      message: "Canonical link href cannot be parsed as a URL. Provide a valid canonical target or remove the declaration.",
+      message: "Canonical link href is not a usable HTTP(S) URL. Provide an HTTP(S) canonical target or remove the declaration.",
     });
   }
   if (usableCanonical.filter((_, element) => ($(element).attr("href") ?? "").includes("#")).length > 0) {
@@ -521,7 +558,23 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   $("[id]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
     const id = $(element).attr("id");
     if (id !== undefined && !textById.has(id)) {
-      textById.set(id, $(element).attr("aria-label")?.trim() || $(element).text().trim());
+      const node = $(element);
+      const htmlElement = element.namespace === "http://www.w3.org/1999/xhtml";
+      const nativeName = htmlElement
+        ? (node.is("img, area, input[type='image']") ? node.attr("alt")?.trim() : undefined)
+          || (node.is("input[type='button'], input[type='submit'], input[type='reset']") ? node.attr("value")?.trim() : undefined)
+          || (node.is("input")
+              && ["", "text", "search", "email", "tel", "url"].includes((node.attr("type") ?? "").trim().toLowerCase())
+              ? node.attr("value")?.trim()
+              : undefined)
+        : undefined;
+      textById.set(
+        id,
+        node.attr("aria-label")?.trim()
+          || nativeName
+          || (htmlElement ? node.attr("title")?.trim() : "")
+          || referencedTextContent(element),
+      );
     }
   });
 

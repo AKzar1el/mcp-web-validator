@@ -4,6 +4,39 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.46] - 2026-10-25
+
+### Fixed
+
+- Rejected canonical URL targets using non-HTTP(S) schemes, including javascript:, mailto:, data: and ftp:, in local and hosted SEO audits while retaining valid HTTP(S) and relative URL behavior.
+- Clarified when assistants should use seo.metadata for offline SEO audits versus html.local/html.url for W3C HTML validation, schema.markup for JSON-LD syntax, and report.validation for combined local-file reports.
+
+## [1.3.45] - 2026-10-25
+
+### Fixed
+
+- Added actionable Linux Chromium sandbox failure diagnostics for AppArmor and user-namespace restrictions without disabling Chromium sandboxing.
+- Recognized nonempty values of directly referenced editable HTML text inputs during local and hosted `aria-labelledby` accessible-name checks, preserving password, hidden, checkbox and blank-value exclusions.
+
+
+## [1.3.44] - 2026-10-25
+
+### Fixed
+
+- Resolved native HTML accessible names from directly referenced images, image-map areas, and applicable button inputs in local and hosted `aria-labelledby` validation.
+- Excluded hidden descendant text from visible `aria-labelledby` targets while preserving text of directly referenced hidden roots under AccName rules.
+
+## [1.3.43] - 2026-10-24
+
+### Security
+
+- Refreshed local MCP server and hosted Worker production dependencies to address October security advisories, including critical proxy IP trust handling, MCP SDK authorization/transport issues, and Undici denial-of-service risks.
+- Updated Puppeteer Core and the matching optional screenshot-browser revision, preserving the pinned, on-demand Chrome Headless Shell installation.
+
+### Fixed
+
+- Recognized an HTML `title` attribute when its element is referenced directly by `aria-labelledby` in local and hosted accessibility checks.
+
 ## [1.3.42] - 2026-09-24
 
 ### Fixed

@@ -40,7 +40,7 @@ const SAFE_VIEWPORT_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 const NAVIGATION_TIMEOUT_MS = 30_000;
 
 export const SCREENSHOT_HEADLESS_MODE = "shell" as const;
-export const SCREENSHOT_BROWSER_BUILD_ID = "154.0.8037.57";
+export const SCREENSHOT_BROWSER_BUILD_ID = "156.0.8078.47";
 
 type BrowserInstaller = (options: InstallOptions & { unpack?: true }) => Promise<{ executablePath: string }>;
 
@@ -92,6 +92,25 @@ export async function resolveScreenshotBrowserExecutable(options: {
   }
 }
 
+export function explainScreenshotBrowserLaunchFailure(
+  cause: unknown,
+  platform: NodeJS.Platform = process.platform,
+): Error {
+  const message = getErrorMessage(cause);
+  if (platform !== "linux" || !/No usable sandbox!/i.test(message)) {
+    return cause instanceof Error ? cause : new Error(message);
+  }
+
+  return new Error(
+    "Chromium could not start with its sandbox enabled on this Linux host. "
+      + "Host user-namespace restrictions (such as Ubuntu AppArmor) may block it. "
+      + "Ask your system administrator for an executable-specific, sandbox-preserving policy; "
+      + "keep the Chromium sandbox enabled and do not use --no-sandbox. "
+      + "See https://pptr.dev/troubleshooting. Original error: " + message,
+    { cause },
+  );
+}
+
 let screenshotBrowserExecutablePromise: Promise<string> | undefined;
 
 const defaultScreenshotBrowserRuntime: ScreenshotBrowserRuntime = {
@@ -104,14 +123,18 @@ const defaultScreenshotBrowserRuntime: ScreenshotBrowserRuntime = {
       screenshotBrowserExecutablePromise = undefined;
       throw cause;
     }
-    return puppeteer.launch({
-      executablePath,
-      headless: SCREENSHOT_HEADLESS_MODE,
-      args: [
-        `--proxy-server=${proxyServer}`,
-        "--proxy-bypass-list=<-loopback>",
-      ],
-    });
+    try {
+      return await puppeteer.launch({
+        executablePath,
+        headless: SCREENSHOT_HEADLESS_MODE,
+        args: [
+          `--proxy-server=${proxyServer}`,
+          "--proxy-bypass-list=<-loopback>",
+        ],
+      });
+    } catch (cause: unknown) {
+      throw explainScreenshotBrowserLaunchFailure(cause);
+    }
   },
 };
 

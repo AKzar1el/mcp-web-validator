@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.45] - 2026-10-25
+
+### Fixed
+
+- Added actionable Linux Chromium sandbox failure diagnostics for AppArmor and user-namespace restrictions without disabling Chromium sandboxing.
+- Recognized nonempty values of directly referenced editable HTML text inputs during local and hosted `aria-labelledby` accessible-name checks, preserving password, hidden, checkbox and blank-value exclusions.
+
+
 ## [1.3.44] - 2026-10-25
 
 ### Fixed

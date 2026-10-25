@@ -168,3 +168,6 @@ jobs:
 
       - name: Smoke-test pinned screenshot browser without disabling its sandbox
         run: node test/screenshot-browser-smoke.mjs
+
+      - name: Smoke-test installed npm package via MCP stdio and sandboxed screenshot
+        run: node test/installed-package-smoke.mjs

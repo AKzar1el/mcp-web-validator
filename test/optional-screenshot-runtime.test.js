@@ -52,3 +52,16 @@ test("first screenshot browser resolution can install the pinned headless shell 
   assert.equal(resolved, fakeExecutable);
   assert.equal(installCalls, 1);
 });
+
+test("Linux screenshot sandbox errors give safe actionable diagnostics", async () => {
+  const { explainScreenshotBrowserLaunchFailure } = await import("../dist/screenshot.js");
+  const original = new Error("Failed to launch browser process! No usable sandbox!");
+  const diagnostic = explainScreenshotBrowserLaunchFailure(original, "linux");
+  assert.match(diagnostic.message, /AppArmor|user namespace/i);
+  assert.match(diagnostic.message, /sandbox/i);
+  assert.match(diagnostic.message, /do not disable|keep.*enabled/i);
+  assert.equal(diagnostic.cause, original);
+  const unrelated = new Error("Browser executable was not found");
+  assert.equal(explainScreenshotBrowserLaunchFailure(unrelated, "linux"), unrelated);
+  assert.equal(explainScreenshotBrowserLaunchFailure(original, "win32"), original);
+});

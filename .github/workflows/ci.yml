@@ -120,3 +120,51 @@ jobs:
 
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
+  ubuntu-screenshot-sandbox:
+    name: Ubuntu screenshot sandbox smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build screenshot runtime
+        run: npm run build
+
+      - name: Install pinned screenshot browser
+        run: node --input-type=module -e "import { resolveScreenshotBrowserExecutable } from './dist/screenshot.js'; console.log(await resolveScreenshotBrowserExecutable())"
+
+      - name: Allow only the pinned browser binary to create sandbox user namespaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="$(node --input-type=module -e "import { resolveScreenshotBrowserExecutable } from './dist/screenshot.js'; process.stdout.write(await resolveScreenshotBrowserExecutable())")"
+          case "$binary" in
+            "$HOME"/.cache/puppeteer/chrome-headless-shell/linux-*/chrome-headless-shell-linux64/chrome-headless-shell) ;;
+            *) echo "Unexpected browser executable path; refusing AppArmor exception" >&2; exit 1 ;;
+          esac
+          test -x "$binary"
+          test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = "1"
+          sudo tee /etc/apparmor.d/mcp-web-validator-ci-shell >/dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile mcp-web-validator-ci-shell "$binary" flags=(unconfined) {
+            userns,
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/mcp-web-validator-ci-shell
+          test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = "1"
+
+      - name: Smoke-test pinned screenshot browser without disabling its sandbox
+        run: node test/screenshot-browser-smoke.mjs

@@ -46,3 +46,23 @@ test("whitespace native alternatives do not resolve an aria-labelledby reference
     assert.ok(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.iframe_name.missing_or_empty"), html);
   }
 });
+
+
+test("aria-labelledby includes a directly referenced editable text input value", () => {
+  for (const [html, code] of [
+    ['<input id="ref" type="text" value="Current answer"><img src="chart.png" aria-labelledby="ref">', "accessibility.image_alt.missing"],
+    ['<input id="ref" value="Search query"><iframe src="/details" aria-labelledby="ref"></iframe>', "accessibility.iframe_name.missing_or_empty"],
+    ['<input id="ref" type="search" value="Site audit"><div role="img" aria-labelledby="ref"></div>', "accessibility.image_alt.missing"],
+    ['<input id="ref" type="email" value="user@example.com"><svg role="img" aria-labelledby="ref"></svg>', "accessibility.image_alt.missing"],
+  ]) {
+    assert.equal(auditSeoMetadata(html).find((issue) => issue.code === code), undefined, html);
+  }
+  for (const html of [
+    '<input id="ref" type="text" value="  "><img src="chart.png" aria-labelledby="ref">',
+    '<input id="ref" type="password" value="secret"><img src="chart.png" aria-labelledby="ref">',
+    '<input id="ref" type="hidden" value="secret"><img src="chart.png" aria-labelledby="ref">',
+    '<input id="ref" type="checkbox" value="Yes"><img src="chart.png" aria-labelledby="ref">',
+  ]) {
+    assert.ok(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.image_alt.missing"), html);
+  }
+});

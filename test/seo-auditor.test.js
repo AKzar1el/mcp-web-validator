@@ -545,13 +545,13 @@ test("canonical audit distinguishes an optional missing preference from an unusa
 });
 
 test("canonical audit reports non-empty href values that cannot be parsed as URLs", () => {
-  for (const href of ["https://", "http://[::1"]) {
+  for (const href of ["https://", "http://[::1", "mailto:owner@example.com", "javascript:alert(1)", "data:text/plain,hello", "ftp://example.org/page"]) {
     const issues = auditSeoMetadata(`<link rel="canonical" href="${href}">`);
     assert.deepEqual(issues.find((issue) => issue.code === "seo.canonical.invalid_url"), {
       code: "seo.canonical.invalid_url",
       severity: "warning",
       category: "SEO",
-      message: "Canonical link href cannot be parsed as a URL. Provide a valid canonical target or remove the declaration.",
+      message: "Canonical link href is not a usable HTTP(S) URL. Provide an HTTP(S) canonical target or remove the declaration.",
     });
     assert.equal(issues.find((issue) => issue.code === "seo.canonical.unusable"), undefined);
     assert.equal(issues.find((issue) => issue.code === "seo.canonical.relative_not_recommended"), undefined);

@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.46] - 2026-10-25
+
+### Fixed
+
+- Rejected canonical URL targets using non-HTTP(S) schemes, including javascript:, mailto:, data: and ftp:, in local and hosted SEO audits while retaining valid HTTP(S) and relative URL behavior.
+- Clarified when assistants should use seo.metadata for offline SEO audits versus html.local/html.url for W3C HTML validation, schema.markup for JSON-LD syntax, and report.validation for combined local-file reports.
+
 ## [1.3.45] - 2026-10-25
 
 ### Fixed

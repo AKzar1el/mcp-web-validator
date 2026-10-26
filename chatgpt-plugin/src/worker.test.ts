@@ -527,6 +527,33 @@ describe("polished tool responses", () => {
     expect(result.content[0]?.text).toContain("1 healthy link, 1 redirect, and 1 unreachable link");
   });
 
+  it("checks fragment-only links pointing to a different HTML base document", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const remote = await callTool("check_broken_links", {
+      html: '<base href="https://example.com/docs/"><a href="#missing">Missing on base page</a>',
+      base_url: "https://example.com/source",
+      max_links: 1,
+    });
+    expect(remote.structuredContent).toMatchObject({ links_checked: 1, unreachable_links: 1 });
+    expect(fetchMock.mock.calls.map(([target]) => String(target))).toEqual(["https://example.com/docs/"]);
+
+    const samePage = await callTool("check_broken_links", {
+      html: '<base href="/source"><a href="#local">Same page</a>',
+      base_url: "https://example.com/source",
+      max_links: 1,
+    });
+    expect(samePage.structuredContent).toMatchObject({ links_checked: 0 });
+
+    const privateBase = await callTool("check_broken_links", {
+      html: '<base href="http://127.0.0.1/private"><a href="#secret">Unsafe base</a>',
+      base_url: "https://example.com/source",
+      max_links: 1,
+    });
+    expect(privateBase.structuredContent).toMatchObject({ links_checked: 0 });
+    expect(fetchMock.mock.calls).toHaveLength(1);
+  });
   it("does not classify HTTP 304 as a redirect", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(null, { status: 304 })));
 

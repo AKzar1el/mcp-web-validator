@@ -973,12 +973,16 @@ export async function checkBrokenLinks(
   }
   const urls: URL[] = [];
   const seen = new Set<string>();
+  // Fragment-only links can point to the base document instead of this page.
+  const checkCrossDocumentFragments = !!effectiveBaseUrl && (
+    !fallbackBaseUrl || effectiveBaseUrl.split("#")[0] !== fallbackBaseUrl.split("#")[0]
+  );
   const limit = Math.min(Math.max(maxLinks, 1), HOSTED_MAX_LINKS);
 
   $("a[href], area[href]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
     if (urls.length >= limit) return;
     const href = $(element).attr("href")?.trim();
-    if (!href || href.startsWith("#") || /^(mailto:|tel:|javascript:|data:)/i.test(href)) return;
+    if (!href || (href.startsWith("#") && !checkCrossDocumentFragments) || /^(mailto:|tel:|javascript:|data:)/i.test(href)) return;
     const url = toPublicHttpUrl(href, effectiveBaseUrl);
     if (!url || seen.has(url.toString())) return;
     seen.add(url.toString());

@@ -923,6 +923,10 @@ export async function checkBrokenLinks(
   }
   const urls: string[] = [];
   const seenUrls = new Set<string>();
+  // Fragment-only links can point to the base document instead of this page.
+  const checkCrossDocumentFragments = !!parsedBaseUrl && (
+    !fallbackBaseUrl || parsedBaseUrl.href.split("#")[0] !== fallbackBaseUrl.href.split("#")[0]
+  );
 
   $("a, area").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
     if (urls.length >= linkLimit) {
@@ -930,7 +934,7 @@ export async function checkBrokenLinks(
     }
 
     const href = $(element).attr("href")?.trim();
-    if (!href || href.startsWith("#")) {
+    if (!href || (href.startsWith("#") && !checkCrossDocumentFragments)) {
       return;
     }
 

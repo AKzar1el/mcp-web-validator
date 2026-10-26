@@ -528,7 +528,7 @@ describe("polished tool responses", () => {
   });
 
   it("checks fragment-only links pointing to a different HTML base document", async () => {
-    const fetchMock = vi.fn(async () => new Response(null, { status: 404 }));
+    const fetchMock = vi.fn(async (_target: unknown) => new Response(null, { status: 404 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const remote = await callTool("check_broken_links", {

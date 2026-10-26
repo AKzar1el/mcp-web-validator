@@ -74,6 +74,26 @@ describe("robots rules", () => {
     // comparison, so /x/ab is the more-specific five-octet match.
     expect(isAllowedByRobots(new URL("https://example.com/x/abc"), rules.rules)).toBe(true);
   });
+  it("bounds adversarial wildcard robots matching while preserving standard wildcard semantics", () => {
+    const pathological = "/" + "*a".repeat(13) + "z$";
+    const adversarial = parseRobotsTxt(
+      ["User-agent: DigestSEO-Web-Validator", "Disallow: " + pathological].join("\n"),
+      "https://example.com",
+    );
+    const candidate = new URL("https://example.com/" + "a".repeat(26) + "x");
+    expect(adversarial.rules).toHaveLength(1);
+    const started = performance.now();
+    expect(isAllowedByRobots(candidate, adversarial.rules)).toBe(true);
+    expect(performance.now() - started).toBeLessThan(120);
+
+    const ordinary = parseRobotsTxt(
+      ["User-agent: DigestSEO-Web-Validator", "Disallow: /articles/*/draft$"].join("\n"),
+      "https://example.com",
+    );
+    expect(isAllowedByRobots(new URL("https://example.com/articles/2026/draft"), ordinary.rules)).toBe(false);
+    expect(isAllowedByRobots(new URL("https://example.com/articles/2026/drafts"), ordinary.rules)).toBe(true);
+  });
+
 });
 
 describe("auditPublicSite", () => {

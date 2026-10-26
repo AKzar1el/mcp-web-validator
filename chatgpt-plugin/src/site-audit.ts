@@ -196,11 +196,32 @@ function robotsPatternMatches(path: string, rule: string): boolean {
   const normalizedPath = normalizeRobotsComparisonValue(path);
   const normalizedRule = normalizeRobotsComparisonValue(rule);
   const anchored = normalizedRule.endsWith("$");
-  const source = anchored ? normalizedRule.slice(0, -1) : normalizedRule;
-  const escaped = source
-    .replace(/[|\\{}()[\]^$+?.]/g, "\\$&")
-    .replaceAll("*", ".*");
-  return new RegExp(`^${escaped}${anchored ? "$" : ""}`).test(normalizedPath);
+  const pattern = anchored ? normalizedRule.slice(0, -1) : normalizedRule;
+
+  // A robots.txt path pattern has only one wildcard metacharacter: "*".
+  // Avoid turning untrusted patterns into RegExp: repeated wildcards can
+  // trigger exponential backtracking on otherwise short public URLs.
+  let pathIndex = 0;
+  let patternIndex = 0;
+  let lastStarIndex = -1;
+  let starMatchedThrough = 0;
+  while (pathIndex < normalizedPath.length) {
+    if (patternIndex === pattern.length && !anchored) return true;
+    if (patternIndex < pattern.length && pattern[patternIndex] === normalizedPath[pathIndex]) {
+      patternIndex += 1;
+      pathIndex += 1;
+    } else if (patternIndex < pattern.length && pattern[patternIndex] === "*") {
+      lastStarIndex = patternIndex++;
+      starMatchedThrough = pathIndex;
+    } else if (lastStarIndex >= 0) {
+      patternIndex = lastStarIndex + 1;
+      pathIndex = ++starMatchedThrough;
+    } else {
+      return false;
+    }
+  }
+  while (patternIndex < pattern.length && pattern[patternIndex] === "*") patternIndex += 1;
+  return patternIndex === pattern.length;
 }
 
 /** Parses the supported, public robots directives without interpreting arbitrary content. */

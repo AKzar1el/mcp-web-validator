@@ -534,9 +534,9 @@ async function discoverSitePages(origin: string): Promise<DiscoveryResult> {
   } catch (cause) {
     const status = robotsHttpStatus(cause);
     const emptySuccessfulRobots = cause instanceof PublicHtmlFetchError && cause.code === "empty";
-    if (emptySuccessfulRobots || (status !== undefined && status >= 400 && status <= 499)) {
+    if (emptySuccessfulRobots || (status !== undefined && status >= 400 && status <= 499 && status !== 429)) {
       robots = { rules: [], sitemapUrls: [] };
-    } else if (status !== undefined && status >= 500 && status <= 599) {
+    } else if (status === 429 || (status !== undefined && status >= 500 && status <= 599)) {
       return {
         rules: [{ allow: false, path: "/" }],
         pageUrls: [],

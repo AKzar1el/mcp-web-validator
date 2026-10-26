@@ -404,11 +404,11 @@ describe("auditPublicSite", () => {
     expect(fetchMock.mock.calls.some(([target]) => String(target).includes("attacker.example"))).toBe(false);
     expect(fetchMock.mock.calls.some(([target]) => String(target).startsWith("http://127.0.0.1"))).toBe(false);
   });
-  it("treats robots.txt 5xx responses as unreachable and does not audit crawl candidates", async () => {
+  it.each([429, 503])("treats robots.txt %i responses as unreachable and does not audit crawl candidates", async (status) => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);
       if (url === "https://example.com/") return htmlResponse();
-      if (url === "https://example.com/robots.txt") return new Response("unavailable", { status: 503 });
+      if (url === "https://example.com/robots.txt") return new Response("unavailable", { status });
       if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
       throw new Error(`Unexpected fetch target: ${url}`);
     });

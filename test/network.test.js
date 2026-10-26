@@ -623,6 +623,29 @@ test("link checker resolves relative links from the first public base element", 
   }
 });
 
+test("link checker visits fragment-only anchors when the public document base is a different page", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input, init) => {
+    requested.push({ url: String(input), method: init?.method });
+    return new Response(null, { status: 404 });
+  };
+
+  try {
+    const remote = await checkBrokenLinks(
+      '<base href="https://8.8.8.8/docs/"><a href="#missing">Missing on base page</a>',
+      "https://1.1.1.1/docs/page",
+      1,
+    );
+    assert.deepEqual(remote.map((link) => [link.url, link.ok]), [["https://8.8.8.8/docs/", false]]);
+    assert.deepEqual(await checkBrokenLinks('<a href="#local">Same page</a>', "https://1.1.1.1/docs/page", 1), []);
+    assert.deepEqual(await checkBrokenLinks('<base href="/docs/page"><a href="#local">Same page</a>', "https://1.1.1.1/docs/page", 1), []);
+    assert.deepEqual(await checkBrokenLinks('<base href="http://127.0.0.1/private"><a href="#local">Unsafe base</a>', "https://1.1.1.1/docs/page", 1), []);
+    assert.deepEqual(requested, [{ url: "https://8.8.8.8/docs/", method: "HEAD" }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 test("document base element overrides the fetched page URL for relative links", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];

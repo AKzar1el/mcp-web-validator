@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^2.0.3",
-    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.4.0",
     "agents": "^0.30.1",
     "cheerio": "^1.0.0",
     "encoding-sniffer": "1.0.2",

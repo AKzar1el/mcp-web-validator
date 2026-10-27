@@ -201,6 +201,7 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
 
     const data = JSON.parse(text) as {
       cssvalidation?: {
+        validity?: boolean;
         errors?: Array<{
           line: number;
           message: string;
@@ -222,6 +223,9 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
 
     const errors = data.cssvalidation.errors || [];
     const warnings = data.cssvalidation.warnings || [];
+    if (data.cssvalidation.validity === false && errors.length === 0) {
+      throw new Error("W3C CSS validator reported invalid CSS without error diagnostics");
+    }
     const normalizedErrors = errors.map((err) => {
       const message = err.message ? err.message.trim() : "Unknown CSS validation error";
       return {

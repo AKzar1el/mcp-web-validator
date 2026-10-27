@@ -35,6 +35,8 @@ export interface FetchedPublicText {
 export interface FetchPublicHtmlOptions {
   /** Restricts the requested URL and every redirect to this exact origin. */
   allowedOrigin?: string;
+  /** Reject an HTML redirect target before its next network request. */
+  allowRedirect?: (target: URL) => boolean;
 }
 
 export interface FetchPublicTextOptions {
@@ -52,6 +54,7 @@ export type PublicHtmlFetchErrorCode =
   | "invalid_url"
   | "blocked_url"
   | "scope"
+  | "robots"
   | "redirect"
   | "http_status"
   | "content_type"
@@ -341,6 +344,9 @@ export async function fetchPublicHtml(
 
         const nextUrl = requirePublicPageUrl(location, currentUrl.href);
         requireAllowedOrigin(nextUrl, options.allowedOrigin);
+        if (options.allowRedirect && !options.allowRedirect(nextUrl)) {
+          throw new PublicHtmlFetchError("robots", "The HTML redirect target is disallowed by robots.txt.");
+        }
         if (currentUrl.protocol === "https:" && nextUrl.protocol === "http:") {
           throw new PublicHtmlFetchError("redirect", "An HTTPS-to-HTTP redirect was blocked.");
         }

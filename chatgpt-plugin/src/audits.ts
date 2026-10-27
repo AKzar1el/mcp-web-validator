@@ -342,7 +342,7 @@ function hasAmbiguousFoldedXRobotsNoindex(value: string | undefined): boolean {
       nonGoogleScope = scoped[1] !== "googlebot";
       continue;
     }
-    if (nonGoogleScope && directive === "noindex") return true;
+    if (nonGoogleScope && (directive === "noindex" || directive === "none")) return true;
   }
   return false;
 }

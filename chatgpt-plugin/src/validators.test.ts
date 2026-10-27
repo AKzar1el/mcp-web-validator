@@ -619,7 +619,7 @@ describe("bounded audits", () => {
     const singleScopedField = new Headers({ "X-Robots-Tag": "otherbot: noindex, noindex" });
     expect(singleScopedField.get("X-Robots-Tag")).toBe(folded);
 
-    for (const xRobotsTag of [folded!, singleScopedField.get("X-Robots-Tag")!]) {
+    for (const xRobotsTag of [folded!, singleScopedField.get("X-Robots-Tag")!, "otherbot: nofollow, none", "otherbot: none, none"]) {
       const issues = auditSeoMetadata("<title>Page</title>", { xRobotsTag }).issues;
       expect(issues.find((issue) => issue.code === "seo.robots.noindex")).toBeUndefined();
       expect(issues.find((issue) => issue.code === "seo.robots.x_robots_tag.scope_ambiguous")).toEqual({

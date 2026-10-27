@@ -325,6 +325,29 @@ function hasIndexBlockingXRobotsTagForGoogle(value: string | undefined): boolean
 }
 
 /**
+ * A comma-folded X-Robots-Tag cannot tell whether a subsequent bare noindex
+ * was part of the preceding non-Googlebot scope or a separate global field.
+ * Report uncertainty without claiming that Google is blocked from indexing.
+ */
+function hasAmbiguousFoldedXRobotsNoindex(value: string | undefined): boolean {
+  if (!value) return false;
+  const parameterizedRules = new Set([
+    "max-snippet", "max-image-preview", "max-video-preview", "unavailable_after",
+  ]);
+  let nonGoogleScope = false;
+  for (const part of value.split(",")) {
+    const directive = part.trim().toLowerCase();
+    const scoped = /^([a-z0-9._-]+)\s*:\s*(.+)$/i.exec(directive);
+    if (scoped && !parameterizedRules.has(scoped[1])) {
+      nonGoogleScope = scoped[1] !== "googlebot";
+      continue;
+    }
+    if (nonGoogleScope && directive === "noindex") return true;
+  }
+  return false;
+}
+
+/**
  * Checks on-page metadata and accessibility signals without fetching or storing
  * any external content.
  */
@@ -492,6 +515,14 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
       severity: "warning",
       category: "SEO",
       message: "A robots directive prevents Google from indexing this page. Confirm that noindex is intentional.",
+    });
+  }
+  if (hasAmbiguousFoldedXRobotsNoindex(options.xRobotsTag)) {
+    collector.add({
+      code: "seo.robots.x_robots_tag.scope_ambiguous",
+      severity: "info",
+      category: "SEO",
+      message: "X-Robots-Tag contains a potentially ambiguous noindex after a non-Googlebot scope. Combined HTTP header fields may hide a separate global directive; inspect the origin response headers.",
     });
   }
 

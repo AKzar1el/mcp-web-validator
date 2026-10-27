@@ -609,6 +609,41 @@ describe("bounded audits", () => {
     }
   });
 
+  it("reports ambiguous folded X-Robots-Tag scope without asserting Google noindex", () => {
+    const separateFields = new Headers();
+    separateFields.append("X-Robots-Tag", "otherbot: noindex");
+    separateFields.append("X-Robots-Tag", "noindex");
+    const folded = separateFields.get("X-Robots-Tag");
+    expect(folded).toBe("otherbot: noindex, noindex");
+
+    const singleScopedField = new Headers({ "X-Robots-Tag": "otherbot: noindex, noindex" });
+    expect(singleScopedField.get("X-Robots-Tag")).toBe(folded);
+
+    for (const xRobotsTag of [folded!, singleScopedField.get("X-Robots-Tag")!]) {
+      const issues = auditSeoMetadata("<title>Page</title>", { xRobotsTag }).issues;
+      expect(issues.find((issue) => issue.code === "seo.robots.noindex")).toBeUndefined();
+      expect(issues.find((issue) => issue.code === "seo.robots.x_robots_tag.scope_ambiguous")).toEqual({
+        code: "seo.robots.x_robots_tag.scope_ambiguous",
+        severity: "info",
+        category: "SEO",
+        message: "X-Robots-Tag contains a potentially ambiguous noindex after a non-Googlebot scope. Combined HTTP header fields may hide a separate global directive; inspect the origin response headers.",
+      });
+    }
+
+    for (const xRobotsTag of [
+      "otherbot: noindex, nofollow",
+      "otherbot: none",
+      "otherbot: noindex, googlebot: index",
+      "googlebot: noindex, follow",
+      "noindex",
+      "none",
+      "max-image-preview:none, follow",
+    ]) {
+      expect(auditSeoMetadata("<title>Page</title>", { xRobotsTag }).issues
+        .find((issue) => issue.code === "seo.robots.x_robots_tag.scope_ambiguous"))
+        .toBeUndefined();
+    }
+  });
   it("ignores inert template contents in SEO and JSON-LD audits", () => {
     const html = [
       "<html><head></head><body>",

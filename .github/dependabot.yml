@@ -10,6 +10,10 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # Undici 8 requires Node >=22.19; this package supports >=22.12.
+      - dependency-name: "undici"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "npm"
     directory: "/chatgpt-plugin"
@@ -21,6 +25,11 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # Agents requires the exact @modelcontextprotocol/server 2.3.1 peer.
+      # Revisit when the published Agents peer requirement changes.
+      - dependency-name: "@modelcontextprotocol/server"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"

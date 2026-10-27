@@ -49,7 +49,7 @@
   },
   "mcpName": "io.github.AKzar1el/mcp-web-validator",
   "dependencies": {
-    "@puppeteer/browsers": "3.2.5",
+    "@puppeteer/browsers": "3.2.6",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cheerio": "^1.0.0",
     "encoding-sniffer": "1.0.2",

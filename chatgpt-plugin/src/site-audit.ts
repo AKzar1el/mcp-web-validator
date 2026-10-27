@@ -546,7 +546,7 @@ async function discoverSitePages(origin: string): Promise<DiscoveryResult> {
       };
     } else {
       return {
-        rules: [],
+        rules: [{ allow: false, path: "/" }],
         pageUrls: [],
         discovery: "root_only",
         discoveryError: "robots_unavailable",

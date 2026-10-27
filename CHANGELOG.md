@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.47] - 2026-10-27
+
+### Fixed
+
+- Checked cross-document fragment links against the effective HTML base URL, preventing legitimate fragment-link checks from being silently omitted when a different document base is active.
+- Treated W3C Jigsaw CSS responses marked valid=false without parseable errors as indeterminate failures instead of incorrectly reporting CSS as clean.
+
 ## [1.3.46] - 2026-10-25
 
 ### Fixed

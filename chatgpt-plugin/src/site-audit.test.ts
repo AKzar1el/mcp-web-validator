@@ -404,6 +404,32 @@ describe("auditPublicSite", () => {
     expect(fetchMock.mock.calls.some(([target]) => String(target).includes("attacker.example"))).toBe(false);
     expect(fetchMock.mock.calls.some(([target]) => String(target).startsWith("http://127.0.0.1"))).toBe(false);
   });
+  it.each([
+    { name: "transport failure", error: new TypeError("fetch failed") },
+    { name: "aborted fetch", error: new DOMException("network timeout", "AbortError") },
+  ])("treats robots.txt $name as unreachable without auditing crawl candidates", async ({ error }) => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/robots.txt") throw error;
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error("Unexpected fetch target: " + url);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 1, pageOffset: 0 });
+
+    expect(result).toMatchObject({
+      discovery: "root_only",
+      discovery_error: "robots_unavailable",
+      pages_discovered: 1,
+      pages_selected: 0,
+      pages_audited: 0,
+      pages_skipped_robots: 1,
+    });
+    expect(result.pages).toEqual([]);
+    expect(fetchMock.mock.calls.some(([target]) => String(target).startsWith("https://html5.validator.nu/"))).toBe(false);
+  });
   it.each([429, 503])("treats robots.txt %i responses as unreachable and does not audit crawl candidates", async (status) => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);

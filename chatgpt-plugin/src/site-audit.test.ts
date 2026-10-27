@@ -97,6 +97,56 @@ describe("robots rules", () => {
 });
 
 describe("auditPublicSite", () => {
+
+  it("blocks sitemap-page redirects into robots-disallowed paths before the target GET", async () => {
+    const visited: string[] = [];
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      visited.push(url);
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nDisallow: /private\nSitemap: /sitemap.xml\n", {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response([
+          "<urlset>",
+          "<url><loc>https://example.com/allowed</loc></url>",
+          "<url><loc>https://example.com/public-redirect</loc></url>",
+          "</urlset>",
+        ].join(""), { headers: { "content-type": "application/xml" } });
+      }
+      if (url === "https://example.com/allowed") {
+        return new Response(null, { status: 302, headers: { location: "/private" } });
+      }
+      if (url === "https://example.com/public-redirect") {
+        return new Response(null, { status: 302, headers: { location: "/public-final" } });
+      }
+      if (url === "https://example.com/private" || url === "https://example.com/public-final") {
+        return htmlResponse();
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error("Unexpected fetch target: " + url);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 3, pageOffset: 0 });
+    expect(result.pages.find((page) => page.url === "https://example.com/allowed")).toMatchObject({
+      status: "skipped",
+      page_fetched: false,
+      failure_code: "robots_redirect_blocked",
+    });
+    expect(result.pages_skipped_robots).toBe(1);
+    expect(visited).not.toContain("https://example.com/private");
+    expect(result.pages.find((page) => page.url === "https://example.com/public-redirect")).toMatchObject({
+      page_fetched: true,
+      fetched_url: "https://example.com/public-final",
+      redirects_followed: 1,
+    });
+    expect(visited).toContain("https://example.com/public-final");
+  });
+
   it("reports a seed page X-Robots-Tag noindex directive in site SEO findings", async () => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);

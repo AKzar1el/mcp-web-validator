@@ -578,6 +578,7 @@ function pageFailureCode(cause: unknown): string {
   if (!(cause instanceof PublicHtmlFetchError)) return "fetch_failed";
   if (cause.code === "too_large") return "page_size_limit";
   if (cause.code === "scope") return "scope_redirect_blocked";
+  if (cause.code === "robots") return "robots_redirect_blocked";
   return cause.code;
 }
 
@@ -667,13 +668,18 @@ async function auditFetchedPage(
   };
 }
 
-async function auditPage(url: URL, origin: string, prefetched?: FetchedPublicHtml) {
+async function auditPage(url: URL, origin: string, robotsRules: RobotsRule[], prefetched?: FetchedPublicHtml) {
   try {
-    const fetched = prefetched ?? await fetchPublicHtml(url.href, { allowedOrigin: origin });
+    const fetched = prefetched ?? await fetchPublicHtml(url.href, {
+      allowedOrigin: origin,
+      allowRedirect: (target) => isAllowedByRobots(target, robotsRules),
+    });
     return await auditFetchedPage(fetched);
   } catch (cause) {
     const failureCode = pageFailureCode(cause);
-    const status: SitePageStatus = failureCode === "scope_redirect_blocked" ? "skipped" : "failed";
+    const status: SitePageStatus = failureCode === "scope_redirect_blocked" || failureCode === "robots_redirect_blocked"
+      ? "skipped"
+      : "failed";
     return {
       url: url.href,
       status,
@@ -794,7 +800,7 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
   const selected = eligible.slice(pageOffset, pageOffset + options.maxPages);
   const prefetchedKey = crawlKey(seedUrl);
   const auditedPages = await mapWithCrawlConcurrency(selected, (candidate) =>
-    auditPage(candidate, origin, crawlKey(candidate) === prefetchedKey ? seed : undefined),
+    auditPage(candidate, origin, discovery.rules, crawlKey(candidate) === prefetchedKey ? seed : undefined),
   );
   const pages = auditedPages.map(({ findings: _findings, findingsTruncated: _findingsTruncated, ...page }) => page);
   const grouped = groupFindings(auditedPages);
@@ -814,7 +820,7 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
     pages_audited: pagesAudited,
     pages_partial: pagesPartial,
     pages_failed: pagesFailed,
-    pages_skipped_robots: pagesSkippedRobots,
+    pages_skipped_robots: pagesSkippedRobots + pages.filter((page) => page.failure_code === "robots_redirect_blocked").length,
     truncated: discovery.truncated || hasMorePages,
     ...(hasMorePages ? { next_page_offset: pageOffset + selected.length } : {}),
     ...(scores.length > 0

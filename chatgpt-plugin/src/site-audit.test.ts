@@ -455,6 +455,79 @@ describe("auditPublicSite", () => {
     expect(fetchMock.mock.calls.some(([target]) => String(target).startsWith("http://127.0.0.1"))).toBe(false);
   });
   it.each([
+    { name: "global disallow", status: 200, body: "User-agent: *\nDisallow: /\n" },
+    { name: "rate limited robots", status: 429, body: "rate limited" },
+    { name: "unavailable robots", status: 503, body: "unavailable" },
+  ])("never requests the seed page before checking $name", async ({ status, body }) => {
+    const requested: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      requested.push(url);
+      if (url === "https://example.com/robots.txt") {
+        return new Response(body, { status, headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response("<urlset></urlset>", { headers: { "content-type": "application/xml" } });
+      }
+      throw new Error("Unexpected fetch target: " + url);
+    }));
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 1, pageOffset: 0 });
+    expect(requested[0]).toBe("https://example.com/robots.txt");
+    expect(requested).not.toContain("https://example.com/");
+    expect(result.pages_selected).toBe(0);
+    expect(result.pages_skipped_robots).toBe(1);
+  });
+
+  it("checks a cross-origin seed redirect target's robots before fetching its HTML", async () => {
+    const requested: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      requested.push(url);
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nAllow: /\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/sitemap.xml" || url === "https://www.example.com/sitemap.xml") {
+        return new Response("<urlset></urlset>", { headers: { "content-type": "application/xml" } });
+      }
+      if (url === "https://example.com/") {
+        return new Response(null, { status: 301, headers: { location: "https://www.example.com/" } });
+      }
+      if (url === "https://www.example.com/robots.txt") {
+        return new Response("User-agent: *\nDisallow: /\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://www.example.com/") return htmlResponse();
+      throw new Error("Unexpected fetch target: " + url);
+    }));
+    await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 1, pageOffset: 0 }).catch(() => undefined);
+    expect(requested).toContain("https://www.example.com/robots.txt");
+    expect(requested).not.toContain("https://www.example.com/");
+  });
+  it("never follows an initial seed redirect to a robots-disallowed path", async () => {
+    const requested: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      requested.push(url);
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nDisallow: /private\n", {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response("<urlset></urlset>", { headers: { "content-type": "application/xml" } });
+      }
+      if (url === "https://example.com/public") {
+        return new Response(null, { status: 302, headers: { location: "/private" } });
+      }
+      if (url === "https://example.com/private") return htmlResponse();
+      throw new Error("Unexpected fetch target: " + url);
+    }));
+    await auditPublicSite({ siteUrl: "https://example.com/public", maxPages: 1, pageOffset: 0 })
+      .catch(() => undefined);
+    expect(requested[0]).toBe("https://example.com/robots.txt");
+    expect(requested).not.toContain("https://example.com/private");
+  });
+  it.each([
     { name: "transport failure", error: new TypeError("fetch failed") },
     { name: "aborted fetch", error: new DOMException("network timeout", "AbortError") },
   ])("treats robots.txt $name as unreachable without auditing crawl candidates", async ({ error }) => {

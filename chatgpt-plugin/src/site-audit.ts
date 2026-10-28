@@ -775,10 +775,29 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
     throw new Error(`maxPages must be between 1 and ${SITE_AUDIT_MAX_PAGES}.`);
   }
 
-  const seed = await fetchPublicHtml(options.siteUrl);
-  const origin = new URL(seed.finalUrl).origin;
-  const discovery = await discoverSitePages(origin);
-  const seedUrl = sameOriginCrawlUrl(seed.finalUrl, origin, origin);
+  // Fetch robots.txt before requesting any HTML from the initial site.
+  // Never follow an initial cross-origin redirect without a separate robots policy.
+  const initialUrl = toPublicHttpUrl(options.siteUrl);
+  if (!initialUrl) {
+    throw new PublicHtmlFetchError("blocked_url", "Use a public HTTP(S) URL without credentials or a custom port.");
+  }
+  let origin = initialUrl.origin;
+  let discovery = await discoverSitePages(origin);
+  const seed = isAllowedByRobots(initialUrl, discovery.rules)
+    ? await fetchPublicHtml(options.siteUrl, {
+        allowRedirect: async (target) => {
+          if (target.origin === origin) return isAllowedByRobots(target, discovery.rules);
+          // Canonical-host redirects need the destination's own robots policy
+          // before any HTML is requested from that origin.
+          const targetDiscovery = await discoverSitePages(target.origin);
+          if (!isAllowedByRobots(target, targetDiscovery.rules)) return false;
+          origin = target.origin;
+          discovery = targetDiscovery;
+          return true;
+        },
+      })
+    : undefined;
+  const seedUrl = sameOriginCrawlUrl(seed?.finalUrl ?? initialUrl.href, origin, origin);
   if (!seedUrl) throw new Error("The authorized website redirect could not be normalized.");
 
   const candidates: URL[] = [];

@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.48] - 2026-10-28
+
+### Security
+
+- Raised the minimum Undici 7 dependency to 7.30.1 to exclude older affected versions from the declared install range, preserving Node.js 22.12 compatibility.
+
+### Changed
+
+- Updated @puppeteer/browsers from 3.2.5 to 3.2.6 for browser installation maintenance.
+
 ## [1.3.47] - 2026-10-27
 
 ### Fixed

@@ -304,6 +304,44 @@ describe("fetchPublicText", () => {
     maxRedirects: 5,
   } as const;
 
+
+  it("never accepts gzip media types for an ordinary non-gzip URL", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response("not XML", { headers: { "content-type": "application/gzip" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchPublicText("https://example.com/map.xml", {
+      ...textOptions, acceptedContentTypes: ["application/xml"], allowGzipSitemap: true,
+    })).rejects.toMatchObject({ code: "content_type" });
+  });
+
+  it("caps compressed gzip bytes before expanding a sitemap", async () => {
+    const compressed = await new Response(
+      new Blob(["<urlset><url><loc>https://example.com/page</loc></url></urlset>"])
+        .stream().pipeThrough(new CompressionStream("gzip")),
+    ).arrayBuffer();
+    const fetchMock = vi.fn(async () =>
+      new Response(compressed, { headers: { "content-type": "application/gzip" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchPublicText("https://example.com/map.xml.gz", {
+      ...textOptions, acceptedContentTypes: ["application/xml"], maxBytes:8,
+      allowGzipSitemap: true,
+    })).rejects.toMatchObject({ code: "too_large" });
+  });
+
+  it("rejects corrupted gzip bytes instead of interpreting them as sitemap XML", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(new Uint8Array([0x1f, 0x8b, 0x08, 0x00, 0x01]), {
+        headers: { "content-type": "application/gzip" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchPublicText("https://example.com/map.xml.gz", {
+      ...textOptions, acceptedContentTypes: ["application/xml"], allowGzipSitemap: true,
+    })).rejects.toMatchObject({ code: "fetch_failed" });
+  });
+
   it("keeps redirects on the locked origin by default", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(null, { status: 302, headers: { location: "https://robots.example.net/policy.txt" } }),

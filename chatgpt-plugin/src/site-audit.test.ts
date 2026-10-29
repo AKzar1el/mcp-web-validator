@@ -339,6 +339,87 @@ describe("auditPublicSite", () => {
     expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/docs")).toBe(true);
   });
 
+
+  it("discovers same-origin pages through a robots-advertised gzip sitemap", async () => {
+    const xml = "<urlset><url><loc>https://example.com/gzip-page</loc></url></urlset>";
+    const compressed = await new Response(
+      new Blob([xml]).stream().pipeThrough(new CompressionStream("gzip")),
+    ).arrayBuffer();
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: https://example.com/map.xml.gz\n", {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === "https://example.com/map.xml.gz") {
+        return new Response(compressed, { headers: { "content-type": "application/gzip" } });
+      }
+      if (url === "https://example.com/gzip-page") return htmlResponse();
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error("Unexpected URL: " + url);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 2, pageOffset: 0 });
+    expect(result).toMatchObject({ discovery: "sitemap", pages_discovered: 2, pages_audited: 2 });
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/map.xml.gz")).toBe(true);
+  });
+
+  it("discovers gzip child sitemaps without leaving the origin", async () => {
+    const xml = "<urlset><url><loc>https://example.com/child-page</loc></url></urlset>";
+    const compressed = await new Response(
+      new Blob([xml]).stream().pipeThrough(new CompressionStream("gzip")),
+    ).arrayBuffer();
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: https://example.com/index.xml\n", {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === "https://example.com/index.xml") {
+        return new Response("<sitemapindex><sitemap><loc>https://example.com/child.xml.gz</loc></sitemap><sitemap><loc>http://127.0.0.1/bad.xml.gz</loc></sitemap></sitemapindex>",
+          { headers: { "content-type": "application/xml" } });
+      }
+      if (url === "https://example.com/child.xml.gz") {
+        return new Response(compressed, { headers: { "content-type": "application/octet-stream" } });
+      }
+      if (url === "https://example.com/child-page") return htmlResponse();
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error("Unexpected URL: " + url);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 2, pageOffset: 0 });
+    expect(result).toMatchObject({ discovery: "sitemap", pages_discovered: 2, pages_audited: 2 });
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/child.xml.gz")).toBe(true);
+    expect(fetchMock.mock.calls.some(([target]) => String(target).startsWith("http://127.0.0.1"))).toBe(false);
+  });
+
+  it("fails closed on gzip sitemap expansion over the existing one-megabyte limit", async () => {
+    const oversizedXml = "<urlset>" + " ".repeat(1024 * 1024 + 16) + "</urlset>";
+    const compressed = await new Response(
+      new Blob([oversizedXml]).stream().pipeThrough(new CompressionStream("gzip")),
+    ).arrayBuffer();
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: https://example.com/oversized.xml.gz\n",
+          { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/oversized.xml.gz") {
+        return new Response(compressed, { headers: { "content-type": "application/gzip" } });
+      }
+      throw new Error("Unexpected URL: " + url);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 2, pageOffset: 0 });
+    expect(result).toMatchObject({ discovery: "root_only", discovery_error: "sitemap_unavailable", pages_discovered: 1 });
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/oversized.xml.gz")).toBe(true);
+  });
+
   it("discovers namespace-prefixed sitemap indexes and URL sets without consuming extension namespaces", async () => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);

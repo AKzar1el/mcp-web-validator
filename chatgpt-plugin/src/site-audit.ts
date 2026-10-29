@@ -296,7 +296,7 @@ export function isAllowedByRobots(url: URL, rules: RobotsRule[]): boolean {
   let winnerSpecificity = -1;
   for (const rule of rules) {
     if (!robotsPatternMatches(target, rule.path)) continue;
-    const specificity = normalizeRobotsComparisonValue(rule.path).length;
+    const specificity = normalizeRobotsComparisonValue(rule.path).replace(/%[0-9A-F]{2}/g, "x").length;
     if (!winner || specificity > winnerSpecificity || (specificity === winnerSpecificity && rule.allow)) {
       winner = rule;
       winnerSpecificity = specificity;

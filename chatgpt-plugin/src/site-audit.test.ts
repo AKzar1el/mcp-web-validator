@@ -94,6 +94,15 @@ describe("robots rules", () => {
     expect(isAllowedByRobots(new URL("https://example.com/articles/2026/drafts"), ordinary.rules)).toBe(true);
   });
 
+  it("ranks percent-escaped UTF-8 robots rules by octets, not encoded characters", () => {
+    const rules = parseRobotsTxt([
+      "User-agent: DigestSEO-Web-Validator",
+      "Disallow: /%E3%83%84*",
+      "Allow: /*/open",
+    ].join("\n"), "https://example.com");
+    expect(isAllowedByRobots(new URL("https://example.com/%E3%83%84/open"), rules.rules)).toBe(true);
+    expect(isAllowedByRobots(new URL("https://example.com/%E3%83%84/other"), rules.rules)).toBe(false);
+  });
 });
 
 describe("auditPublicSite", () => {

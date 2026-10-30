@@ -342,6 +342,34 @@ describe("fetchPublicText", () => {
     })).rejects.toMatchObject({ code: "fetch_failed" });
   });
 
+
+  it("accepts an already decoded gzip sitemap from Fetch without decompressing it twice", async () => {
+    const xml = "<urlset><url><loc>https://example.com/page</loc></url></urlset>";
+    // Network fetch may transparently decode a gzip HTTP response while
+    // preserving the Content-Encoding header (Node/Undici behavior).
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(xml, {
+        headers: { "content-type": "application/gzip", "content-encoding": "gzip" },
+      }),
+    ));
+    const result = await fetchPublicText("https://example.com/map.xml.gz", {
+      ...textOptions, acceptedContentTypes: ["application/xml"], allowGzipSitemap: true,
+    });
+    expect(result.text).toBe(xml);
+  });
+
+  it("still rejects oversized already decoded gzip transport bodies", async () => {
+    const xml = "<urlset>" + " ".repeat(1100) + "</urlset>";
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(xml, {
+        headers: { "content-type": "application/gzip", "content-encoding": "gzip" },
+      }),
+    ));
+    await expect(fetchPublicText("https://example.com/map.xml.gz", {
+      ...textOptions, acceptedContentTypes: ["application/xml"], allowGzipSitemap: true,
+    })).rejects.toMatchObject({ code: "too_large" });
+  });
+
   it("keeps redirects on the locked origin by default", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(null, { status: 302, headers: { location: "https://robots.example.net/policy.txt" } }),

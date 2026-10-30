@@ -300,7 +300,10 @@ export async function readBoundedResponseText(
 }
 
 
-/** Gzip sitemap payloads keep both transfer and expanded data below the existing audit quota. */
+/** Gzip sitemap payloads enforce both transfer-byte and expanded-byte quotas.
+ * Fetch implementations may transparently decode Content-Encoding:gzip bodies
+ * while preserving response headers; sniff the actual bytes before gunzipping.
+ */
 async function readBoundedGzipResponseText(
   response: Response,
   maxBytes: number,
@@ -312,17 +315,56 @@ async function readBoundedGzipResponseText(
     throw new Error(tooLargeMessage);
   }
   if (!response.body) return "";
-  let compressedBytes = 0;
-  const limitedCompressed = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      compressedBytes += chunk.byteLength;
-      if (compressedBytes > maxBytes) throw new Error(tooLargeMessage);
-      controller.enqueue(chunk);
-    },
-  }));
-  const expanded = limitedCompressed.pipeThrough(new DecompressionStream("gzip") as unknown as ReadableWritablePair<Uint8Array, Uint8Array>);
-  // The normal bounded reader limits expanded bytes, too; no full-sized gzip bomb buffer.
-  return readBoundedResponseText(new Response(expanded), maxBytes, tooLargeMessage);
+
+  // At the sitemap cap (1 MiB), holding the encoded representation avoids
+  // a stream-peek race while remaining independently bounded in memory.
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel(tooLargeMessage);
+        throw new Error(tooLargeMessage);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(totalBytes);
+  let cursor = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, cursor);
+    cursor += chunk.byteLength;
+  }
+
+  const gzipSignature = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+  if (gzipSignature) {
+    if (bytes.length < 3 || bytes[2] !== 0x08) {
+      throw new Error("The resource contains an invalid gzip header.");
+    }
+    const compressed = new Blob([bytes.buffer as ArrayBuffer]).stream();
+    const expanded = compressed.pipeThrough(
+      new DecompressionStream("gzip") as unknown as ReadableWritablePair<Uint8Array, Uint8Array>,
+    );
+    return readBoundedResponseText(new Response(expanded), maxBytes, tooLargeMessage);
+  }
+
+  // Node/Undici fetch may expose an already decompressed body alongside a
+  // stale Content-Encoding:gzip header. Do not decode it a second time.
+  const coding = response.headers.get("content-encoding")?.toLowerCase() ?? "";
+  const transportDecoded = coding.split(",").some((part) => part.trim() === "gzip");
+  const prefix = new TextDecoder("utf-8").decode(bytes.subarray(0, 256))
+    .replace(/^\uFEFF/, "").trimStart();
+  const looksLikeSitemap = /^(?:<|https?:\/\/)/i.test(prefix);
+  if (!transportDecoded && !looksLikeSitemap) {
+    throw new Error("The resource is neither gzip-encoded nor decoded sitemap text.");
+  }
+  return readBoundedResponseText(new Response(bytes.buffer as ArrayBuffer), maxBytes, tooLargeMessage);
 }
 
 /** Fetches one bounded public HTML document while validating every redirect. */

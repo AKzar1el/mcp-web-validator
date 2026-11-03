@@ -422,11 +422,11 @@ export async function readResponseText(
   const reader = response.body.getReader();
   let totalBytes = 0;
   let text = "";
-  let decoder: TextDecoder | undefined;
+  let decoder: InstanceType<typeof TextDecoder> | undefined;
   let pendingChunks: Uint8Array[] = [];
   let pendingBytes = 0;
 
-  const createDecoder = async (encodingLabel: string): Promise<TextDecoder> => {
+  const createDecoder = async (encodingLabel: string): Promise<InstanceType<typeof TextDecoder>> => {
     try {
       return new TextDecoder(encodingLabel);
     } catch {
@@ -561,13 +561,14 @@ export async function fetchPublicHttp(
   }
 
   let currentTarget = await resolvePublicHttpUrl(input);
+  let requestHeaders = options.headers;
   for (let redirectCount = 0; ; redirectCount += 1) {
     const dispatcher = createPinnedDispatcher(currentTarget.addresses);
     let response: Response;
     try {
       response = await fetch(currentTarget.url, {
         method: options.method ?? "GET",
-        headers: options.headers,
+        headers: requestHeaders,
         redirect: "manual",
         signal: AbortSignal.timeout(timeoutMs),
         dispatcher,
@@ -601,7 +602,17 @@ export async function fetchPublicHttp(
     } catch {
       throw new PublicUrlError("Redirect target is not a valid URL");
     }
-    currentTarget = await resolvePublicHttpUrl(redirectUrl);
+    const nextTarget = await resolvePublicHttpUrl(redirectUrl);
+    if (nextTarget.url.origin !== currentTarget.url.origin && requestHeaders) {
+      // Manual redirect handling does not apply Fetch's cross-origin
+      // credential-header stripping automatically. Never forward them onward.
+      requestHeaders = Object.fromEntries(
+        Object.entries(requestHeaders).filter(
+          ([name]) => !/^(authorization|proxy-authorization|cookie|cookie2)$/i.test(name),
+        ),
+      );
+    }
+    currentTarget = nextTarget;
   }
 }
 

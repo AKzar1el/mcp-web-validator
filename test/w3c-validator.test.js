@@ -162,6 +162,20 @@ test("missing CSS validator envelope fails instead of producing a clean result",
   }
 });
 
+test("CSS validator rejects an empty diagnostics object instead of reporting success", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ cssvalidation: {} });
+
+  try {
+    await assert.rejects(
+      validateCssContent("body { color: black; }"),
+      /CSS validation failed: W3C CSS validator returned an invalid response shape/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("Jigsaw invalid status with no reported errors must not be scored clean", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => Response.json({

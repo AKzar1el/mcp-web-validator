@@ -232,6 +232,58 @@ test("public fetch pins validated hostname resolution before transport", async (
   }
 });
 
+test("manual redirects keep same-origin headers but strip credentials after a cross-origin hop", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  const responses = [
+    new Response(null, { status: 302, headers: { location: "/same" } }),
+    new Response(null, { status: 302, headers: { location: "https://8.8.8.8/cross" } }),
+    new Response(null, { status: 302, headers: { location: "https://1.1.1.1/return" } }),
+    new Response("ok", { status: 200, headers: { "content-type": "text/plain" } }),
+  ];
+  globalThis.fetch = async (input, init) => {
+    requests.push({ url: String(input), headers: new Headers(init?.headers), redirect: init?.redirect });
+    return responses[requests.length - 1];
+  };
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/start", {
+      headers: {
+        Authorization: "fixture-auth",
+        Cookie: "fixture-cookie",
+        "Proxy-Authorization": "fixture-proxy",
+        Cookie2: "fixture-cookie2",
+        "X-Trace": "safe",
+      },
+      acceptedContentTypes: ["text/plain"],
+      maxRedirects: 3,
+    });
+    assert.equal(result.text, "ok");
+    assert.equal(result.url, "https://1.1.1.1/return");
+    assert.deepEqual(requests.map(({ url }) => url), [
+      "https://1.1.1.1/start",
+      "https://1.1.1.1/same",
+      "https://8.8.8.8/cross",
+      "https://1.1.1.1/return",
+    ]);
+    for (const request of requests) {
+      assert.equal(request.redirect, "manual");
+      assert.equal(request.headers.get("X-Trace"), "safe");
+    }
+    for (const request of requests.slice(0, 2)) {
+      assert.equal(request.headers.get("Authorization"), "fixture-auth");
+      assert.equal(request.headers.get("Cookie"), "fixture-cookie");
+    }
+    for (const request of requests.slice(2)) {
+      for (const name of ["Authorization", "Cookie", "Proxy-Authorization", "Cookie2"]) {
+        assert.equal(request.headers.get(name), null, name);
+      }
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("bounded response reader rejects a body beyond the configured cap", async () => {
   await assert.rejects(
     readResponseText(new Response("123456", { headers: { "content-length": "6" } }), 5),

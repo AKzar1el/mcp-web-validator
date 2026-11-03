@@ -48,6 +48,8 @@ export interface FetchPublicTextOptions {
   timeoutMs?: number;
   /** Allows validated public redirect hops to leave allowedOrigin. Intended for standards-defined cases such as robots.txt. */
   allowCrossOriginRedirects?: boolean;
+  /** Opt in only for gzip sitemap URLs; never decompress arbitrary HTML/robots bodies. */
+  allowGzipSitemap?: boolean;
 }
 
 export type PublicHtmlFetchErrorCode =
@@ -297,6 +299,74 @@ export async function readBoundedResponseText(
   }
 }
 
+
+/** Gzip sitemap payloads enforce both transfer-byte and expanded-byte quotas.
+ * Fetch implementations may transparently decode Content-Encoding:gzip bodies
+ * while preserving response headers; sniff the actual bytes before gunzipping.
+ */
+async function readBoundedGzipResponseText(
+  response: Response,
+  maxBytes: number,
+  tooLargeMessage: string,
+): Promise<string> {
+  const declaredLength = response.headers.get("content-length");
+  if (declaredLength && /^\d+$/.test(declaredLength) && Number(declaredLength) > maxBytes) {
+    await cancelQuietly(response);
+    throw new Error(tooLargeMessage);
+  }
+  if (!response.body) return "";
+
+  // At the sitemap cap (1 MiB), holding the encoded representation avoids
+  // a stream-peek race while remaining independently bounded in memory.
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel(tooLargeMessage);
+        throw new Error(tooLargeMessage);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(totalBytes);
+  let cursor = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, cursor);
+    cursor += chunk.byteLength;
+  }
+
+  const gzipSignature = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+  if (gzipSignature) {
+    if (bytes.length < 3 || bytes[2] !== 0x08) {
+      throw new Error("The resource contains an invalid gzip header.");
+    }
+    const compressed = new Blob([bytes.buffer as ArrayBuffer]).stream();
+    const expanded = compressed.pipeThrough(
+      new DecompressionStream("gzip") as unknown as ReadableWritablePair<Uint8Array, Uint8Array>,
+    );
+    return readBoundedResponseText(new Response(expanded), maxBytes, tooLargeMessage);
+  }
+
+  // Node/Undici fetch may expose an already decompressed body alongside a
+  // stale Content-Encoding:gzip header. Do not decode it a second time.
+  const coding = response.headers.get("content-encoding")?.toLowerCase() ?? "";
+  const transportDecoded = coding.split(",").some((part) => part.trim() === "gzip");
+  const prefix = new TextDecoder("utf-8").decode(bytes.subarray(0, 256))
+    .replace(/^\uFEFF/, "").trimStart();
+  const looksLikeSitemap = /^(?:<|https?:\/\/)/i.test(prefix);
+  if (!transportDecoded && !looksLikeSitemap) {
+    throw new Error("The resource is neither gzip-encoded nor decoded sitemap text.");
+  }
+  return readBoundedResponseText(new Response(bytes.buffer as ArrayBuffer), maxBytes, tooLargeMessage);
+}
+
 /** Fetches one bounded public HTML document while validating every redirect. */
 export async function fetchPublicHtml(
   value: string,
@@ -499,7 +569,7 @@ export async function fetchPublicText(
         continue;
       }
 
-      if (!response.ok) {
+      if (!response.ok || response.status === 206) {
         const status = response.status;
         await cancelQuietly(response);
         throw new PublicHtmlFetchError("http_status", `The resource returned HTTP ${status}.`, status);
@@ -510,14 +580,17 @@ export async function fetchPublicText(
         ?.split(";", 1)[0]
         .trim()
         .toLowerCase() ?? "";
-      if (!options.acceptedContentTypes.includes(contentType)) {
+      const gzipSitemap = options.allowGzipSitemap === true && currentUrl.pathname.toLowerCase().endsWith(".gz");
+      const gzipMediaType = contentType === "application/gzip" || contentType === "application/x-gzip"
+        || contentType === "application/octet-stream";
+      if (!options.acceptedContentTypes.includes(contentType) && !(gzipSitemap && gzipMediaType)) {
         await cancelQuietly(response);
         throw new PublicHtmlFetchError("content_type", "The resource returned an unsupported content type.");
       }
 
       let text: string;
       try {
-        text = await readBoundedResponseText(
+        text = await (gzipSitemap ? readBoundedGzipResponseText : readBoundedResponseText)(
           response,
           options.maxBytes,
           "The resource exceeds the configured download limit.",

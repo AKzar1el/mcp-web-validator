@@ -304,6 +304,84 @@ describe("fetchPublicText", () => {
     maxRedirects: 5,
   } as const;
 
+
+  it("rejects partial HTTP 206 sitemap payloads rather than auditing incomplete XML", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response("<urlset><url><loc>https://example.com/incomplete</loc></url>", {
+        status: 206,
+        headers: { "content-type": "application/xml", "content-range": "bytes 0-60/128" },
+      }),
+    ));
+    await expect(fetchPublicText("https://example.com/map.xml", {
+      ...textOptions, acceptedContentTypes: ["application/xml"],
+    })).rejects.toMatchObject({ code: "http_status" });
+  });
+
+  it("never accepts gzip media types for an ordinary non-gzip URL", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response("not XML", { headers: { "content-type": "application/gzip" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchPublicText("https://example.com/map.xml", {
+      ...textOptions, acceptedContentTypes: ["application/xml"], allowGzipSitemap: true,
+    })).rejects.toMatchObject({ code: "content_type" });
+  });
+
+  it("caps compressed gzip bytes before expanding a sitemap", async () => {
+    const compressed = await new Response(
+      new Blob(["<urlset><url><loc>https://example.com/page</loc></url></urlset>"])
+        .stream().pipeThrough(new CompressionStream("gzip")),
+    ).arrayBuffer();
+    const fetchMock = vi.fn(async () =>
+      new Response(compressed, { headers: { "content-type": "application/gzip" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchPublicText("https://example.com/map.xml.gz", {
+      ...textOptions, acceptedContentTypes: ["application/xml"], maxBytes:8,
+      allowGzipSitemap: true,
+    })).rejects.toMatchObject({ code: "too_large" });
+  });
+
+  it("rejects corrupted gzip bytes instead of interpreting them as sitemap XML", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(new Uint8Array([0x1f, 0x8b, 0x08, 0x00, 0x01]), {
+        headers: { "content-type": "application/gzip" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(fetchPublicText("https://example.com/map.xml.gz", {
+      ...textOptions, acceptedContentTypes: ["application/xml"], allowGzipSitemap: true,
+    })).rejects.toMatchObject({ code: "fetch_failed" });
+  });
+
+
+  it("accepts an already decoded gzip sitemap from Fetch without decompressing it twice", async () => {
+    const xml = "<urlset><url><loc>https://example.com/page</loc></url></urlset>";
+    // Network fetch may transparently decode a gzip HTTP response while
+    // preserving the Content-Encoding header (Node/Undici behavior).
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(xml, {
+        headers: { "content-type": "application/gzip", "content-encoding": "gzip" },
+      }),
+    ));
+    const result = await fetchPublicText("https://example.com/map.xml.gz", {
+      ...textOptions, acceptedContentTypes: ["application/xml"], allowGzipSitemap: true,
+    });
+    expect(result.text).toBe(xml);
+  });
+
+  it("still rejects oversized already decoded gzip transport bodies", async () => {
+    const xml = "<urlset>" + " ".repeat(1100) + "</urlset>";
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(xml, {
+        headers: { "content-type": "application/gzip", "content-encoding": "gzip" },
+      }),
+    ));
+    await expect(fetchPublicText("https://example.com/map.xml.gz", {
+      ...textOptions, acceptedContentTypes: ["application/xml"], allowGzipSitemap: true,
+    })).rejects.toMatchObject({ code: "too_large" });
+  });
+
   it("keeps redirects on the locked origin by default", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(null, { status: 302, headers: { location: "https://robots.example.net/policy.txt" } }),

@@ -247,7 +247,7 @@ export function parseRobotsTxt(value: string, origin: string): ParsedRobots {
 
     if (field === "sitemap") {
       const sitemapUrl = sameOriginCrawlUrl(directiveValue, origin, origin);
-      if (sitemapUrl && !sitemapUrl.pathname.endsWith(".gz")) sitemapUrls.push(sitemapUrl);
+      if (sitemapUrl) sitemapUrls.push(sitemapUrl);
       continue;
     }
 
@@ -296,7 +296,7 @@ export function isAllowedByRobots(url: URL, rules: RobotsRule[]): boolean {
   let winnerSpecificity = -1;
   for (const rule of rules) {
     if (!robotsPatternMatches(target, rule.path)) continue;
-    const specificity = normalizeRobotsComparisonValue(rule.path).length;
+    const specificity = normalizeRobotsComparisonValue(rule.path).replace(/%[0-9A-F]{2}/g, "x").length;
     if (!winner || specificity > winnerSpecificity || (specificity === winnerSpecificity && rule.allow)) {
       winner = rule;
       winnerSpecificity = specificity;
@@ -422,7 +422,7 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
 
       if (parentLocalName === "url" && grandparentLocalName === "urlset") {
         addUniqueUrl(pageUrls, seenPages, url);
-      } else if (parentLocalName === "sitemap" && grandparentLocalName === "sitemapindex" && !url.pathname.endsWith(".gz")) {
+      } else if (parentLocalName === "sitemap" && grandparentLocalName === "sitemapindex") {
         addUniqueUrl(childSitemaps, seenSitemaps, url);
       }
     });
@@ -484,9 +484,12 @@ async function discoverFromSitemaps(
         allowedOrigin: origin,
         acceptedContentTypes: SITEMAP_CONTENT_TYPES,
         maxBytes: SITE_AUDIT_MAX_SITEMAP_BYTES,
+        allowGzipSitemap: true,
       });
       sitemapUrl ??= fetched.finalUrl;
-      const parsed = parseSitemapRepresentation(fetched.text, fetched.contentType, fetched.finalUrl, origin);
+      const representationType = new URL(fetched.finalUrl).pathname.toLowerCase().endsWith(".txt.gz")
+        ? "text/plain" : fetched.contentType;
+      const parsed = parseSitemapRepresentation(fetched.text, representationType, fetched.finalUrl, origin);
       if (parsed.invalid) {
         discoveryError ??= "sitemap_invalid";
         continue;

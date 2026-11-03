@@ -305,6 +305,18 @@ describe("fetchPublicText", () => {
   } as const;
 
 
+  it("rejects partial HTTP 206 sitemap payloads rather than auditing incomplete XML", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response("<urlset><url><loc>https://example.com/incomplete</loc></url>", {
+        status: 206,
+        headers: { "content-type": "application/xml", "content-range": "bytes 0-60/128" },
+      }),
+    ));
+    await expect(fetchPublicText("https://example.com/map.xml", {
+      ...textOptions, acceptedContentTypes: ["application/xml"],
+    })).rejects.toMatchObject({ code: "http_status" });
+  });
+
   it("never accepts gzip media types for an ordinary non-gzip URL", async () => {
     const fetchMock = vi.fn(async () =>
       new Response("not XML", { headers: { "content-type": "application/gzip" } }),

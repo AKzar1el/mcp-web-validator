@@ -119,6 +119,52 @@ Marketplace or add the repository from Cursor's plugin UI. The plugin bundles
 the same local stdio server and does not require API keys or environment
 variables.
 
+### Visual Studio Code with GitHub Copilot
+
+In VS Code, run **MCP: Add Server** from the Command Palette and choose **Command
+(stdio)** with `npx -y mcp-web-validator`. Or add the following to your own
+workspace's `.vscode/mcp.json` (VS Code format):
+
+```json
+{
+  "servers": {
+    "mcp-web-validator": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "mcp-web-validator"]
+    }
+  }
+}
+```
+
+For a remote-only connection, use this server entry instead (no local Node.js
+required, but local-file and screenshot tools are unavailable):
+
+```json
+{
+  "servers": {
+    "mcp-web-validator-hosted": {
+      "type": "http",
+      "url": "https://web-validator-mcp.digestseo.com/mcp"
+    }
+  }
+}
+```
+
+Open **MCP: List Servers** to start/check the connection. In Copilot Agent
+chat, ask it to run `seo.metadata` on an HTML snippet you provide (input field
+`htmlContent`) and report its metadata issues. This is an offline, no-network
+smoke test of the local stdio server; it should return structured `issues` and
+`totalIssues` without contacting W3C or fetching a webpage. Use the **local**
+server for this check, since the hosted surface has different tool names.
+
+The repository also contains a portable root `.mcp.json` for compatible
+Copilot harness clients. Its top-level key is `mcpServers`, **not** `servers`;
+do not copy that object unchanged into `.vscode/mcp.json`. VS Code's
+[MCP configuration reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration)
+explains the file formats and supported scopes. Review tool permissions before
+allowing outbound validation or filesystem-writing screenshot calls.
+
 ### OpenAI Codex
 
 Codex CLI can add the published local stdio package directly:

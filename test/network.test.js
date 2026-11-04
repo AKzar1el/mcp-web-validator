@@ -1099,7 +1099,7 @@ test("CSS validation uses a multipart POST instead of an oversized query URL", a
     assert.equal(init?.method, "POST");
     assert.ok(init?.body instanceof FormData);
     assert.equal(init.body.get("text"), "body { color: red; }");
-    return Response.json({ cssvalidation: { errors: [] } });
+    return Response.json({ cssvalidation: { validity: true, errors: [] } });
   };
 
   try {

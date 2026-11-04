@@ -220,11 +220,7 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
     if (!data.cssvalidation || typeof data.cssvalidation !== "object") {
       throw new Error("W3C CSS validator returned an invalid response shape");
     }
-    if (
-      typeof data.cssvalidation.validity !== "boolean" &&
-      !Array.isArray(data.cssvalidation.errors) &&
-      !Array.isArray(data.cssvalidation.warnings)
-    ) {
+    if (typeof data.cssvalidation.validity !== "boolean") {
       throw new Error("W3C CSS validator returned an invalid response shape");
     }
 

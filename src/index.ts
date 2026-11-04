@@ -110,6 +110,7 @@ const screenshotSchema = z.object({
   width: z.number().int(),
   height: z.number().int(),
   outputPath: z.string(),
+  incompleteAssetCount: z.number().int().nonnegative().optional(),
 });
 
 const reportSummarySchema = z.object({
@@ -752,6 +753,15 @@ export function createServer(): McpServer {
       const outputDirectory = path.resolve(outputDir);
       try {
         const screenshots = await captureScreenshots(targetPath, outputDirectory, viewports);
+        const affected = screenshots.filter((capture) => (capture.incompleteAssetCount ?? 0) > 0);
+        if (affected.length > 0) {
+          const error = `${affected.length} screenshot viewport(s) have failed or blocked visual assets; files were saved but captures may be incomplete.`;
+          return result(
+            { screenshots, outputDirectory, error },
+            screenshotPartialCaptureContent(screenshots.length, outputDirectory, error),
+            true,
+          );
+        }
         return result(
           { screenshots, outputDirectory },
           screenshotCaptureContent(screenshots.length, outputDirectory),

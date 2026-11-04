@@ -249,3 +249,50 @@ test("screenshot failure after a successful viewport preserves completed output 
   await assert.rejects(fs.stat(path.join(directory, "mobile_375x812.png")), { code: "ENOENT" });
   await assertProxyListenerClosed(proxyUrl);
 });
+
+test("screenshot reports failed visual assets per viewport without leaking asset URLs", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-web-validator-asset-coverage-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const targetPath = path.join(directory, "fixture.html");
+  await fs.writeFile(targetPath, "<!doctype html><title>Fixture</title>");
+  const handlers = new Map();
+  let viewport = 0;
+  const captures = await captureScreenshots(targetPath, directory, [
+    { name: "desktop", width: 1440, height: 900 },
+    { name: "mobile", width: 375, height: 812 },
+  ], {
+    async launch() {
+      return {
+        async newPage() {
+          return {
+            setDefaultNavigationTimeout() {},
+            async setRequestInterception() {},
+            on(name, handler) { handlers.set(name, handler); },
+            async setViewport() { viewport += 1; },
+            async goto() {
+              if (viewport === 1) {
+                const image = { resourceType: () => "image", url: () => "https://example.com/private-image?token=secret" };
+                handlers.get("requestfailed")(image);
+                handlers.get("response")({ request: () => image, status: () => 404 });
+                handlers.get("requestfailed")({ resourceType: () => "fetch", url: () => "https://example.com/optional-analytics" });
+                handlers.get("request")({
+                  resourceType: () => "font",
+                  url: () => "data:font/woff;base64,Zml4dHVyZQ==",
+                  isInterceptResolutionHandled: () => false,
+                  async continue() {},
+                  async abort() {},
+                });
+              }
+              return { status: () => 200 };
+            },
+            async screenshot({ path: outputPath }) { await fs.writeFile(outputPath, "fixture png"); },
+          };
+        },
+        async close() {},
+      };
+    },
+  });
+  assert.equal(captures[0].incompleteAssetCount, 2);
+  assert.equal(captures[1].incompleteAssetCount, undefined);
+  assert.doesNotMatch(JSON.stringify(captures), /token=secret|private-image/);
+});

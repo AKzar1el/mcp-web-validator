@@ -94,8 +94,11 @@ async function validateHtmlDetailedWithSignal(
       lastLine?: unknown;
       lastColumn?: unknown;
     };
+    if (typeof item.type === "string" && item.type.trim().toLowerCase() === "non-document-error") {
+      throw new Error("The Nu HTML Checker could not complete validation (non-document-error).");
+    }
     const type: ValidationMessage["type"] =
-      item.type === "error" || item.type === "non-document-error"
+      item.type === "error"
         ? "error"
         : item.type === "warning" || item.subType === "warning"
           ? "warning"

@@ -13,6 +13,24 @@ test("Nu non-document-error messages retain error severity", () => {
   );
 });
 
+test("Nu non-document-error makes HTML validation indeterminate even alongside document errors", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    messages: [
+      { type: "error", message: "Missing alt" },
+      { type: "non-document-error", message: "Internal checker failure" },
+    ],
+  });
+  try {
+    await assert.rejects(
+      validateHtmlContent("<html><body><img></body></html>"),
+      /HTML validation failed: W3C HTML validator could not complete validation/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("missing HTML validator messages fail instead of producing a clean result", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify({}), { status: 200 });

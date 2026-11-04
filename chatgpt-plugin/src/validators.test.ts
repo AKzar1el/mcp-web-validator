@@ -72,6 +72,20 @@ describe("validateHtml", () => {
   });
 });
 
+describe("Nu checker failures", () => {
+  it("does not classify a Nu checker failure as invalid markup", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      messages: [
+        { type: "error", message: "Missing alt" },
+        { type: "non-document-error", message: "Internal checker failure" },
+      ],
+    })));
+    await expect(validateHtmlDetailed("<html></html>")).rejects.toThrow(
+      "The Nu HTML Checker could not complete validation",
+    );
+  });
+});
+
 describe("public URL filtering", () => {
   it.each([
     "http://localhost./",

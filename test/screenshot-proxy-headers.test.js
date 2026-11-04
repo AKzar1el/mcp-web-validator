@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { stripHopByHopHeaders } from "../dist/screenshot-proxy.js";
+import { PassThrough } from "node:stream";
+import { pipeScreenshotUpstreamResponse, stripHopByHopHeaders } from "../dist/screenshot-proxy.js";
 
 test("screenshot proxy removes Connection-nominated request fields and standard hop-by-hop headers", () => {
   const incoming = {
@@ -55,4 +56,37 @@ test("screenshot proxy retains ordinary response metadata when Connection is abs
     "cache-control": "max-age=60",
     "content-length": "10",
   });
+});
+
+test("screenshot proxy tears down partial responses on upstream stream error or abort", () => {
+  for (const event of ["error", "aborted"]) {
+    const upstream = new PassThrough();
+    upstream.statusCode = 200;
+    upstream.headers = { connection: "close", "content-type": "text/plain" };
+    upstream.complete = false;
+    const downstream = new PassThrough();
+    downstream.headersSent = false;
+    downstream.writeHead = (status, headers) => {
+      assert.equal(status, 200);
+      assert.deepEqual(headers, { "content-type": "text/plain" });
+      downstream.headersSent = true;
+    };
+
+    pipeScreenshotUpstreamResponse(upstream, downstream);
+    assert.equal(downstream.headersSent, true);
+    upstream.emit(event, new Error("connection interrupted"));
+    assert.equal(downstream.destroyed, true, `${event} must stop truncated success`);
+  }
+});
+
+test("screenshot proxy cancels an unfinished upstream when downstream closes", () => {
+  const upstream = new PassThrough();
+  upstream.statusCode = 200;
+  upstream.headers = { "content-type": "text/plain" };
+  upstream.complete = false;
+  const downstream = new PassThrough();
+  downstream.writeHead = () => {};
+  pipeScreenshotUpstreamResponse(upstream, downstream);
+  downstream.emit("close");
+  assert.equal(upstream.destroyed, true);
 });

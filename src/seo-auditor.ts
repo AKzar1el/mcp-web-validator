@@ -112,11 +112,14 @@ function isInTemplateContents(element: unknown): boolean {
   return false;
 }
 
-function isAriaHiddenFromAccessibilityTree(element: unknown): boolean {
+function isHiddenFromAccessibilityTree(element: unknown): boolean {
   type ParentNode = { attribs?: Record<string, string>; parent?: unknown };
   let node = element as ParentNode | null;
   while (node) {
-    if (node.attribs?.["aria-hidden"]?.trim().toLowerCase() === "true") return true;
+    const attrs = node.attribs;
+    if (attrs?.["aria-hidden"]?.trim().toLowerCase() === "true") return true;
+    if (attrs && Object.hasOwn(attrs, "hidden")) return true;
+    if ((attrs?.style ?? "").split(";").some((declaration) => /^\s*display\s*:\s*none(?:\s*!important)?\s*$/i.test(declaration))) return true;
     node = (node.parent ?? null) as ParentNode | null;
   }
   return false;
@@ -616,7 +619,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   // --- Images Alt Tags (SEO + Accessibility) ---
   $("img").filter((_, element) =>
     !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
     && !isUnambiguouslyPresentationalImage(element)
   ).each((_, element) => {
     const img = $(element);
@@ -653,7 +656,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   $("div[role], span[role]").filter((_, element) =>
     hasExplicitSemanticImageRole(element)
     && !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const semanticImage = $(element);
     const labelledByIds = (semanticImage.attr("aria-labelledby") ?? "")
@@ -677,7 +680,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   $("[role]").filter((_, element) =>
     hasExplicitSvgImageRole(element)
     && !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const svgImage = $(element);
     const labelledByIds = (svgImage.attr("aria-labelledby") ?? "")
@@ -699,7 +702,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   });
 
   $("input[type=\"image\" i]").filter((_, element) =>
-    !isInTemplateContents(element) && !isAriaHiddenFromAccessibilityTree(element)
+    !isInTemplateContents(element) && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const input = $(element);
     const labelledByIds = (input.attr("aria-labelledby") ?? "")
@@ -724,7 +727,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
 
   $("iframe").filter((_, element) =>
     !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
     && !hasNegativeTabIndex(element)
     && !isDecorativeIframe(element)
   ).each((_, element) => {
@@ -748,7 +751,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   });
 
   $("area[href]").filter((_, element) =>
-    !isInTemplateContents(element) && !isAriaHiddenFromAccessibilityTree(element)
+    !isInTemplateContents(element) && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const area = $(element);
     const labelledByIds = (area.attr("aria-labelledby") ?? "")
@@ -766,7 +769,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       const map = area.closest("map");
       const hasLabeledEquivalent = map.find("area[href]").filter((_, peer) =>
         !isInTemplateContents(peer)
-        && !isAriaHiddenFromAccessibilityTree(peer)
+        && !isHiddenFromAccessibilityTree(peer)
         && ($(peer).attr("href")?.trim() ?? "") === href
         && Boolean($(peer).attr("alt")?.trim())
       ).length > 0;

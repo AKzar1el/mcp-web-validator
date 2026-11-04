@@ -975,6 +975,7 @@ describe("auditPublicSite", () => {
 
   it("uses same-origin sitemap URLs, honors robots exclusions, and returns a continuation offset", async () => {
     const privateMarker = "private-page-marker-that-must-not-leak";
+    let sitemapChanged = false;
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);
       if (url === "https://example.com/") return htmlResponse(`<!doctype html><html><head><title>Example page title for audit</title><meta name=description content='A useful description with enough characters to meet the normal metadata target for this focused test page.'><meta name=viewport content='width=device-width'><link rel=canonical href='https://example.com/'></head><body><h1>Example</h1><!--${privateMarker}--></body></html>`);
@@ -988,6 +989,7 @@ describe("auditPublicSite", () => {
           '<?xml version="1.0"?>',
           "<urlset>",
           "<url><loc>https://example.com/</loc></url>",
+          ...(sitemapChanged ? ["<url><loc>https://example.com/new-page</loc></url>"] : []),
           "<url><loc>https://example.com/allowed#fragment</loc></url>",
           "<url><loc>https://example.com/blocked</loc></url>",
           "<url><loc>https://attacker.example/outside</loc></url>",
@@ -1013,6 +1015,7 @@ describe("auditPublicSite", () => {
       pages_skipped_robots: 1,
       truncated: true,
       next_page_offset: 1,
+      discovery_fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
       audit_health_score: expect.any(Number),
       score_coverage_percent: 100,
     });
@@ -1020,6 +1023,19 @@ describe("auditPublicSite", () => {
     expect(fetchMock.mock.calls.some(([target]) => String(target).includes("/blocked"))).toBe(false);
     expect(fetchMock.mock.calls.some(([target]) => String(target).includes("attacker.example"))).toBe(false);
     expect(JSON.stringify(result)).not.toContain(privateMarker);
+    await expect(auditPublicSite({ siteUrl: "https://example.com/", maxPages: 1, pageOffset: 1 }))
+      .rejects.toThrow("Stale site audit continuation");
+    const continuation = await auditPublicSite({
+      siteUrl: "https://example.com/", maxPages: 1, pageOffset: 1,
+      expectedDiscoveryFingerprint: result.discovery_fingerprint,
+    });
+    expect(continuation.pages[0]?.url).toBe("https://example.com/allowed");
+    sitemapChanged = true;
+    await expect(auditPublicSite({
+      siteUrl: "https://example.com/", maxPages: 1, pageOffset: 1,
+      expectedDiscoveryFingerprint: result.discovery_fingerprint,
+    })).rejects.toThrow("Stale site audit continuation");
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/new-page")).toBe(false);
   });
 
   it("returns a typed partial result when Nu HTML validation is unavailable", async () => {

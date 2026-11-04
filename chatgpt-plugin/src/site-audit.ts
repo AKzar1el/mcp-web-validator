@@ -70,6 +70,7 @@ export interface PublicSiteAuditOptions {
   siteUrl: string;
   maxPages: number;
   pageOffset: number;
+  expectedDiscoveryFingerprint?: string;
 }
 
 export interface PublicSiteAuditResult {
@@ -85,6 +86,7 @@ export interface PublicSiteAuditResult {
   pages_skipped_robots: number;
   truncated: boolean;
   next_page_offset?: number;
+  discovery_fingerprint: string;
   audit_health_score?: number;
   score_coverage_percent: number;
   pages: SiteAuditPageSummary[];
@@ -849,6 +851,19 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
     eligible.push(candidate);
   }
 
+  // Offset pagination is only safe against the same ordered discovery snapshot.
+  // Hash the eligible URL sequence, not just its length: insertions and reorderings
+  // otherwise cause silent duplicates or skipped pages on later batches.
+  const snapshotBytes = new TextEncoder().encode(JSON.stringify({
+    origin,
+    urls: eligible.map((url) => url.href),
+  }));
+  const snapshotHash = await crypto.subtle.digest("SHA-256", snapshotBytes);
+  const discoveryFingerprint = Array.from(new Uint8Array(snapshotHash), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  if (options.pageOffset > 0 && options.expectedDiscoveryFingerprint !== discoveryFingerprint) {
+    throw new Error("Stale site audit continuation: restart with page_offset 0 and use its discovery fingerprint.");
+  }
+
   const pageOffset = Math.min(options.pageOffset, eligible.length);
   const selected = eligible.slice(pageOffset, pageOffset + options.maxPages);
   const prefetchedKey = crawlKey(seedUrl);
@@ -875,6 +890,7 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
     pages_failed: pagesFailed,
     pages_skipped_robots: pagesSkippedRobots + pages.filter((page) => page.failure_code === "robots_redirect_blocked").length,
     truncated: discovery.truncated || hasMorePages,
+    discovery_fingerprint: discoveryFingerprint,
     ...(hasMorePages ? { next_page_offset: pageOffset + selected.length } : {}),
     ...(scores.length > 0
       ? { audit_health_score: Math.round(scores.reduce((total, score) => total + score, 0) / scores.length) }

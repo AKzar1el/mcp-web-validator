@@ -122,6 +122,7 @@ const siteAuditOutputSchema = {
   pages_skipped_robots: z.number().int().nonnegative(),
   truncated: z.boolean(),
   next_page_offset: z.number().int().nonnegative().optional(),
+  discovery_fingerprint: z.string(),
   audit_health_score: z.number().int().min(0).max(100).optional(),
   score_coverage_percent: z.number().int().min(0).max(100),
   pages: z.array(sitePageSchema),
@@ -716,7 +717,7 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
       : "";
   const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_selected, "page")} were selected. ${discoveryDetail}${scoreDetail} Link checks are intentionally not run by this bounded site tool.`;
   const nextAction = result.next_page_offset !== undefined
-    ? `Continue with page_offset ${result.next_page_offset} to audit the next bounded sitemap batch.`
+    ? `Continue with page_offset ${result.next_page_offset} and expected_discovery_fingerprint ${result.discovery_fingerprint} to audit the same sitemap snapshot; restart at offset 0 if discovery changes.`
     : result.discovery_error === "sitemap_query_unsupported"
       ? "Provide public same-origin sitemap and page URLs without query parameters, then rerun discovery; skipped URLs were not audited."
     : result.discovery_error
@@ -1345,7 +1346,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
     {
       title: "Audit public site",
       description:
-        `Use this for a bounded, sitemap-first audit of a public website the user owns or is authorized to inspect. It fetches at most ${SITE_AUDIT_MAX_PAGES} same-origin HTML pages per call, respects robots.txt, and returns compact page summaries plus deduplicated findings. It does not recursively follow HTML links, authenticate, execute JavaScript, fetch assets, or run site-wide link checks. Use page_offset to continue when more sitemap pages remain.`,
+        `Use this for a bounded, sitemap-first audit of a public website the user owns or is authorized to inspect. It fetches at most ${SITE_AUDIT_MAX_PAGES} same-origin HTML pages per call, respects robots.txt, and returns compact page summaries plus deduplicated findings. It does not recursively follow HTML links, authenticate, execute JavaScript, fetch assets, or run site-wide link checks. To continue a batch, pass both the returned page offset and discovery fingerprint; changed sitemaps require restarting at offset 0.`,
       inputSchema: {
         site_url: publicPageUrlInput.describe("Authorized public website URL. The final public origin becomes the crawl boundary."),
         max_pages: z
@@ -1362,6 +1363,8 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           .max(SITE_AUDIT_MAX_SITEMAP_URLS)
           .default(0)
           .describe("Zero-based sitemap-page offset for continuing a capped audit batch."),
+        expected_discovery_fingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional()
+          .describe("Fingerprint from the first batch. Required when page_offset > 0 to reject sitemap drift."),
       },
       outputSchema: siteAuditOutputSchema,
       annotations: externalReadOnlyAnnotations,
@@ -1370,7 +1373,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
         invoked: "Public site audit complete.",
       }),
     },
-    async ({ site_url, max_pages, page_offset }) => {
+    async ({ site_url, max_pages, page_offset, expected_discovery_fingerprint }) => {
       try {
         const rateLimit = await env.SITE_AUDIT_RATE_LIMITER.limit({ key: siteAuditRateLimitKey });
         if (!rateLimit.success) {
@@ -1385,6 +1388,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           siteUrl: site_url,
           maxPages: max_pages,
           pageOffset: page_offset,
+          expectedDiscoveryFingerprint: expected_discovery_fingerprint,
         });
         const overview = siteAuditOverview(result);
         return {
@@ -1392,7 +1396,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           content: contentForOverview(overview, siteAuditFindings(result.issue_groups)),
         };
       } catch (cause) {
-        const error = cause instanceof PublicHtmlFetchError
+        const error = cause instanceof PublicHtmlFetchError || (cause instanceof Error && cause.message.startsWith("Stale site audit continuation:"))
           ? cause.message
           : "The public site audit could not be completed. Please try again shortly.";
         console.error(JSON.stringify({

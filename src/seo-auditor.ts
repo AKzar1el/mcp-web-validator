@@ -987,8 +987,9 @@ export async function checkBrokenLinks(
       const headFinalUrl = headResult.url.href;
       await cancelResponseBody(headResult.response);
 
-      // Some sites reject or do not implement HEAD even when the linked resource is available.
-      if (headStatus === 405 || headStatus === 403 || headStatus === 501) {
+      // Some sites reject HEAD or return a false 404/410 for an otherwise
+      // available resource. Confirm negative HEAD results with a bounded GET.
+      if ([403, 404, 405, 410, 501].includes(headStatus)) {
         let getResult = await fetchPublicHttp(url, {
           method: "GET",
           headers: {

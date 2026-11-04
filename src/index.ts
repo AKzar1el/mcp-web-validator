@@ -127,6 +127,7 @@ const reportSummarySchema = z.object({
   schemaErrors: z.number().int().nonnegative(),
   linksChecked: z.number().int().nonnegative(),
   brokenLinks: z.number().int().nonnegative(),
+  unverifiedLinks: z.number().int().nonnegative(),
 });
 
 const externalReadOnlyAnnotations = {
@@ -180,6 +181,7 @@ function failedReport(filePath: string, error: string): ValidationReport {
       schemaErrors: 0,
       linksChecked: 0,
       brokenLinks: 0,
+      unverifiedLinks: 0,
     },
     htmlMessages: [],
     htmlTotalMessages: 0,

@@ -36,6 +36,11 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
   return typeof status === "number" && HTTP_REDIRECT_STATUSES.has(status);
 }
 
+/** A network, safety-policy, or rate-limit response cannot establish destination health. */
+export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
+  return typeof status !== "number" || status === 429;
+}
+
 export interface AuditCounts {
   error: number;
   warning: number;
@@ -1008,11 +1013,13 @@ export async function checkBrokenLinks(
           status,
           ok,
           message:
-            isHttpRedirectStatus(status)
-              ? "Redirect not followed"
-              : finalUrl !== url
-                ? `Redirected to ${finalUrl}`
-                : undefined,
+            status === 429
+              ? "Rate limited; destination availability not verified"
+              : isHttpRedirectStatus(status)
+                ? "Redirect not followed"
+                : finalUrl !== url
+                  ? `Redirected to ${finalUrl}`
+                  : undefined,
         };
       }
 
@@ -1021,11 +1028,13 @@ export async function checkBrokenLinks(
         status: headStatus,
         ok: headStatus >= 200 && headStatus < 400,
         message:
-          isHttpRedirectStatus(headStatus)
-            ? "Redirect not followed"
-            : headFinalUrl !== url
-              ? `Redirected to ${headFinalUrl}`
-              : undefined,
+          headStatus === 429
+            ? "Rate limited; destination availability not verified"
+            : isHttpRedirectStatus(headStatus)
+              ? "Redirect not followed"
+              : headFinalUrl !== url
+                ? `Redirected to ${headFinalUrl}`
+                : undefined,
       };
     } catch (error: unknown) {
       return {

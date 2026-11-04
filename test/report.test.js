@@ -153,9 +153,13 @@ test("report keeps redirects visible without counting them as broken links", () 
   });
 
   assert.equal(result.summary.linksChecked, 11);
-  assert.equal(result.summary.brokenLinks, 5);
-  assert.equal(result.summary.linkScore, 0);
-  assert.match(result.report, /5 broken or unreachable, 4 redirects to review of 11 checked/);
+  assert.equal(result.summary.brokenLinks, 3);
+  assert.equal(result.summary.unverifiedLinks, 2);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /3 confirmed HTTP failures, 2 unverified, 4 redirects to review of 11 checked/);
+  assert.match(result.report, /Link integrity \| Incomplete \| N\/A/);
+  assert.match(result.report, /\| https:\/\/example\.test\/blocked \| blocked \| Unverified \|/);
   assert.match(result.report, /\| https:\/\/example\.test\/301 \| 301 \| Yes \| Redirect not followed \|/);
 
   const redirectsOnly = createValidationReport({
@@ -168,7 +172,49 @@ test("report keeps redirects visible without counting them as broken links", () 
     links: [{ url: "https://example.test/redirect", status: 301, ok: true, message: "Redirect not followed" }],
   });
   assert.equal(redirectsOnly.summary.brokenLinks, 0);
+  assert.equal(redirectsOnly.summary.unverifiedLinks, 0);
   assert.equal(redirectsOnly.summary.linkScore, 100);
+});
+
+test("report does not penalize or falsely clear checks blocked by policy or network failures", () => {
+  const result = createValidationReport({
+    htmlFilePath: "partial-links.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [
+      { url: "https://example.test/good", status: 200, ok: true },
+      { url: "https://localhost/", status: "blocked", ok: false, message: "Private address" },
+      { url: "https://example.test/timeout", status: "failed", ok: false, message: "Timed out" },
+    ],
+  });
+  assert.equal(result.summary.linksChecked, 3);
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 2);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /0 confirmed HTTP failures, 2 unverified/);
+  assert.doesNotMatch(result.report, /No links checked/);
+});
+
+test("report treats HTTP 429 rate limits as unverified rather than broken destinations", () => {
+  const result = createValidationReport({
+    htmlFilePath: "rate-limited.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/rate-limited", status: 429, ok: false }],
+  });
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /1 unverified/);
+  assert.match(result.report, /Incomplete link verification/);
 });
 
 test("report does not count HTTP 304 as a redirect", () => {

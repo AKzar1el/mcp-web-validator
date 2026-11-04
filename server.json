@@ -814,6 +814,11 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 9007199254740991
+              },
+              "unverifiedLinks": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
               }
             },
             "required": [
@@ -830,7 +835,8 @@
               "seoWarnings",
               "schemaErrors",
               "linksChecked",
-              "brokenLinks"
+              "brokenLinks",
+              "unverifiedLinks"
             ],
             "additionalProperties": false
           },

@@ -6,7 +6,7 @@ import {
 } from "@modelcontextprotocol/ext-apps/server";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { auditSeoMetadata, checkBrokenLinks, isHttpRedirectStatus, validateSchemaMarkup } from "./audits";
+import { auditSeoMetadata, checkBrokenLinks, isHttpRedirectStatus, isUnverifiedLinkStatus, validateSchemaMarkup } from "./audits";
 import {
   CSS_MAX_LENGTH,
   HOSTED_MAX_LINKS,
@@ -138,6 +138,7 @@ const reportOutputSchema = {
   schema_issues: z.number().int().nonnegative(),
   links_checked: z.number().int().nonnegative(),
   broken_links: z.number().int().nonnegative(),
+  unverified_links: z.number().int().nonnegative(),
   html_warnings: z.number().int().nonnegative(),
   html_info: z.number().int().nonnegative(),
   html_messages: z.array(validationMessageSchema),
@@ -400,12 +401,14 @@ function summarizeSeverities(counts: { errors: number; warnings: number; info: n
 
 function linkCounts(links: Array<{ status: number | "blocked" | "failed"; ok: boolean }>) {
   const redirects = links.filter((link) => isHttpRedirectStatus(link.status)).length;
-  const unreachable = links.filter((link) => !link.ok).length;
+  const unverified = links.filter((link) => !link.ok && isUnverifiedLinkStatus(link.status)).length;
+  const unreachable = links.filter((link) => !link.ok && !isUnverifiedLinkStatus(link.status)).length;
   return {
     checked: links.length,
-    healthy: links.length - redirects - unreachable,
+    healthy: links.length - redirects - unreachable - unverified,
     redirects,
     unreachable,
+    unverified,
   };
 }
 
@@ -495,7 +498,7 @@ async function runValidationReport({
   const linkSummary = linkCounts(links);
   const reportCounts = {
     errors: htmlCounts.errors + cssMessages.length + seoCounts.errors + schemaCounts.errors + linkSummary.unreachable,
-    warnings: htmlCounts.warnings + seoCounts.warnings + schemaCounts.warnings + linkSummary.redirects,
+    warnings: htmlCounts.warnings + seoCounts.warnings + schemaCounts.warnings + linkSummary.redirects + linkSummary.unverified,
     info: htmlCounts.info + seoCounts.info + schemaCounts.info,
   };
   const passedChecks = [
@@ -503,38 +506,44 @@ async function runValidationReport({
     cssChecked && cssResult.status === "fulfilled" && cssMessages.length === 0,
     seoCounts.errors === 0 && seoCounts.warnings === 0,
     schemaResult.blocksChecked > 0 && schemaCounts.errors === 0 && schemaCounts.warnings === 0,
-    checkLinks && linkSummary.checked > 0 && linkSummary.redirects === 0 && linkSummary.unreachable === 0,
+    checkLinks && linkSummary.checked > 0 && linkSummary.redirects === 0 && linkSummary.unreachable === 0 && linkSummary.unverified === 0,
   ].filter(Boolean).length;
   const totalFindings = htmlValidation.total
     + cssMessages.length
     + seoResult.total
     + schemaResult.total
     + linkSummary.redirects
-    + linkSummary.unreachable;
+    + linkSummary.unreachable
+    + linkSummary.unverified;
   const shownFindings = htmlMessages.length
     + cssMessages.length
     + seoResult.issues.length
     + schemaResult.issues.length
     + linkSummary.redirects
-    + linkSummary.unreachable;
+    + linkSummary.unreachable
+    + linkSummary.unverified;
   const truncated = htmlValidation.truncated || seoResult.truncated || schemaResult.truncated;
   const hasFailures = failedChecks.length > 0;
   const needsAttention = reportCounts.errors > 0 || reportCounts.warnings > 0;
   const linksDetail = checkLinks
     ? failedChecks.includes("links")
       ? "Link checking did not complete."
-      : `${plural(linkSummary.checked, "link")} checked.`
+      : `${plural(linkSummary.checked, "link")} checked${linkSummary.unverified > 0 ? `; ${plural(linkSummary.unverified, "check")} unverified` : ""}.`
     : "Links were not requested.";
   const cssDetail = cssChecked ? "CSS was checked." : "Linked and external CSS were not checked.";
   const nextAction = hasFailures
     ? "Review the completed findings, then retry the unavailable checks."
+    : linkSummary.unverified > 0
+      ? "Review confirmed failures and redirects; retry rate-limited or failed link checks later."
     : reportNextAction(reportCounts.errors, reportCounts.warnings, `run ${title.toLowerCase()} again`);
   const overview: ResultOverview = {
     kind: "report",
-    status: hasFailures ? "partial" : needsAttention ? "needs_attention" : "passed",
+    status: hasFailures || linkSummary.unverified > 0 ? "partial" : needsAttention ? "needs_attention" : "passed",
     title,
     headline: hasFailures
       ? `${title} is partial: ${plural(failedChecks.length, "check")} could not complete.`
+      : linkSummary.unverified > 0
+        ? `${title} is partial: ${plural(linkSummary.unverified, "link check")} ${linkSummary.unverified === 1 ? "remains" : "remain"} unverified.`
       : needsAttention
         ? `${title} is ready: ${summarizeSeverities({ ...reportCounts, info: 0 })} need attention.`
         : `${title} is clear: no errors or warnings were found.`,
@@ -563,7 +572,7 @@ async function runValidationReport({
     ...links.flatMap<PresentableFinding>((link): PresentableFinding[] => {
       if (!link.ok) {
         return [{
-          severity: "error" as const,
+          severity: isUnverifiedLinkStatus(link.status) ? "warning" as const : "error" as const,
           message: `${link.url} — ${link.message ?? `returned status ${link.status}`}`,
           label: "Link",
         }];
@@ -586,6 +595,7 @@ async function runValidationReport({
     schema_issues: schemaResult.total,
     links_checked: linkSummary.checked,
     broken_links: linkSummary.unreachable,
+    unverified_links: linkSummary.unverified,
     html_warnings: htmlCounts.warnings,
     html_info: htmlCounts.info,
     html_messages: htmlMessages,
@@ -629,6 +639,7 @@ function failedPublicPageAudit(error: string, linksRequested: boolean) {
       schema_issues: 0,
       links_checked: 0,
       broken_links: 0,
+      unverified_links: 0,
       html_warnings: 0,
       html_info: 0,
       html_messages: [],
@@ -1108,6 +1119,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
         healthy_links: z.number().int().nonnegative(),
         redirects: z.number().int().nonnegative(),
         unreachable_links: z.number().int().nonnegative(),
+        unverified_links: z.number().int().nonnegative(),
         overview: overviewSchema,
         error: z.string().optional(),
       },
@@ -1121,10 +1133,10 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
         const needsAttention = counts.redirects > 0 || counts.unreachable > 0;
         const headline = counts.checked === 0
           ? "No eligible public HTTP(S) links were found to check."
-          : `Checked ${plural(counts.checked, "link")}: ${plural(counts.healthy, "healthy link")}, ${plural(counts.redirects, "redirect")}, and ${plural(counts.unreachable, "unreachable link")}.`;
+          : `Checked ${plural(counts.checked, "link")}: ${plural(counts.healthy, "healthy link")}, ${plural(counts.redirects, "redirect")}, and ${plural(counts.unreachable, "unreachable link")}${counts.unverified > 0 ? `; ${plural(counts.unverified, "check")} unverified` : ""}.`;
         const overview: ResultOverview = {
           kind: "links",
-          status: counts.checked === 0 ? "not_applicable" : needsAttention ? "needs_attention" : "passed",
+          status: counts.checked === 0 ? "not_applicable" : counts.unverified > 0 ? "partial" : needsAttention ? "needs_attention" : "passed",
           title: "Public link check",
           headline,
           detail: counts.checked === 0
@@ -1138,17 +1150,20 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
             metric("healthy", "Healthy", counts.healthy, "success"),
             metric("redirects", "Redirects", counts.redirects, "warning"),
             metric("unreachable", "Unreachable", counts.unreachable, "error"),
+            ...(counts.unverified > 0 ? [metric("unverified", "Unverified", counts.unverified, "warning")] : []),
           ],
-          ...(needsAttention
+          ...(needsAttention || counts.unverified > 0
             ? { next_action: counts.unreachable > 0
               ? "Fix unreachable links first, then confirm that each redirect is intentional."
-              : "Confirm that each redirect is intentional and points to the preferred destination." }
+              : counts.unverified > 0
+                ? "Retry rate-limited or failed checks later; an unverified result does not prove the destination is broken."
+                : "Confirm that each redirect is intentional and points to the preferred destination." }
             : {}),
         };
         const findings = links.flatMap<PresentableFinding>((link): PresentableFinding[] => {
           if (!link.ok) {
             return [{
-              severity: "error" as const,
+              severity: isUnverifiedLinkStatus(link.status) ? "warning" as const : "error" as const,
               message: `${link.url} — ${link.message ?? `returned status ${link.status}`}`,
               label: String(link.status),
             }];
@@ -1169,6 +1184,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
             healthy_links: counts.healthy,
             redirects: counts.redirects,
             unreachable_links: counts.unreachable,
+            unverified_links: counts.unverified,
             overview,
           },
           content: contentForOverview(overview, findings),
@@ -1183,6 +1199,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
             healthy_links: 0,
             redirects: 0,
             unreachable_links: 0,
+            unverified_links: 0,
             overview,
             error,
           },

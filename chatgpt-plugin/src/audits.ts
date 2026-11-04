@@ -25,6 +25,10 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
   return typeof status === "number" && HTTP_REDIRECT_STATUSES.has(status);
 }
 
+export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
+  return typeof status !== "number" || status === 429;
+}
+
 export interface AuditResult {
   issues: AuditIssue[];
   total: number;
@@ -945,7 +949,11 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
       url: url.toString(),
       status: response.status,
       ok: response.status >= 200 && response.status < 400,
-      message: isHttpRedirectStatus(response.status) ? "Redirect not followed." : undefined,
+      message: response.status === 429
+        ? "Rate limited; destination availability not verified."
+        : isHttpRedirectStatus(response.status)
+          ? "Redirect not followed."
+          : undefined,
     };
   } catch {
     return {

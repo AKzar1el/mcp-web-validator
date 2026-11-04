@@ -25,6 +25,7 @@ export interface ScreenshotResult {
   width: number;
   height: number;
   outputPath: string;
+  incompleteAssetCount?: number;
 }
 
 /** Carries paths already written when a later viewport cannot be captured. */
@@ -328,8 +329,30 @@ export async function captureScreenshots(
     const page = await browser.newPage();
     page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
 
+    const incompleteAssetUrls = new Set<string>();
+    const pendingAssetUrls = new Set<string>();
+    const visualAsset = (kind: string): boolean => ["image", "stylesheet", "font", "script"].includes(kind);
+    const isVisualRequest = (request: { resourceType?: () => string }): boolean =>
+      typeof request.resourceType === "function" && visualAsset(request.resourceType());
+    page.on("requestfailed", (request) => {
+      if (isVisualRequest(request)) {
+        pendingAssetUrls.delete(request.url());
+        incompleteAssetUrls.add(request.url());
+      }
+    });
+    page.on("requestfinished", (request) => {
+      if (isVisualRequest(request)) pendingAssetUrls.delete(request.url());
+    });
+    page.on("response", (response) => {
+      const request = response.request();
+      if (isVisualRequest(request) && response.status() >= 400) {
+        incompleteAssetUrls.add(request.url());
+      }
+    });
+
     await page.setRequestInterception(true);
     page.on("request", (request) => {
+      if (isVisualRequest(request)) pendingAssetUrls.add(request.url());
       void resolveScreenshotRequest(request, localDirectory, (message) => {
         blockedRequestMessage ??= message;
       }).catch(() => {
@@ -338,6 +361,8 @@ export async function captureScreenshots(
     });
 
     for (const vp of viewports) {
+      incompleteAssetUrls.clear();
+      pendingAssetUrls.clear();
       await page.setViewport({
         width: vp.width,
         height: vp.height,
@@ -375,7 +400,10 @@ export async function captureScreenshots(
         viewportName: vp.name,
         width: vp.width,
         height: vp.height,
-        outputPath
+        outputPath,
+        ...((incompleteAssetUrls.size + pendingAssetUrls.size) > 0
+          ? { incompleteAssetCount: new Set([...incompleteAssetUrls, ...pendingAssetUrls]).size }
+          : {}),
       });
     }
   } catch (error) {

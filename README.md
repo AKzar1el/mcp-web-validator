@@ -255,6 +255,7 @@ npm run deploy:dry-run
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations. Deployment and marketplace-review notes live in [chatgpt-plugin/SUBMISSION.md](chatgpt-plugin/SUBMISSION.md).
 For agent-assisted installation, see [llms-install.md](llms-install.md).
+For a copy-ready, zero-paid-provider GitHub Actions metadata gate, see [examples/github-actions](examples/github-actions/README.md).
 
 ## Ecosystem
 

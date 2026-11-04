@@ -420,6 +420,28 @@ describe("auditPublicSite", () => {
     expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/oversized.xml.gz")).toBe(true);
   });
 
+  it("reports unsupported XML roots and malformed text sitemap entries instead of silently completing discovery", async () => {
+    for (const [path, body, contentType] of [
+      ["/unsupported.xml", "<other><url><loc>https://example.com/private</loc></url></other>", "application/xml"],
+      ["/broken.txt", "This is not a URL sitemap\n<html>not a URL</html>", "text/plain"],
+    ]) {
+      const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+        const url = String(target);
+        if (url === "https://example.com/") return htmlResponse();
+        if (url === "https://example.com/robots.txt") {
+          return new Response(`User-agent: *\nSitemap: ${path}\n`, { headers: { "content-type": "text/plain" } });
+        }
+        if (url === `https://example.com${path}`) return new Response(body, { headers: { "content-type": contentType } });
+        if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+        throw new Error(`Unexpected URL: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 1, pageOffset: 0 });
+      expect(result).toMatchObject({ discovery: "root_only", discovery_error: "sitemap_invalid", pages_discovered: 1 });
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("discovers namespace-prefixed sitemap indexes and URL sets without consuming extension namespaces", async () => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);

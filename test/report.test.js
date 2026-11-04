@@ -199,6 +199,24 @@ test("report does not penalize or falsely clear checks blocked by policy or netw
   assert.doesNotMatch(result.report, /No links checked/);
 });
 
+test("report treats HTTP 429 rate limits as unverified rather than broken destinations", () => {
+  const result = createValidationReport({
+    htmlFilePath: "rate-limited.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/rate-limited", status: 429, ok: false }],
+  });
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /1 unverified/);
+  assert.match(result.report, /Incomplete link verification/);
+});
+
 test("report does not count HTTP 304 as a redirect", () => {
   const result = createValidationReport({
     htmlFilePath: "not-modified.html",

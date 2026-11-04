@@ -914,6 +914,7 @@ test("link checker classifies HTTP response classes without following redirects"
     [302, true],
     [307, true],
     [308, true],
+    [429, false],
     [404, false],
     [410, false],
     [500, false],
@@ -930,7 +931,9 @@ test("link checker classifies HTTP response classes without following redirects"
       const links = await checkBrokenLinks(`<a href="https://1.1.1.1/${status}">Link</a>`, undefined, 1);
       assert.equal(links[0].status, status);
       assert.equal(links[0].ok, ok);
-      assert.equal(links[0].message, status >= 300 && status < 400 ? "Redirect not followed" : undefined);
+      assert.equal(links[0].message, status === 429
+        ? "Rate limited; destination availability not verified"
+        : status >= 300 && status < 400 ? "Redirect not followed" : undefined);
     }
     assert.deepEqual(requested.map((request) => request.method), cases.map(() => "HEAD"));
   } finally {

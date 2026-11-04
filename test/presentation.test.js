@@ -234,6 +234,20 @@ test("link narration does not call HTTP 304 a redirect", () => {
   assert.doesNotMatch(output, /redirect/i);
 });
 
+test("link narration treats HTTP 429 as a partial check instead of a broken URL", () => {
+  const output = linkCheckContent([
+    { url: "https://example.test/limited", status: 429, ok: false, message: "Rate limited" },
+  ]);
+  assert.match(output, /^### Link check: partial/m);
+  assert.match(output, /1 check unverified/i);
+  assert.match(output, /\*\*Review\*\*/);
+  assert.doesNotMatch(output, /\*\*Fix first\*\*/);
+  assert.match(output, /could not be verified/i);
+  assert.match(output, /429/);
+  assert.match(output, /no confirmed HTTP failures/i);
+  assert.doesNotMatch(output, /1 link returned an HTTP failure/i);
+});
+
 test("user-derived URLs, snippets, and paths remain inside unbreakable code spans", () => {
   const source = "https://example.test/`source`/[link](https://evil.test)";
   const html = htmlValidationContent([], source);

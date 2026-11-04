@@ -290,7 +290,8 @@ export function schemaValidationContent(
 }
 
 function linkPriority(link: LinkStatus): ActionPriority {
-  if (isRedirect(link) || isUnverifiedLinkStatus(link.status)) return 1;
+  if (isUnverifiedLinkStatus(link.status)) return 2;
+  if (isRedirect(link)) return 1;
   return 0;
 }
 

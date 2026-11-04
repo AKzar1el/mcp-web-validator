@@ -475,6 +475,18 @@ describe("bounded audits", () => {
       .find((issue) => issue.code === "accessibility.input_image_alt.missing_or_empty")?.severity)
       .toBe("error");
   });
+  it("does not require names for statically hidden images and image buttons", () => {
+    for (const html of [
+      '<img hidden src="hidden.png">',
+      '<section hidden><img src="nested.png"></section>',
+      '<div style="display:none"><img src="hidden-by-css.png"></div>',
+      '<div style="DISPLAY : none !important"><input type="image" src="hidden-action.png"></div>',
+    ]) {
+      const issues = auditSeoMetadata(html).issues;
+      expect(issues.some((issue) => ["accessibility.image_alt.missing", "accessibility.input_image_alt.missing_or_empty"].includes(issue.code))).toBe(false);
+    }
+    expect(auditSeoMetadata('<img src="visible.png" style="display:block">').issues.some((issue) => issue.code === "accessibility.image_alt.missing")).toBe(true);
+  });
   it("image-map links require usable alt text", () => {
     for (const html of [
       '<map name="nav"><area href="/docs"></map>',

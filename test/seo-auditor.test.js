@@ -550,6 +550,18 @@ test("aria-hidden images and image submit buttons are outside accessible-name ap
     "error",
   );
 });
+test("statically hidden images and image buttons do not require an accessible name", () => {
+  for (const html of [
+    '<img hidden src="hidden.png">',
+    '<section hidden><img src="nested.png"></section>',
+    '<div style="display:none"><img src="hidden-by-css.png"></div>',
+    '<div style="DISPLAY : none !important"><input type="image" src="hidden-action.png"></div>',
+  ]) {
+    const issues = auditSeoMetadata(html);
+    assert.equal(issues.some((issue) => ["accessibility.image_alt.missing", "accessibility.input_image_alt.missing_or_empty"].includes(issue.code)), false);
+  }
+  assert.ok(auditSeoMetadata('<img src="visible.png" style="display:block">').some((issue) => issue.code === "accessibility.image_alt.missing"));
+});
 test("image-map links require usable alt text", () => {
   for (const html of [
     '<map name="nav"><area href="/docs"></map>',

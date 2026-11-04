@@ -176,6 +176,37 @@ test("CSS validator rejects an empty diagnostics object instead of reporting suc
   }
 });
 
+test("CSS validator refuses to report clean when the upstream validity verdict is missing or malformed", async () => {
+  const originalFetch = globalThis.fetch;
+
+  try {
+    for (const validity of [undefined, "true", 0, null]) {
+      globalThis.fetch = async () => Response.json({
+        cssvalidation: { validity, errors: [], warnings: [] },
+      });
+      await assert.rejects(
+        validateCssContent("body { color: black; }"),
+        /CSS validation failed: W3C CSS validator returned an invalid response shape/,
+      );
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("CSS validator preserves a genuine clean upstream verdict", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    cssvalidation: { validity: true, errors: [], warnings: [] },
+  });
+
+  try {
+    assert.deepEqual(await validateCssContent("body { color: black; }"), []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("Jigsaw invalid status with no reported errors must not be scored clean", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => Response.json({
@@ -195,6 +226,7 @@ test("CSS validator reports full totals when structured diagnostics are capped",
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => Response.json({
     cssvalidation: {
+      validity: false,
       errors: Array.from({ length: 205 }, (_, index) => ({
         line: index + 1,
         type: "property",
@@ -224,6 +256,7 @@ test("CSS validator requests and preserves Jigsaw warnings without reclassifying
     observedWarningLevel = init?.body?.get?.("warning");
     return Response.json({
       cssvalidation: {
+        validity: true,
         errors: [],
         warnings: [
           {
@@ -260,6 +293,7 @@ test("CSS validator marks Jigsaw's known @container parser gap without hiding th
   globalThis.fetch = async () => new Response(
     JSON.stringify({
       cssvalidation: {
+        validity: false,
         errors: [
           {
             line: 1,

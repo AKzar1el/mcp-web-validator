@@ -299,7 +299,7 @@ describe("bounded audits", () => {
       .toBe("error");
     expect(auditSeoMetadata('<img src="blank.png" alt="   ">').issues
       .find((issue) => issue.code === "accessibility.image_alt.empty")?.severity)
-      .toBe("info");
+      .toBe("error");
   });
 
   it("requires a non-empty accessible name when an empty-alt image keeps an explicit semantic image role", () => {

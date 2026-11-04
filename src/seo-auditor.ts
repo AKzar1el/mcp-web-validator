@@ -629,10 +629,10 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
         message: "Image needs a non-empty accessible name. Provide meaningful alt text or another supported label such as aria-label, aria-labelledby, or title.",
         element: `<img src="${src}">`,
       });
-    } else if (alt !== undefined && alt !== "" && alt.trim() === "") {
+    } else if (alt !== undefined && alt !== "" && alt.trim() === "" && !hasAlternateAccessibleName) {
       add({
         code: "accessibility.image_alt.empty",
-        severity: "info",
+        severity: "error",
         category: "Accessibility",
         message: "Whitespace-only 'alt' text does not provide an accessible name. Use alt=\"\" for a decorative image or meaningful alternative text for an informative image.",
         element: `<img src="${src}" alt="${alt}">`,

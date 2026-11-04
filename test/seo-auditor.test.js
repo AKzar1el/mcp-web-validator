@@ -303,8 +303,35 @@ test("ordinary images accept an explicit empty alt as decorative", () => {
   assert.equal(
     auditSeoMetadata('<img src="blank.png" alt="   ">')
       .find((issue) => issue.code === "accessibility.image_alt.empty")?.severity,
-    "info",
+    "error",
   );
+});
+
+test("whitespace-only alt text is an error only when no other accessible name exists", () => {
+  for (const html of [
+    '<img src="blank.png" alt=" \t ">',
+    '<img src="blank.png" alt="   " role="img">',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.empty")?.severity,
+      "error",
+      html,
+    );
+  }
+
+  for (const html of [
+    '<img src="logo.png" alt="   " aria-label="Company logo">',
+    '<span id="label">Company logo</span><img src="logo.png" alt="   " aria-labelledby="label">',
+    '<img src="logo.png" alt="   " title="Company logo">',
+    '<img src="divider.png" alt=" " aria-hidden="true">',
+    '<img src="divider.png" alt="">',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.empty"),
+      undefined,
+      html,
+    );
+  }
 });
 
 test("explicit semantic image roles require a non-empty accessible name even with empty alt", () => {

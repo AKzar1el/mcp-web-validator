@@ -131,3 +131,76 @@ test("screenshot cleanup reports browser close failure but still closes proxy af
 
   await assertProxyListenerClosed(proxyUrl);
 });
+
+test("screenshot rejects main-document HTTP errors without creating captures", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-web-validator-http-error-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const targetPath = path.join(directory, "fixture.html");
+  await fs.writeFile(targetPath, "<!doctype html><title>Fixture</title>");
+
+  for (const status of [404, 503]) {
+    let proxyUrl;
+    let screenshotCalls = 0;
+    let closeCalls = 0;
+    const runtime = {
+      async launch(url) {
+        proxyUrl = url;
+        return {
+          async newPage() {
+            return {
+              setDefaultNavigationTimeout() {},
+              async setRequestInterception() {},
+              on() {},
+              async setViewport() {},
+              async goto() { return { status: () => status }; },
+              async screenshot() { screenshotCalls += 1; },
+            };
+          },
+          async close() { closeCalls += 1; },
+        };
+      },
+    };
+
+    await assert.rejects(
+      captureScreenshots(targetPath, directory, [{ name: "test", width: 375, height: 812 }], runtime),
+      new RegExp(`Screenshot navigation failed: HTTP ${status}`),
+    );
+    assert.equal(screenshotCalls, 0);
+    assert.equal(closeCalls, 1);
+    await assertProxyListenerClosed(proxyUrl);
+  }
+});
+
+test("screenshot permits successful and non-HTTP document navigations", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-web-validator-http-ok-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const targetPath = path.join(directory, "fixture.html");
+  await fs.writeFile(targetPath, "<!doctype html><title>Fixture</title>");
+
+  for (const status of [200, null]) {
+    let proxyUrl;
+    let screenshotCalls = 0;
+    const runtime = {
+      async launch(url) {
+        proxyUrl = url;
+        return {
+          async newPage() {
+            return {
+              setDefaultNavigationTimeout() {},
+              async setRequestInterception() {},
+              on() {},
+              async setViewport() {},
+              async goto() { return status === null ? null : { status: () => status }; },
+              async screenshot() { screenshotCalls += 1; },
+            };
+          },
+          async close() {},
+        };
+      },
+    };
+    const captures = await captureScreenshots(targetPath, directory, [{ name: "test", width: 375, height: 812 }], runtime);
+    assert.equal(captures.length, 1);
+    assert.equal(screenshotCalls, 1);
+    await assertProxyListenerClosed(proxyUrl);
+  }
+});

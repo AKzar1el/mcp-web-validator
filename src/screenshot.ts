@@ -335,10 +335,13 @@ export async function captureScreenshots(
 
       // Load URL (wait until network is idle or DOM loaded)
       try {
-        await page.goto(targetUrl, {
+        const navigationResponse = await page.goto(targetUrl, {
           waitUntil: "domcontentloaded",
           timeout: NAVIGATION_TIMEOUT_MS,
         });
+        if (navigationResponse && navigationResponse.status() >= 400) {
+          throw new Error(`HTTP ${navigationResponse.status()} from main document`);
+        }
       } catch (error: unknown) {
         if (blockedRequestMessage) {
           throw new Error(`Screenshot navigation blocked: ${blockedRequestMessage}`);

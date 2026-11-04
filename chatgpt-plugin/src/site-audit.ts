@@ -317,8 +317,87 @@ export function isAllowedByRobots(url: URL, rules: RobotsRule[]): boolean {
   return winner?.allow ?? true;
 }
 
+/** Cheerio recovers broken XML; reject unbalanced markup before using its discovered URLs. */
+function isWellFormedSitemapXml(value: string): boolean {
+  const stack: string[] = [];
+  const namePattern = /^[\p{L}_][\p{L}\p{N}_.:-]*$/u;
+  let position = 0;
+  let roots = 0;
+  while (position < value.length) {
+    const start = value.indexOf("<", position);
+    if (start === -1) {
+      return stack.length === 0 && roots === 1 && (position === value.length || !value.slice(position).trim());
+    }
+    if (stack.length === 0 && value.slice(position, start).trim()) return false;
+
+    if (value.startsWith("<!--", start)) {
+      const end = value.indexOf("-->", start + 4);
+      if (end === -1 || value.slice(start + 4, end).includes("--")) return false;
+      position = end + 3;
+      continue;
+    }
+    if (value.startsWith("<![CDATA[", start)) {
+      if (!stack.length) return false;
+      const end = value.indexOf("]]>", start + 9);
+      if (end === -1) return false;
+      position = end + 3;
+      continue;
+    }
+    if (value.startsWith("<?", start)) {
+      const end = value.indexOf("?>", start + 2);
+      if (end === -1) return false;
+      position = end + 2;
+      continue;
+    }
+    if (value.startsWith("<!", start)) return false;
+
+    let end = start + 1;
+    let quote: string | undefined;
+    for (; end < value.length; end++) {
+      const character = value[end];
+      if (quote) {
+        if (character === quote) quote = undefined;
+      } else if (character === '"' || character === "'") {
+        quote = character;
+      } else if (character === "<") {
+        return false;
+      } else if (character === ">") {
+        break;
+      }
+    }
+    if (end >= value.length || quote) return false;
+    let content = value.slice(start + 1, end).trim();
+    if (content.startsWith("/")) {
+      const closingName = content.slice(1).trim();
+      if (!namePattern.test(closingName) || stack.pop() !== closingName) return false;
+    } else {
+      const empty = content.endsWith("/");
+      if (empty) content = content.slice(0, -1).trimEnd();
+      const match = /^([^\s]+)([\s\S]*)$/.exec(content);
+      if (!match || !namePattern.test(match[1])) return false;
+      // XML attributes require a name and a quoted value, unlike permissive HTML.
+      let attributes = match[2];
+      const seenAttributes = new Set<string>();
+      while (attributes.trim()) {
+        const attribute = /^\s+([\p{L}_][\p{L}\p{N}_.:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/u.exec(attributes);
+        if (!attribute || seenAttributes.has(attribute[1])) return false;
+        seenAttributes.add(attribute[1]);
+        attributes = attributes.slice(attribute[0].length);
+      }
+      if (!stack.length && ++roots > 1) return false;
+      if (!empty) stack.push(match[1]);
+    }
+    position = end + 1;
+  }
+  return roots === 1 && stack.length === 0;
+}
+
 function parseSitemapXml(value: string, baseUrl: string, origin: string): ParsedSitemap {
   if (/<\s*!(?:doctype|entity)\b/i.test(value)) {
+    return { pageUrls: [], childSitemaps: [], invalid: true };
+  }
+
+  if (!isWellFormedSitemapXml(value)) {
     return { pageUrls: [], childSitemaps: [], invalid: true };
   }
 

@@ -8,9 +8,18 @@ import { detectBrowserPlatform } from "@puppeteer/browsers";
 import { PUPPETEER_REVISIONS } from "puppeteer-core/internal/revisions.js";
 
 import {
+  captureScreenshots,
   resolveScreenshotBrowserExecutable,
   SCREENSHOT_BROWSER_BUILD_ID,
 } from "../dist/screenshot.js";
+
+async function assertProxyListenerClosed(proxyUrl) {
+  assert.match(proxyUrl, /^http:\/\/127\.0\.0\.1:\d+$/);
+  await assert.rejects(fetch(proxyUrl), (error) => {
+    assert.equal(error?.cause?.code, "ECONNREFUSED");
+    return true;
+  });
+}
 
 test("published runtime avoids Puppeteer's install-time browser downloader", async () => {
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
@@ -64,4 +73,61 @@ test("Linux screenshot sandbox errors give safe actionable diagnostics", async (
   const unrelated = new Error("Browser executable was not found");
   assert.equal(explainScreenshotBrowserLaunchFailure(unrelated, "linux"), unrelated);
   assert.equal(explainScreenshotBrowserLaunchFailure(original, "win32"), original);
+});
+
+test("screenshot cleanup preserves capture error and closes proxy when browser.close rejects", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-web-validator-close-error-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const targetPath = path.join(directory, "fixture.html");
+  await fs.writeFile(targetPath, "<!doctype html><title>Fixture</title>");
+  const captureError = new Error("Fixture page initialization failed");
+  let proxyUrl;
+
+  await assert.rejects(
+    captureScreenshots(targetPath, directory, [{ name: "test", width: 375, height: 812 }], {
+      async launch(url) {
+        proxyUrl = url;
+        return {
+          async newPage() { throw captureError; },
+          async close() { throw new Error("Fixture browser shutdown failed"); },
+        };
+      },
+    }),
+    (error) => error === captureError,
+  );
+
+  await assertProxyListenerClosed(proxyUrl);
+});
+
+test("screenshot cleanup reports browser close failure but still closes proxy after capture", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-web-validator-close-success-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const targetPath = path.join(directory, "fixture.html");
+  await fs.writeFile(targetPath, "<!doctype html><title>Fixture</title>");
+  const closeError = new Error("Fixture browser shutdown failed");
+  let proxyUrl;
+
+  await assert.rejects(
+    captureScreenshots(targetPath, directory, [{ name: "test", width: 375, height: 812 }], {
+      async launch(url) {
+        proxyUrl = url;
+        return {
+          async newPage() {
+            return {
+              setDefaultNavigationTimeout() {},
+              async setRequestInterception() {},
+              on() {},
+              async setViewport() {},
+              async goto() {},
+              async screenshot() {},
+            };
+          },
+          async close() { throw closeError; },
+        };
+      },
+    }),
+    (error) => error === closeError,
+  );
+
+  await assertProxyListenerClosed(proxyUrl);
 });

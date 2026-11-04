@@ -310,6 +310,7 @@ export async function captureScreenshots(
     blockedRequestMessage ??= message;
   });
   let browser: PuppeteerBrowser | undefined;
+  let captureFailed = false;
 
   try {
     browser = await browserRuntime.launch(transportProxy.url);
@@ -363,11 +364,28 @@ export async function captureScreenshots(
         outputPath
       });
     }
+  } catch (error) {
+    captureFailed = true;
+    throw error;
   } finally {
-    if (browser) {
-      await browser.close();
+    let cleanupFailed = false;
+    let cleanupError: unknown;
+    try {
+      if (browser) await browser.close();
+    } catch (error) {
+      cleanupFailed = true;
+      cleanupError = error;
     }
-    await transportProxy.close();
+    try {
+      await transportProxy.close();
+    } catch (error) {
+      if (!cleanupFailed) {
+        cleanupFailed = true;
+        cleanupError = error;
+      }
+    }
+    // Cleanup must not obscure the original capture failure.
+    if (!captureFailed && cleanupFailed) throw cleanupError;
   }
 
   return results;

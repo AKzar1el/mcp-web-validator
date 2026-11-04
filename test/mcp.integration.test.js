@@ -14,7 +14,7 @@ function textContent(result) {
     .join("\n");
 }
 
-test("stdio MCP exposes valid contracts and structured offline results", { timeout: 15_000 }, async () => {
+test("stdio MCP exposes valid contracts and structured offline results", { timeout: 60_000 }, async () => {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [path.join(repositoryRoot, "dist", "index.js")],

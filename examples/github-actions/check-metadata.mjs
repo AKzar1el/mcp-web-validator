@@ -13,6 +13,11 @@ if (!inputPath || process.argv.length !== 3) {
 } else {
   const client = new Client({ name: "web-validator-ci-example", version: "1.0.0" });
   try {
+    // CI must have a bounded failure path if a local MCP server stops answering.
+    const requestTimeoutMs = Number(process.env.WEB_VALIDATOR_CI_REQUEST_TIMEOUT_MS ?? 20_000);
+    if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 500 || requestTimeoutMs > 60_000) {
+      throw new Error("WEB_VALIDATOR_CI_REQUEST_TIMEOUT_MS must be an integer from 500 to 60000");
+    }
     const htmlContent = await readFile(inputPath, "utf8");
     if (htmlContent.length === 0 || htmlContent.length > 2_000_000) {
       throw new Error("HTML must contain 1 to 2,000,000 characters");
@@ -27,11 +32,11 @@ if (!inputPath || process.argv.length !== 3) {
       args: [serverEntry],
       stderr: "pipe",
     });
-    await client.connect(transport);
+    await client.connect(transport, { timeout: requestTimeoutMs });
     const response = await client.callTool({
       name: "seo.metadata",
       arguments: { htmlContent },
-    });
+    }, undefined, { timeout: requestTimeoutMs });
     const counts = response.structuredContent?.counts;
     if (response.isError || !counts ||
         !["error", "warning", "info"].every((key) =>

@@ -14,12 +14,12 @@ function run(input) {
   return spawnSync(process.execPath, [script, input], {
     cwd: root,
     encoding: "utf8",
-    timeout: 15_000,
+    timeout: 35_000,
     env: { ...process.env, WEB_VALIDATOR_SERVER_PATH: server },
   });
 }
 
-test("copy-ready offline CI example passes without SEO errors and fails for actionable errors", { timeout: 40_000 }, async () => {
+test("copy-ready offline CI example passes without SEO errors and fails for actionable errors", { timeout: 110_000 }, async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "webvalidator-ci-"));
   try {
     const htmlPath = path.join(dir, "index.html");
@@ -45,6 +45,33 @@ test("copy-ready offline CI example passes without SEO errors and fails for acti
     const missing = run(path.join(dir, "missing.html"));
     assert.equal(missing.status, 2);
     assert.match(missing.stderr, /Metadata gate could not finish/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("offline CI example reports a stalled MCP handshake instead of hanging indefinitely", { timeout: 40_000 }, async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "webvalidator-stalled-ci-"));
+  try {
+    const htmlPath = path.join(dir, "index.html");
+    const stalledServer = path.join(dir, "stalled-server.mjs");
+    await writeFile(htmlPath, "<!doctype html><html lang='en'><head><title>Offline Gate</title></head><body></body></html>");
+    // Keep stdio open without sending an MCP initialize response; exit eventually if the parent is killed.
+    await writeFile(stalledServer, "process.stdin.resume(); setTimeout(() => process.exit(0), 7000);\n");
+    const result = spawnSync(process.execPath, [script, htmlPath], {
+      cwd: root,
+      encoding: "utf8",
+      // Windows CI can take several seconds just to start another Node process under parallel tests.
+      timeout: 25_000,
+      env: {
+        ...process.env,
+        WEB_VALIDATOR_SERVER_PATH: stalledServer,
+        WEB_VALIDATOR_CI_REQUEST_TIMEOUT_MS: "750",
+      },
+    });
+    assert.equal(result.status, 2, result.error?.message ?? result.stderr);
+    assert.match(result.stderr, /Metadata gate could not finish:/);
+    assert.match(result.stderr, /timed out/i);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

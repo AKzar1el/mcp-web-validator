@@ -31,3 +31,9 @@ For local reproduction from a consuming project after installing
 ```sh
 node .github/scripts/check-metadata.mjs dist/index.html
 ```
+
+The CLI bounds the local MCP handshake and metadata request to 20 seconds
+**each** by default. If a slow CI runner needs a different per-request limit,
+set `WEB_VALIDATOR_CI_REQUEST_TIMEOUT_MS` to an integer from `500` to `60000`
+(milliseconds). An unresponsive server fails the metadata gate instead of
+reporting a clean result or waiting for the SDK's longer default timeout.

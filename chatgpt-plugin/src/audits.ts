@@ -787,7 +787,8 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   const htmlElement = $("html").first();
   const htmlNode = htmlElement.get(0) as { sourceCodeLocation?: unknown } | undefined;
   if (htmlNode?.sourceCodeLocation) {
-    const pageLanguage = htmlElement.attr("lang")?.trim();
+    const isXhtml = htmlElement.attr("xmlns") === "http://www.w3.org/1999/xhtml";
+    const pageLanguage = (htmlElement.attr("lang") ?? (isXhtml ? htmlElement.attr("xml:lang") : undefined))?.trim();
     if (!pageLanguage) {
       collector.add({
         code: "accessibility.page_language.missing_or_empty",

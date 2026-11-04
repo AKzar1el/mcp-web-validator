@@ -174,6 +174,16 @@ test("explicit HTML documents require a non-empty page language", () => {
   }
 });
 
+test("XHTML namespace permits xml:lang without requiring HTML lang", () => {
+  const xhtml = '<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="fr"><head><title>Exemple</title></head><body></body></html>';
+  const issues = auditSeoMetadata(xhtml);
+  assert.equal(issues.find((issue) => issue.code === "accessibility.page_language.missing_or_empty"), undefined);
+  assert.equal(issues.find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), undefined);
+
+  const html = '<html xml:lang="fr"><head><title>Example</title></head><body></body></html>';
+  assert.ok(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.page_language.missing_or_empty"));
+});
+
 test("explicit HTML documents require a known primary language subtag", () => {
   for (const [lang, primary] of [
     ["em-US", "em"],

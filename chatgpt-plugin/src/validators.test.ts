@@ -199,6 +199,16 @@ describe("bounded audits", () => {
     }
   });
 
+  it("accepts xml:lang on XHTML namespace documents but not ordinary HTML", () => {
+    const xhtml = '<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="fr"><head><title>Exemple</title></head><body></body></html>';
+    const issues = auditSeoMetadata(xhtml).issues;
+    expect(issues.find((issue) => issue.code === "accessibility.page_language.missing_or_empty")).toBeUndefined();
+    expect(issues.find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag")).toBeUndefined();
+
+    const html = '<html xml:lang="fr"><head><title>Example</title></head><body></body></html>';
+    expect(auditSeoMetadata(html).issues.some((issue) => issue.code === "accessibility.page_language.missing_or_empty")).toBe(true);
+  });
+
   it("requires an explicitly authored page language to have a known primary subtag", () => {
     for (const [lang, primary] of [
       ["em-US", "em"],

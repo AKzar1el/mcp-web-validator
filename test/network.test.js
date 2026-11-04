@@ -310,6 +310,33 @@ test("bounded public text fetch rejects disallowed response content types", asyn
   }
 });
 
+test("bounded public text fetch rejects HTTP 206 partial HTML and sitemap responses", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const isSitemap = String(input).includes("sitemap.xml");
+    return new Response(isSitemap ? "<urlset>" : "<!doctype html><title>Partial", {
+      status: 206,
+      headers: {
+        "content-type": isSitemap ? "application/xml" : "text/html",
+        "content-range": "bytes 0-15/100",
+      },
+    });
+  };
+
+  try {
+    await assert.rejects(
+      fetchPublicText("https://1.1.1.1/page", { acceptedContentTypes: ["text/html"] }),
+      /HTTP status 206/,
+    );
+    await assert.rejects(
+      fetchPublicText("https://1.1.1.1/sitemap.xml", { acceptedContentTypes: ["application/xml"] }),
+      /HTTP status 206/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("bounded public text fetch accepts configured HTML media types with parameters", async () => {
   const originalFetch = globalThis.fetch;
   const responses = [

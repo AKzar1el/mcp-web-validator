@@ -442,6 +442,32 @@ describe("auditPublicSite", () => {
     }
   });
 
+  it.each([
+    ["missing root end tag", "<urlset><url><loc>https://example.com/hidden</loc></url>"],
+    ["missing URL end tag", "<urlset><url><loc>https://example.com/hidden</loc></urlset>"],
+    ["mismatched closing tags", "<urlset><url><loc>https://example.com/hidden</url></loc></urlset>"],
+    ["multiple document elements", "<urlset></urlset><urlset><url><loc>https://example.com/hidden</loc></url></urlset>"],
+    ["unclosed quoted attribute", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["text after document root", "<urlset></urlset>garbage"],
+  ])("rejects malformed XML sitemap: %s", async (_name, sitemapBody) => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /map.xml\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/map.xml") {
+        return new Response(sitemapBody, { headers: { "content-type": "application/xml" } });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 3, pageOffset: 0 });
+    expect(result).toMatchObject({ discovery: "root_only", discovery_error: "sitemap_invalid", pages_discovered: 1 });
+    expect(result.pages.map((page) => page.url)).not.toContain("https://example.com/hidden");
+  });
+
   it("does not silently fetch a different sitemap when robots advertises a query-bearing source", async () => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);

@@ -940,6 +940,31 @@ describe("bounded audits", () => {
 });
 
 describe("link checks", () => {
+  it.each([404, 410])("confirms a HEAD %i with GET before declaring a public link broken", async (headStatus) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: headStatus }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks('<a href="https://example.com/page">Page</a>', undefined, 1)).resolves.toEqual([
+      { url: "https://example.com/page", status: 200, ok: true, message: undefined },
+    ]);
+    expect(fetchMock.mock.calls.map(([, options]) => options?.method)).toEqual(["HEAD", "GET"]);
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ redirect: "manual" });
+  });
+
+  it("keeps a confirmed HEAD 404 / GET 404 link broken", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks('<a href="https://example.com/missing">Missing</a>', undefined, 1)).resolves.toEqual([
+      { url: "https://example.com/missing", status: 404, ok: false, message: undefined },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("falls back from a rejected HEAD request to a bounded GET request", async () => {
     const fetchMock = vi
       .fn()

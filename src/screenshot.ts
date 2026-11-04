@@ -27,6 +27,17 @@ export interface ScreenshotResult {
   outputPath: string;
 }
 
+/** Carries paths already written when a later viewport cannot be captured. */
+export class PartialScreenshotCaptureError extends Error {
+  readonly screenshots: ScreenshotResult[];
+
+  constructor(cause: unknown, screenshots: ScreenshotResult[]) {
+    super(getErrorMessage(cause), { cause });
+    this.name = "PartialScreenshotCaptureError";
+    this.screenshots = [...screenshots];
+  }
+}
+
 const DEFAULT_VIEWPORTS: ViewportConfig[] = [
   { name: "desktop", width: 1440, height: 900 },
   { name: "tablet", width: 768, height: 1024 },
@@ -369,6 +380,7 @@ export async function captureScreenshots(
     }
   } catch (error) {
     captureFailed = true;
+    if (results.length > 0) throw new PartialScreenshotCaptureError(error, results);
     throw error;
   } finally {
     let cleanupFailed = false;

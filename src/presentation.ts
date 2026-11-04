@@ -504,6 +504,15 @@ export function screenshotCaptureContent(count: number, outputDirectory: string)
   });
 }
 
+export function screenshotPartialCaptureContent(count: number, outputDirectory: string, error: string): string {
+  return toolContent({
+    title: "Screenshot capture",
+    status: "partial",
+    outcome: `Saved ${countLabel(count, "PNG screenshot")} to ${markdownCode(outputDirectory)} before capture failed: ${markdownText(error, 500)}`,
+    nextStep: "Review the completed PNG files and retry the unfinished viewport captures after resolving the failure.",
+  });
+}
+
 export function failureContent(title: string, error: string, nextStep: string): string {
   return toolContent({
     title,

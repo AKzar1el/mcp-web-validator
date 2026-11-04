@@ -4,7 +4,7 @@ import {
   type CSSMessage,
   type W3CMessage,
 } from "./w3c-validator.js";
-import { isHttpRedirectStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
+import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 
 export const validationReportChecks = ["input", "html", "css", "seo", "schema", "links"] as const;
 export type ValidationReportCheck = (typeof validationReportChecks)[number];
@@ -25,6 +25,7 @@ export interface ValidationReportSummary {
   schemaErrors: number;
   linksChecked: number;
   brokenLinks: number;
+  unverifiedLinks: number;
 }
 
 export interface ValidationReport {
@@ -122,7 +123,8 @@ export function createValidationReport(input: ValidationReportInput): Validation
   const seoErrors = input.seoCounts?.error ?? input.seoIssues.filter((issue) => issue.severity === "error").length;
   const seoWarnings = input.seoCounts?.warning ?? input.seoIssues.filter((issue) => issue.severity === "warning").length;
   const schemaErrors = input.schemaCounts?.error ?? input.schemaIssues.filter((issue) => issue.severity === "error").length;
-  const brokenLinks = input.links.filter((link) => !link.ok).length;
+  const brokenLinks = input.links.filter((link) => !link.ok && !isUnverifiedLinkStatus(link.status)).length;
+  const unverifiedLinks = input.links.filter((link) => !link.ok && isUnverifiedLinkStatus(link.status)).length;
   const redirectLinks = input.links.filter(isRedirect).length;
 
   const htmlScore = checkFailed("html") ? null : clampScore(100 - htmlErrors * 15 - htmlWarnings * 2);
@@ -132,13 +134,13 @@ export function createValidationReport(input: ValidationReportInput): Validation
   const seoScore = checkFailed("seo") || checkFailed("schema")
     ? null
     : clampScore(100 - seoErrors * 15 - seoWarnings * 4 - schemaErrors * 15);
-  const linkScore = checkFailed("links") || input.links.length === 0
+  const linkScore = checkFailed("links") || input.links.length === 0 || unverifiedLinks > 0
     ? null
     : clampScore(100 - brokenLinks * 25);
   const auditedScores = [htmlScore, seoScore, cssScore, linkScore].filter(
     (score): score is number => score !== null,
   );
-  const overallScore = failedChecks.length > 0 || cssCompatibilityLimitations > 0 || auditedScores.length === 0
+  const overallScore = failedChecks.length > 0 || cssCompatibilityLimitations > 0 || unverifiedLinks > 0 || auditedScores.length === 0
     ? null
     : Math.round(auditedScores.reduce((total, score) => total + score, 0) / auditedScores.length);
 
@@ -158,6 +160,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
     schemaErrors,
     linksChecked: input.links.length,
     brokenLinks,
+    unverifiedLinks,
   };
 
   const report: string[] = [
@@ -171,7 +174,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
     `| W3C HTML validation | ${htmlScore === null ? "Unavailable" : scoreIndicator(htmlScore)} | ${htmlScore === null ? "N/A" : `**${htmlScore}** / 100`} |`,
     `| CSS validation | ${cssScore === null ? (checkFailed("css") ? "Unavailable" : cssCompatibilityLimitations > 0 ? "Compatibility-limited" : "Not audited") : scoreIndicator(cssScore)} | ${cssScore === null ? "N/A" : `**${cssScore}** / 100`} |`,
     `| SEO and accessibility | ${seoScore === null ? "Unavailable" : scoreIndicator(seoScore)} | ${seoScore === null ? "N/A" : `**${seoScore}** / 100`} |`,
-    `| Link integrity | ${linkScore === null ? (checkFailed("links") ? "Unavailable" : "No links checked") : scoreIndicator(linkScore)} | ${linkScore === null ? "N/A" : `**${linkScore}** / 100`} |`,
+    `| Link integrity | ${linkScore === null ? (checkFailed("links") ? "Unavailable" : unverifiedLinks > 0 ? "Incomplete" : "No links checked") : scoreIndicator(linkScore)} | ${linkScore === null ? "N/A" : `**${linkScore}** / 100`} |`,
     "",
     "## Summary",
     "",
@@ -179,13 +182,16 @@ export function createValidationReport(input: ValidationReportInput): Validation
     `- CSS: ${input.cssAudited ? `${cssErrors} error(s), ${cssWarnings} warning(s)${cssCompatibilityLimitations > 0 ? `, ${cssCompatibilityLimitations} known validator limitation(s)` : ""}` : "not audited"}`,
     `- SEO and accessibility: ${seoErrors} error(s), ${seoWarnings} warning(s)`,
     `- JSON-LD syntax: ${schemaErrors} error(s)`,
-    `- Links: ${brokenLinks} broken or unreachable, ${redirectLinks} redirect${redirectLinks === 1 ? "" : "s"} to review of ${input.links.length} checked`,
+    `- Links: ${brokenLinks} confirmed HTTP failures, ${unverifiedLinks} unverified, ${redirectLinks} redirect${redirectLinks === 1 ? "" : "s"} to review of ${input.links.length} checked`,
     "",
     `## HTML diagnostics (${htmlTruncated ? `${input.htmlMessages.length} shown of ${htmlTotalMessages}` : htmlTotalMessages})`,
   ];
 
   if (failedChecks.length > 0) {
     report.splice(2, 0, "", "## Partial validation report", "The following checks were unavailable: " + failedChecks.join(", ") + ". Remaining checks completed.");
+  }
+  if (unverifiedLinks > 0) {
+    report.splice(2, 0, "", "## Incomplete link verification", `${unverifiedLinks} link check(s) could not be verified because of a network or policy failure. Link and overall scores are withheld; an unverified check is not proof of a broken destination.`);
   }
 
   if (input.htmlMessages.length === 0) {
@@ -256,7 +262,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
     report.push("", "| URL | Status | Reachable | Details |", "| :--- | :---: | :---: | :--- |");
     for (const link of input.links) {
       report.push(
-        `| ${markdownCell(link.url)} | ${markdownCell(link.status)} | ${link.ok ? "Yes" : "No"} | ${markdownCell(link.message ?? "Accessible")} |`,
+        `| ${markdownCell(link.url)} | ${markdownCell(link.status)} | ${isUnverifiedLinkStatus(link.status) ? "Unverified" : link.ok ? "Yes" : "No"} | ${markdownCell(link.message ?? "Accessible")} |`,
       );
     }
   }

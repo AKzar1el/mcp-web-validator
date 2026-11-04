@@ -527,6 +527,53 @@ describe("polished tool responses", () => {
     expect(result.content[0]?.text).toContain("1 healthy link, 1 redirect, and 1 unreachable link");
   });
 
+  it("reports a rate-limited link as unverified, not unreachable or healthy", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 429 }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 })));
+
+    const result = await callTool("check_broken_links", {
+      html: '<a href="https://example.com/limited">Limited</a><a href="https://example.com/ok">OK</a>',
+      max_links: 2,
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      links_checked: 2,
+      healthy_links: 1,
+      unreachable_links: 0,
+      unverified_links: 1,
+      overview: { status: "partial" },
+    });
+    expect(result.content[0]?.text).toContain("unverified");
+    expect(result.content[0]?.text).not.toContain("returned status 429");
+  });
+
+  it("marks a combined audit partial when a link is rate-limited, without calling it broken", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(target);
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      if (url === "https://example.com/limited" && options?.method === "HEAD") {
+        return new Response(null, { status: 429 });
+      }
+      throw new Error(`Unexpected fetch target: ${url}`);
+    }));
+
+    const result = await callTool("generate_validation_report", {
+      html: '<!doctype html><html lang="en"><head><title>Example</title></head><body><h1>Example</h1><a href="https://example.com/limited">Link</a></body></html>',
+      check_links: true,
+      max_links: 1,
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      links_checked: 1,
+      broken_links: 0,
+      unreachable_links: 0,
+      unverified_links: 1,
+      overview: { status: "partial" },
+    });
+    expect(result.content[0]?.text).toContain("remains unverified");
+  });
+
   it("checks fragment-only links pointing to a different HTML base document", async () => {
     const fetchMock = vi.fn(async (_target: unknown) => new Response(null, { status: 404 }));
     vi.stubGlobal("fetch", fetchMock);
@@ -846,6 +893,63 @@ describe("public webpage audit", () => {
 });
 
 describe("public site audit", () => {
+  it("explains unsupported sitemap queries without exposing their values or claiming full coverage", async () => {
+    const privateMarker = "private-sitemap-token-should-not-escape";
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/robots.txt") {
+        return new Response(`User-agent: *\nSitemap: /map.xml?key=${privateMarker}\n`, {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === "https://example.com/") return new Response("<!doctype html><html lang='en'><title>Example</title><body><h1>Example</h1></body></html>", { headers: { "content-type": "text/html" } });
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    }));
+
+    const result = await callTool("audit_public_site", { site_url: "https://example.com/", max_pages: 1 });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      discovery: "root_only",
+      discovery_error: "sitemap_query_unsupported",
+      overview: { status: "partial" },
+    });
+    expect(result.structuredContent.overview.detail).toContain("query-bearing sitemap");
+    expect(result.structuredContent.overview.next_action).toContain("without query parameters");
+    expect(JSON.stringify(result)).not.toContain(privateMarker);
+  });
+
+  it("does not claim a complete pass when sitemap discovery fails but the root audit succeeds", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") {
+        return new Response("<!doctype html><html><head><title>Example site root</title></head><body><h1>Example</h1></body></html>", {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/sitemap.xml") return new Response("Unavailable", { status: 503 });
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    }));
+
+    const result = await callTool("audit_public_site", { site_url: "https://example.com/", max_pages: 1 });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      discovery: "root_only",
+      discovery_error: "sitemap_unavailable",
+      pages_audited: 1,
+      pages_selected: 1,
+      score_coverage_percent: 100,
+      overview: { status: "partial" },
+    });
+    expect(result.structuredContent.overview.next_action).toContain("sitemap");
+    expect(result.structuredContent.overview.detail).toContain("not site-wide coverage");
+  });
+
   it("returns compact same-origin sitemap summaries without exposing fetched HTML", async () => {
     const privateMarker = "private-site-marker-that-must-not-be-returned";
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {

@@ -72,6 +72,20 @@ describe("validateHtml", () => {
   });
 });
 
+describe("Nu checker failures", () => {
+  it("does not classify a Nu checker failure as invalid markup", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      messages: [
+        { type: "error", message: "Missing alt" },
+        { type: "non-document-error", message: "Internal checker failure" },
+      ],
+    })));
+    await expect(validateHtmlDetailed("<html></html>")).rejects.toThrow(
+      "The Nu HTML Checker could not complete validation",
+    );
+  });
+});
+
 describe("public URL filtering", () => {
   it.each([
     "http://localhost./",
@@ -183,6 +197,16 @@ describe("bounded audits", () => {
       expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.page_language.missing_or_empty"))
         .toBeUndefined();
     }
+  });
+
+  it("accepts xml:lang on XHTML namespace documents but not ordinary HTML", () => {
+    const xhtml = '<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="fr"><head><title>Exemple</title></head><body></body></html>';
+    const issues = auditSeoMetadata(xhtml).issues;
+    expect(issues.find((issue) => issue.code === "accessibility.page_language.missing_or_empty")).toBeUndefined();
+    expect(issues.find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag")).toBeUndefined();
+
+    const html = '<html xml:lang="fr"><head><title>Example</title></head><body></body></html>';
+    expect(auditSeoMetadata(html).issues.some((issue) => issue.code === "accessibility.page_language.missing_or_empty")).toBe(true);
   });
 
   it("requires an explicitly authored page language to have a known primary subtag", () => {
@@ -299,7 +323,7 @@ describe("bounded audits", () => {
       .toBe("error");
     expect(auditSeoMetadata('<img src="blank.png" alt="   ">').issues
       .find((issue) => issue.code === "accessibility.image_alt.empty")?.severity)
-      .toBe("info");
+      .toBe("error");
   });
 
   it("requires a non-empty accessible name when an empty-alt image keeps an explicit semantic image role", () => {
@@ -450,6 +474,18 @@ describe("bounded audits", () => {
     expect(auditSeoMetadata('<input type="image" src="visible-search.png" aria-hidden="false">').issues
       .find((issue) => issue.code === "accessibility.input_image_alt.missing_or_empty")?.severity)
       .toBe("error");
+  });
+  it("does not require names for statically hidden images and image buttons", () => {
+    for (const html of [
+      '<img hidden src="hidden.png">',
+      '<section hidden><img src="nested.png"></section>',
+      '<div style="display:none"><img src="hidden-by-css.png"></div>',
+      '<div style="DISPLAY : none !important"><input type="image" src="hidden-action.png"></div>',
+    ]) {
+      const issues = auditSeoMetadata(html).issues;
+      expect(issues.some((issue) => ["accessibility.image_alt.missing", "accessibility.input_image_alt.missing_or_empty"].includes(issue.code))).toBe(false);
+    }
+    expect(auditSeoMetadata('<img src="visible.png" style="display:block">').issues.some((issue) => issue.code === "accessibility.image_alt.missing")).toBe(true);
   });
   it("image-map links require usable alt text", () => {
     for (const html of [
@@ -873,6 +909,32 @@ describe("bounded audits", () => {
       '<script type="application/ld+json">{}</script>',
       '<script type="application/ld+json">[{}]</script>',
     ].join(""));
+    expect(valid.total).toBe(0);
+  });
+  it("rejects invalid top-level @graph values and accepts valid graph nodes", () => {
+    const bad = [
+      { "@graph": "not nodes" },
+      { "@graph": null },
+      { "@graph": [{ "@type": "Thing" }, 42] },
+      { "@graph": [[{ "@type": "Thing" }]] },
+    ];
+    const invalid = validateSchemaMarkup(bad.map((value) =>
+      `<script type="application/ld+json">${JSON.stringify(value)}</script>`,
+    ).join(""));
+    expect(invalid.total).toBe(bad.length);
+    expect(invalid.issues.map((issue) => issue.code)).toEqual(
+      bad.map(() => "schema.jsonld.invalid_document"),
+    );
+
+    const good = [
+      { "@graph": { "@id": "https://example.com/a" } },
+      { "@graph": [{ "@type": "Thing" }, {}] },
+      { "@graph": [] },
+      { "@context": "https://schema.org", "@type": "Thing" },
+    ];
+    const valid = validateSchemaMarkup(good.map((value) =>
+      `<script type="application/ld+json">${JSON.stringify(value)}</script>`,
+    ).join(""));
     expect(valid.total).toBe(0);
   });
 });

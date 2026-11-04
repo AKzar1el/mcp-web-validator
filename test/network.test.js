@@ -310,6 +310,33 @@ test("bounded public text fetch rejects disallowed response content types", asyn
   }
 });
 
+test("bounded public text fetch rejects HTTP 206 partial HTML and sitemap responses", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const isSitemap = String(input).includes("sitemap.xml");
+    return new Response(isSitemap ? "<urlset>" : "<!doctype html><title>Partial", {
+      status: 206,
+      headers: {
+        "content-type": isSitemap ? "application/xml" : "text/html",
+        "content-range": "bytes 0-15/100",
+      },
+    });
+  };
+
+  try {
+    await assert.rejects(
+      fetchPublicText("https://1.1.1.1/page", { acceptedContentTypes: ["text/html"] }),
+      /HTTP status 206/,
+    );
+    await assert.rejects(
+      fetchPublicText("https://1.1.1.1/sitemap.xml", { acceptedContentTypes: ["application/xml"] }),
+      /HTTP status 206/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("bounded public text fetch accepts configured HTML media types with parameters", async () => {
   const originalFetch = globalThis.fetch;
   const responses = [
@@ -693,7 +720,10 @@ test("link checker visits fragment-only anchors when the public document base is
     assert.deepEqual(await checkBrokenLinks('<a href="#local">Same page</a>', "https://1.1.1.1/docs/page", 1), []);
     assert.deepEqual(await checkBrokenLinks('<base href="/docs/page"><a href="#local">Same page</a>', "https://1.1.1.1/docs/page", 1), []);
     assert.deepEqual(await checkBrokenLinks('<base href="http://127.0.0.1/private"><a href="#local">Unsafe base</a>', "https://1.1.1.1/docs/page", 1), []);
-    assert.deepEqual(requested, [{ url: "https://8.8.8.8/docs/", method: "HEAD" }]);
+    assert.deepEqual(requested, [
+      { url: "https://8.8.8.8/docs/", method: "HEAD" },
+      { url: "https://8.8.8.8/docs/", method: "GET" },
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -887,6 +917,7 @@ test("link checker classifies HTTP response classes without following redirects"
     [302, true],
     [307, true],
     [308, true],
+    [429, false],
     [404, false],
     [410, false],
     [500, false],
@@ -903,9 +934,12 @@ test("link checker classifies HTTP response classes without following redirects"
       const links = await checkBrokenLinks(`<a href="https://1.1.1.1/${status}">Link</a>`, undefined, 1);
       assert.equal(links[0].status, status);
       assert.equal(links[0].ok, ok);
-      assert.equal(links[0].message, status >= 300 && status < 400 ? "Redirect not followed" : undefined);
+      assert.equal(links[0].message, status === 429
+        ? "Rate limited; destination availability not verified"
+        : status >= 300 && status < 400 ? "Redirect not followed" : undefined);
     }
-    assert.deepEqual(requested.map((request) => request.method), cases.map(() => "HEAD"));
+    assert.deepEqual(requested.map((request) => request.method), cases.flatMap(([status]) =>
+      status === 404 || status === 410 ? ["HEAD", "GET"] : ["HEAD"]));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -930,6 +964,57 @@ test("link checker reports blocked targets and network failures as unreachable",
         { status: "failed", ok: false },
       ],
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker confirms negative HEAD responses before marking links broken", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input, init) => {
+    const method = init?.method;
+    const path = new URL(String(input)).pathname;
+    requested.push({ path, method, range: init?.headers?.Range });
+    if (method === "HEAD") return new Response(null, { status: path === "/gone" ? 410 : 404 });
+    return new Response(null, { status: path === "/gone" ? 410 : 200 });
+  };
+
+  try {
+    const links = await checkBrokenLinks(
+      '<a href="https://1.1.1.1/available">Available</a><a href="https://1.1.1.1/gone">Gone</a>',
+      undefined,
+      2,
+    );
+    assert.deepEqual(links.map(({ status, ok }) => ({ status, ok })), [
+      { status: 200, ok: true },
+      { status: 410, ok: false },
+    ]);
+    for (const path of ["/available", "/gone"]) {
+      assert.deepEqual(requested.filter((r) => r.path === path), [
+        { path, method: "HEAD", range: undefined },
+        { path, method: "GET", range: "bytes=0-0" },
+      ]);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker reports unverified instead of broken when negative HEAD fallback fails", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_input, init) => {
+    if (init?.method === "HEAD") return new Response(null, { status: 404 });
+    throw new Error("GET confirmation unavailable");
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/head-only-404">Link</a>', undefined, 1);
+    assert.deepEqual(links, [{
+      url: "https://1.1.1.1/head-only-404",
+      status: "failed",
+      ok: false,
+      message: "GET confirmation unavailable",
+    }]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1099,7 +1184,7 @@ test("CSS validation uses a multipart POST instead of an oversized query URL", a
     assert.equal(init?.method, "POST");
     assert.ok(init?.body instanceof FormData);
     assert.equal(init.body.get("text"), "body { color: red; }");
-    return Response.json({ cssvalidation: { errors: [] } });
+    return Response.json({ cssvalidation: { validity: true, errors: [] } });
   };
 
   try {

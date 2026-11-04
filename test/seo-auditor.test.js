@@ -74,6 +74,31 @@ test("JSON-LD audit rejects non-document top-level JSON shapes", () => {
   ].join(""));
   assert.equal(valid.totalIssues, 0);
 });
+test("JSON-LD audit rejects invalid top-level @graph entries without rejecting valid graphs", () => {
+  const badGraphs = [
+    { "@graph": "not nodes" },
+    { "@graph": null },
+    { "@graph": [{ "@type": "Thing" }, 42] },
+    { "@graph": [[{ "@type": "Thing" }]] },
+  ];
+  const invalid = validateSchemaMarkupDetailed(badGraphs.map((value) =>
+    `<script type="application/ld+json">${JSON.stringify(value)}</script>`,
+  ).join(""));
+  assert.equal(invalid.totalIssues, badGraphs.length);
+  assert.deepEqual(invalid.issues.map((issue) => issue.code),
+    badGraphs.map(() => "schema.jsonld.invalid_document"));
+
+  const goodGraphs = [
+    { "@graph": { "@id": "https://example.com/a" } },
+    { "@graph": [{ "@type": "Thing" }, {}] },
+    { "@graph": [] },
+    { "@context": "https://schema.org", "@type": "Thing" },
+  ];
+  const valid = validateSchemaMarkupDetailed(goodGraphs.map((value) =>
+    `<script type="application/ld+json">${JSON.stringify(value)}</script>`,
+  ).join(""));
+  assert.equal(valid.totalIssues, 0);
+});
 test("audit findings expose stable machine-readable rule codes", () => {
   const html = [
     "<html><head>",
@@ -147,6 +172,16 @@ test("explicit HTML documents require a non-empty page language", () => {
       undefined,
     );
   }
+});
+
+test("XHTML namespace permits xml:lang without requiring HTML lang", () => {
+  const xhtml = '<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="fr"><head><title>Exemple</title></head><body></body></html>';
+  const issues = auditSeoMetadata(xhtml);
+  assert.equal(issues.find((issue) => issue.code === "accessibility.page_language.missing_or_empty"), undefined);
+  assert.equal(issues.find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), undefined);
+
+  const html = '<html xml:lang="fr"><head><title>Example</title></head><body></body></html>';
+  assert.ok(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.page_language.missing_or_empty"));
 });
 
 test("explicit HTML documents require a known primary language subtag", () => {
@@ -303,8 +338,35 @@ test("ordinary images accept an explicit empty alt as decorative", () => {
   assert.equal(
     auditSeoMetadata('<img src="blank.png" alt="   ">')
       .find((issue) => issue.code === "accessibility.image_alt.empty")?.severity,
-    "info",
+    "error",
   );
+});
+
+test("whitespace-only alt text is an error only when no other accessible name exists", () => {
+  for (const html of [
+    '<img src="blank.png" alt=" \t ">',
+    '<img src="blank.png" alt="   " role="img">',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.empty")?.severity,
+      "error",
+      html,
+    );
+  }
+
+  for (const html of [
+    '<img src="logo.png" alt="   " aria-label="Company logo">',
+    '<span id="label">Company logo</span><img src="logo.png" alt="   " aria-labelledby="label">',
+    '<img src="logo.png" alt="   " title="Company logo">',
+    '<img src="divider.png" alt=" " aria-hidden="true">',
+    '<img src="divider.png" alt="">',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.empty"),
+      undefined,
+      html,
+    );
+  }
 });
 
 test("explicit semantic image roles require a non-empty accessible name even with empty alt", () => {
@@ -487,6 +549,18 @@ test("aria-hidden images and image submit buttons are outside accessible-name ap
       .find((issue) => issue.code === "accessibility.input_image_alt.missing_or_empty")?.severity,
     "error",
   );
+});
+test("statically hidden images and image buttons do not require an accessible name", () => {
+  for (const html of [
+    '<img hidden src="hidden.png">',
+    '<section hidden><img src="nested.png"></section>',
+    '<div style="display:none"><img src="hidden-by-css.png"></div>',
+    '<div style="DISPLAY : none !important"><input type="image" src="hidden-action.png"></div>',
+  ]) {
+    const issues = auditSeoMetadata(html);
+    assert.equal(issues.some((issue) => ["accessibility.image_alt.missing", "accessibility.input_image_alt.missing_or_empty"].includes(issue.code)), false);
+  }
+  assert.ok(auditSeoMetadata('<img src="visible.png" style="display:block">').some((issue) => issue.code === "accessibility.image_alt.missing"));
 });
 test("image-map links require usable alt text", () => {
   for (const html of [

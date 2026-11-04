@@ -17,6 +17,40 @@ export interface ScreenshotTransportProxy {
   close(): Promise<void>;
 }
 
+const HOP_BY_HOP_HEADERS = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "proxy-connection",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+
+export function stripHopByHopHeaders(incoming: http.IncomingHttpHeaders): http.OutgoingHttpHeaders {
+  const connectionOptions = new Set<string>();
+  for (const [name, value] of Object.entries(incoming)) {
+    if (name.toLowerCase() !== "connection" && name.toLowerCase() !== "proxy-connection") continue;
+    for (const part of Array.isArray(value) ? value : value ? [value] : []) {
+      for (const option of part.split(",")) {
+        const normalized = option.trim().toLowerCase();
+        if (normalized) connectionOptions.add(normalized);
+      }
+    }
+  }
+
+  const filtered: http.OutgoingHttpHeaders = {};
+  for (const [name, value] of Object.entries(incoming)) {
+    const normalized = name.toLowerCase();
+    if (!HOP_BY_HOP_HEADERS.has(normalized) && !connectionOptions.has(normalized)) {
+      filtered[name] = value;
+    }
+  }
+  return filtered;
+}
+
 function createPinnedLookup(addresses: readonly ResolvedAddress[]): net.LookupFunction {
   const pinned = addresses.map((record) => ({ ...record }));
   return (_hostname, options, callback): void => {
@@ -82,12 +116,15 @@ async function connectPinnedTcp(
 }
 
 function sendProxyFailure(response: http.ServerResponse): void {
-  if (!response.headersSent) {
-    response.writeHead(502, {
-      Connection: "close",
-      "Content-Length": "0",
-    });
+  if (response.destroyed) return;
+  if (response.headersSent) {
+    response.destroy();
+    return;
   }
+  response.writeHead(502, {
+    Connection: "close",
+    "Content-Length": "0",
+  });
   response.end();
 }
 
@@ -113,6 +150,24 @@ function proxyRequestUrl(request: http.IncomingMessage): string {
   return `http://${host}${requestUrl.startsWith("/") ? requestUrl : `/${requestUrl}`}`;
 }
 
+export function pipeScreenshotUpstreamResponse(
+  upstreamResponse: http.IncomingMessage,
+  response: http.ServerResponse,
+): void {
+  // After headers are forwarded, a broken upstream body cannot become a 502.
+  // Tear down the downstream stream instead of delivering a truncated success.
+  const interrupt = (): void => {
+    if (!response.destroyed) response.destroy();
+  };
+  upstreamResponse.once("error", interrupt);
+  upstreamResponse.once("aborted", interrupt);
+  response.once("close", () => {
+    if (!upstreamResponse.complete) upstreamResponse.destroy();
+  });
+  response.writeHead(upstreamResponse.statusCode ?? 502, stripHopByHopHeaders(upstreamResponse.headers));
+  upstreamResponse.pipe(response);
+}
+
 async function forwardHttpRequest(
   request: http.IncomingMessage,
   response: http.ServerResponse,
@@ -127,15 +182,9 @@ async function forwardHttpRequest(
     return;
   }
 
-  const headers: http.OutgoingHttpHeaders = { ...request.headers };
-  delete headers["proxy-authorization"];
-  delete headers["proxy-connection"];
+  const headers = stripHopByHopHeaders(request.headers);
   headers.host = target.url.host;
 
-  const handleResponse = (upstreamResponse: http.IncomingMessage): void => {
-    response.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.headers);
-    upstreamResponse.pipe(response);
-  };
   const requestOptions: http.RequestOptions = {
     hostname: target.url.hostname,
     port: target.url.protocol === "https:" ? 443 : 80,
@@ -151,13 +200,14 @@ async function forwardHttpRequest(
       ...requestOptions,
       servername: target.url.hostname,
     };
-    upstreamRequest = https.request(httpsOptions, handleResponse);
+    upstreamRequest = https.request(httpsOptions, (upstreamResponse) => pipeScreenshotUpstreamResponse(upstreamResponse, response));
   } else {
-    upstreamRequest = http.request(requestOptions, handleResponse);
+    upstreamRequest = http.request(requestOptions, (upstreamResponse) => pipeScreenshotUpstreamResponse(upstreamResponse, response));
   }
 
   upstreamRequest.once("error", () => sendProxyFailure(response));
   request.once("aborted", () => upstreamRequest.destroy());
+  response.once("close", () => upstreamRequest.destroy());
   request.pipe(upstreamRequest);
 }
 

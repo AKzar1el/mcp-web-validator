@@ -36,6 +36,11 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
   return typeof status === "number" && HTTP_REDIRECT_STATUSES.has(status);
 }
 
+/** A network, safety-policy, or rate-limit response cannot establish destination health. */
+export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
+  return typeof status !== "number" || status === 429;
+}
+
 export interface AuditCounts {
   error: number;
   warning: number;
@@ -86,10 +91,15 @@ function isJsonLdScriptType(type: string | undefined): boolean {
 }
 
 function hasJsonLdDocumentShape(value: unknown): boolean {
-  if (Array.isArray(value)) {
-    return value.every((entry) => typeof entry === "object" && entry !== null && !Array.isArray(entry));
-  }
-  return typeof value === "object" && value !== null;
+  const isObject = (entry: unknown): entry is Record<string, unknown> =>
+    typeof entry === "object" && entry !== null && !Array.isArray(entry);
+  const documents = Array.isArray(value) ? value : [value];
+  return documents.every((entry) => {
+    if (!isObject(entry)) return false;
+    if (!Object.hasOwn(entry, "@graph")) return true;
+    const graph = entry["@graph"];
+    return Array.isArray(graph) ? graph.every(isObject) : isObject(graph);
+  });
 }
 
 function isInTemplateContents(element: unknown): boolean {
@@ -102,11 +112,14 @@ function isInTemplateContents(element: unknown): boolean {
   return false;
 }
 
-function isAriaHiddenFromAccessibilityTree(element: unknown): boolean {
+function isHiddenFromAccessibilityTree(element: unknown): boolean {
   type ParentNode = { attribs?: Record<string, string>; parent?: unknown };
   let node = element as ParentNode | null;
   while (node) {
-    if (node.attribs?.["aria-hidden"]?.trim().toLowerCase() === "true") return true;
+    const attrs = node.attribs;
+    if (attrs?.["aria-hidden"]?.trim().toLowerCase() === "true") return true;
+    if (attrs && Object.hasOwn(attrs, "hidden")) return true;
+    if ((attrs?.style ?? "").split(";").some((declaration) => /^\s*display\s*:\s*none(?:\s*!important)?\s*$/i.test(declaration))) return true;
     node = (node.parent ?? null) as ParentNode | null;
   }
   return false;
@@ -606,7 +619,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   // --- Images Alt Tags (SEO + Accessibility) ---
   $("img").filter((_, element) =>
     !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
     && !isUnambiguouslyPresentationalImage(element)
   ).each((_, element) => {
     const img = $(element);
@@ -629,10 +642,10 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
         message: "Image needs a non-empty accessible name. Provide meaningful alt text or another supported label such as aria-label, aria-labelledby, or title.",
         element: `<img src="${src}">`,
       });
-    } else if (alt !== undefined && alt !== "" && alt.trim() === "") {
+    } else if (alt !== undefined && alt !== "" && alt.trim() === "" && !hasAlternateAccessibleName) {
       add({
         code: "accessibility.image_alt.empty",
-        severity: "info",
+        severity: "error",
         category: "Accessibility",
         message: "Whitespace-only 'alt' text does not provide an accessible name. Use alt=\"\" for a decorative image or meaningful alternative text for an informative image.",
         element: `<img src="${src}" alt="${alt}">`,
@@ -643,7 +656,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   $("div[role], span[role]").filter((_, element) =>
     hasExplicitSemanticImageRole(element)
     && !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const semanticImage = $(element);
     const labelledByIds = (semanticImage.attr("aria-labelledby") ?? "")
@@ -667,7 +680,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   $("[role]").filter((_, element) =>
     hasExplicitSvgImageRole(element)
     && !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const svgImage = $(element);
     const labelledByIds = (svgImage.attr("aria-labelledby") ?? "")
@@ -689,7 +702,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   });
 
   $("input[type=\"image\" i]").filter((_, element) =>
-    !isInTemplateContents(element) && !isAriaHiddenFromAccessibilityTree(element)
+    !isInTemplateContents(element) && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const input = $(element);
     const labelledByIds = (input.attr("aria-labelledby") ?? "")
@@ -714,7 +727,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
 
   $("iframe").filter((_, element) =>
     !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
     && !hasNegativeTabIndex(element)
     && !isDecorativeIframe(element)
   ).each((_, element) => {
@@ -738,7 +751,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   });
 
   $("area[href]").filter((_, element) =>
-    !isInTemplateContents(element) && !isAriaHiddenFromAccessibilityTree(element)
+    !isInTemplateContents(element) && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const area = $(element);
     const labelledByIds = (area.attr("aria-labelledby") ?? "")
@@ -756,7 +769,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       const map = area.closest("map");
       const hasLabeledEquivalent = map.find("area[href]").filter((_, peer) =>
         !isInTemplateContents(peer)
-        && !isAriaHiddenFromAccessibilityTree(peer)
+        && !isHiddenFromAccessibilityTree(peer)
         && ($(peer).attr("href")?.trim() ?? "") === href
         && Boolean($(peer).attr("alt")?.trim())
       ).length > 0;
@@ -776,7 +789,8 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   const htmlElement = $("html").first();
   const htmlNode = htmlElement.get(0) as { sourceCodeLocation?: unknown } | undefined;
   if (htmlNode?.sourceCodeLocation) {
-    const pageLanguage = htmlElement.attr("lang")?.trim();
+    const isXhtml = htmlElement.attr("xmlns") === "http://www.w3.org/1999/xhtml";
+    const pageLanguage = (htmlElement.attr("lang") ?? (isXhtml ? htmlElement.attr("xml:lang") : undefined))?.trim();
     if (!pageLanguage) {
       add({
         code: "accessibility.page_language.missing_or_empty",
@@ -973,8 +987,9 @@ export async function checkBrokenLinks(
       const headFinalUrl = headResult.url.href;
       await cancelResponseBody(headResult.response);
 
-      // Some sites reject or do not implement HEAD even when the linked resource is available.
-      if (headStatus === 405 || headStatus === 403 || headStatus === 501) {
+      // Some sites reject HEAD or return a false 404/410 for an otherwise
+      // available resource. Confirm negative HEAD results with a bounded GET.
+      if ([403, 404, 405, 410, 501].includes(headStatus)) {
         let getResult = await fetchPublicHttp(url, {
           method: "GET",
           headers: {
@@ -1003,11 +1018,13 @@ export async function checkBrokenLinks(
           status,
           ok,
           message:
-            isHttpRedirectStatus(status)
-              ? "Redirect not followed"
-              : finalUrl !== url
-                ? `Redirected to ${finalUrl}`
-                : undefined,
+            status === 429
+              ? "Rate limited; destination availability not verified"
+              : isHttpRedirectStatus(status)
+                ? "Redirect not followed"
+                : finalUrl !== url
+                  ? `Redirected to ${finalUrl}`
+                  : undefined,
         };
       }
 
@@ -1016,11 +1033,13 @@ export async function checkBrokenLinks(
         status: headStatus,
         ok: headStatus >= 200 && headStatus < 400,
         message:
-          isHttpRedirectStatus(headStatus)
-            ? "Redirect not followed"
-            : headFinalUrl !== url
-              ? `Redirected to ${headFinalUrl}`
-              : undefined,
+          headStatus === 429
+            ? "Rate limited; destination availability not verified"
+            : isHttpRedirectStatus(headStatus)
+              ? "Redirect not followed"
+              : headFinalUrl !== url
+                ? `Redirected to ${headFinalUrl}`
+                : undefined,
       };
     } catch (error: unknown) {
       return {

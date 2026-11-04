@@ -420,6 +420,112 @@ describe("auditPublicSite", () => {
     expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/oversized.xml.gz")).toBe(true);
   });
 
+  it("reports unsupported XML roots and malformed text sitemap entries instead of silently completing discovery", async () => {
+    for (const [path, body, contentType] of [
+      ["/unsupported.xml", "<other><url><loc>https://example.com/private</loc></url></other>", "application/xml"],
+      ["/broken.txt", "This is not a URL sitemap\n<html>not a URL</html>", "text/plain"],
+    ]) {
+      const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+        const url = String(target);
+        if (url === "https://example.com/") return htmlResponse();
+        if (url === "https://example.com/robots.txt") {
+          return new Response(`User-agent: *\nSitemap: ${path}\n`, { headers: { "content-type": "text/plain" } });
+        }
+        if (url === `https://example.com${path}`) return new Response(body, { headers: { "content-type": contentType } });
+        if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+        throw new Error(`Unexpected URL: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 1, pageOffset: 0 });
+      expect(result).toMatchObject({ discovery: "root_only", discovery_error: "sitemap_invalid", pages_discovered: 1 });
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not silently fetch a different sitemap when robots advertises a query-bearing source", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: https://example.com/map.xml?token=private\n", {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/map.xml") {
+        return new Response("<urlset><url><loc>https://example.com/wrong</loc></url></urlset>", {
+          headers: { "content-type": "application/xml" },
+        });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 2, pageOffset: 0 });
+    expect(result).toMatchObject({ discovery: "root_only", discovery_error: "sitemap_query_unsupported", pages_discovered: 1 });
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === "https://example.com/map.xml")).toBe(false);
+  });
+
+  it("omits query-bearing sitemap pages while reporting incomplete coverage", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /map.xml\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/map.xml") {
+        return new Response([
+          "<urlset>",
+          "<url><loc>https://example.com/filtered?view=private</loc></url>",
+          "<url><loc>https://example.com/allowed</loc></url>",
+          "</urlset>",
+        ].join(""), { headers: { "content-type": "application/xml" } });
+      }
+      if (url === "https://example.com/" || url === "https://example.com/allowed") return htmlResponse();
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 3, pageOffset: 0 });
+    expect(result).toMatchObject({ discovery: "partial", discovery_error: "sitemap_query_unsupported", pages_discovered: 2, pages_audited: 2 });
+    expect(result.pages.map((page) => page.url)).not.toContain("https://example.com/filtered");
+  });
+
+  it.each([
+    {
+      format: "plaintext page entries",
+      contentType: "text/plain",
+      body: "https://example.com/allowed\nhttps://example.com/filtered?token=private\n",
+      discovery: "partial",
+      discovered: 2,
+    },
+    {
+      format: "nested sitemap sources",
+      contentType: "application/xml",
+      body: "<sitemapindex><sitemap><loc>https://example.com/child.xml?token=private</loc></sitemap></sitemapindex>",
+      discovery: "root_only",
+      discovered: 1,
+    },
+  ])("does not silently rewrite query-bearing $format", async ({ contentType, body, discovery, discovered }) => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /map.txt\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/map.txt") {
+        return new Response(body, { headers: { "content-type": contentType } });
+      }
+      if (url === "https://example.com/" || url === "https://example.com/allowed") return htmlResponse();
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 3, pageOffset: 0 });
+    expect(result).toMatchObject({ discovery, discovery_error: "sitemap_query_unsupported", pages_discovered: discovered });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/filtered") || String(url).includes("/child.xml"))).toBe(false);
+  });
+
   it("discovers namespace-prefixed sitemap indexes and URL sets without consuming extension namespaces", async () => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);
@@ -869,6 +975,7 @@ describe("auditPublicSite", () => {
 
   it("uses same-origin sitemap URLs, honors robots exclusions, and returns a continuation offset", async () => {
     const privateMarker = "private-page-marker-that-must-not-leak";
+    let sitemapChanged = false;
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);
       if (url === "https://example.com/") return htmlResponse(`<!doctype html><html><head><title>Example page title for audit</title><meta name=description content='A useful description with enough characters to meet the normal metadata target for this focused test page.'><meta name=viewport content='width=device-width'><link rel=canonical href='https://example.com/'></head><body><h1>Example</h1><!--${privateMarker}--></body></html>`);
@@ -882,6 +989,7 @@ describe("auditPublicSite", () => {
           '<?xml version="1.0"?>',
           "<urlset>",
           "<url><loc>https://example.com/</loc></url>",
+          ...(sitemapChanged ? ["<url><loc>https://example.com/new-page</loc></url>"] : []),
           "<url><loc>https://example.com/allowed#fragment</loc></url>",
           "<url><loc>https://example.com/blocked</loc></url>",
           "<url><loc>https://attacker.example/outside</loc></url>",
@@ -907,6 +1015,7 @@ describe("auditPublicSite", () => {
       pages_skipped_robots: 1,
       truncated: true,
       next_page_offset: 1,
+      discovery_fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
       audit_health_score: expect.any(Number),
       score_coverage_percent: 100,
     });
@@ -914,6 +1023,19 @@ describe("auditPublicSite", () => {
     expect(fetchMock.mock.calls.some(([target]) => String(target).includes("/blocked"))).toBe(false);
     expect(fetchMock.mock.calls.some(([target]) => String(target).includes("attacker.example"))).toBe(false);
     expect(JSON.stringify(result)).not.toContain(privateMarker);
+    await expect(auditPublicSite({ siteUrl: "https://example.com/", maxPages: 1, pageOffset: 1 }))
+      .rejects.toThrow("Stale site audit continuation");
+    const continuation = await auditPublicSite({
+      siteUrl: "https://example.com/", maxPages: 1, pageOffset: 1,
+      expectedDiscoveryFingerprint: result.discovery_fingerprint,
+    });
+    expect(continuation.pages[0]?.url).toBe("https://example.com/allowed");
+    sitemapChanged = true;
+    await expect(auditPublicSite({
+      siteUrl: "https://example.com/", maxPages: 1, pageOffset: 1,
+      expectedDiscoveryFingerprint: result.discovery_fingerprint,
+    })).rejects.toThrow("Stale site audit continuation");
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/new-page")).toBe(false);
   });
 
   it("returns a typed partial result when Nu HTML validation is unavailable", async () => {

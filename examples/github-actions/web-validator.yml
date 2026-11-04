@@ -1,0 +1,29 @@
+# Copy to .github/workflows/web-validator.yml in the consuming website repository.
+name: Web Validator metadata gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.12.0'
+          cache: npm
+      - name: Build website
+        run: |
+          npm ci
+          npm run build
+      - name: Install offline validation tools
+        run: npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund mcp-web-validator @modelcontextprotocol/sdk
+      - name: Audit built HTML metadata
+        # Adjust the output path for your framework's static build.
+        run: node .github/scripts/check-metadata.mjs dist/index.html

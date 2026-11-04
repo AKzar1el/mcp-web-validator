@@ -142,6 +142,9 @@ export async function validateHtmlContentDetailed(
       throw new Error("W3C HTML validator returned an invalid response shape");
     }
     const normalized = data.messages.map(normalizeW3CMessage);
+    if (normalized.some((message) => message.type.trim().toLowerCase() === "non-document-error")) {
+      throw new Error("W3C HTML validator could not complete validation (non-document-error)");
+    }
     const counts: HtmlValidationResult["counts"] = { error: 0, warning: 0, info: 0 };
     for (const message of normalized) {
       counts[getW3CMessageSeverity(message)] += 1;
@@ -220,11 +223,7 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
     if (!data.cssvalidation || typeof data.cssvalidation !== "object") {
       throw new Error("W3C CSS validator returned an invalid response shape");
     }
-    if (
-      typeof data.cssvalidation.validity !== "boolean" &&
-      !Array.isArray(data.cssvalidation.errors) &&
-      !Array.isArray(data.cssvalidation.warnings)
-    ) {
+    if (typeof data.cssvalidation.validity !== "boolean") {
       throw new Error("W3C CSS validator returned an invalid response shape");
     }
 

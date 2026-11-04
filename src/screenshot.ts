@@ -25,6 +25,18 @@ export interface ScreenshotResult {
   width: number;
   height: number;
   outputPath: string;
+  incompleteAssetCount?: number;
+}
+
+/** Carries paths already written when a later viewport cannot be captured. */
+export class PartialScreenshotCaptureError extends Error {
+  readonly screenshots: ScreenshotResult[];
+
+  constructor(cause: unknown, screenshots: ScreenshotResult[]) {
+    super(getErrorMessage(cause), { cause });
+    this.name = "PartialScreenshotCaptureError";
+    this.screenshots = [...screenshots];
+  }
 }
 
 const DEFAULT_VIEWPORTS: ViewportConfig[] = [
@@ -310,14 +322,37 @@ export async function captureScreenshots(
     blockedRequestMessage ??= message;
   });
   let browser: PuppeteerBrowser | undefined;
+  let captureFailed = false;
 
   try {
     browser = await browserRuntime.launch(transportProxy.url);
     const page = await browser.newPage();
     page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
 
+    const incompleteAssetUrls = new Set<string>();
+    const pendingAssetUrls = new Set<string>();
+    const visualAsset = (kind: string): boolean => ["image", "stylesheet", "font", "script"].includes(kind);
+    const isVisualRequest = (request: { resourceType?: () => string }): boolean =>
+      typeof request.resourceType === "function" && visualAsset(request.resourceType());
+    page.on("requestfailed", (request) => {
+      if (isVisualRequest(request)) {
+        pendingAssetUrls.delete(request.url());
+        incompleteAssetUrls.add(request.url());
+      }
+    });
+    page.on("requestfinished", (request) => {
+      if (isVisualRequest(request)) pendingAssetUrls.delete(request.url());
+    });
+    page.on("response", (response) => {
+      const request = response.request();
+      if (isVisualRequest(request) && response.status() >= 400) {
+        incompleteAssetUrls.add(request.url());
+      }
+    });
+
     await page.setRequestInterception(true);
     page.on("request", (request) => {
+      if (isVisualRequest(request)) pendingAssetUrls.add(request.url());
       void resolveScreenshotRequest(request, localDirectory, (message) => {
         blockedRequestMessage ??= message;
       }).catch(() => {
@@ -326,6 +361,8 @@ export async function captureScreenshots(
     });
 
     for (const vp of viewports) {
+      incompleteAssetUrls.clear();
+      pendingAssetUrls.clear();
       await page.setViewport({
         width: vp.width,
         height: vp.height,
@@ -334,10 +371,13 @@ export async function captureScreenshots(
 
       // Load URL (wait until network is idle or DOM loaded)
       try {
-        await page.goto(targetUrl, {
+        const navigationResponse = await page.goto(targetUrl, {
           waitUntil: "domcontentloaded",
           timeout: NAVIGATION_TIMEOUT_MS,
         });
+        if (navigationResponse && navigationResponse.status() >= 400) {
+          throw new Error(`HTTP ${navigationResponse.status()} from main document`);
+        }
       } catch (error: unknown) {
         if (blockedRequestMessage) {
           throw new Error(`Screenshot navigation blocked: ${blockedRequestMessage}`);
@@ -360,14 +400,35 @@ export async function captureScreenshots(
         viewportName: vp.name,
         width: vp.width,
         height: vp.height,
-        outputPath
+        outputPath,
+        ...((incompleteAssetUrls.size + pendingAssetUrls.size) > 0
+          ? { incompleteAssetCount: new Set([...incompleteAssetUrls, ...pendingAssetUrls]).size }
+          : {}),
       });
     }
+  } catch (error) {
+    captureFailed = true;
+    if (results.length > 0) throw new PartialScreenshotCaptureError(error, results);
+    throw error;
   } finally {
-    if (browser) {
-      await browser.close();
+    let cleanupFailed = false;
+    let cleanupError: unknown;
+    try {
+      if (browser) await browser.close();
+    } catch (error) {
+      cleanupFailed = true;
+      cleanupError = error;
     }
-    await transportProxy.close();
+    try {
+      await transportProxy.close();
+    } catch (error) {
+      if (!cleanupFailed) {
+        cleanupFailed = true;
+        cleanupError = error;
+      }
+    }
+    // Cleanup must not obscure the original capture failure.
+    if (!captureFailed && cleanupFailed) throw cleanupError;
   }
 
   return results;

@@ -25,6 +25,10 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
   return typeof status === "number" && HTTP_REDIRECT_STATUSES.has(status);
 }
 
+export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
+  return typeof status !== "number" || status === 429;
+}
+
 export interface AuditResult {
   issues: AuditIssue[];
   total: number;
@@ -73,10 +77,15 @@ function isJsonLdScriptType(type: string | undefined): boolean {
 }
 
 function hasJsonLdDocumentShape(value: unknown): boolean {
-  if (Array.isArray(value)) {
-    return value.every((entry) => typeof entry === "object" && entry !== null && !Array.isArray(entry));
-  }
-  return typeof value === "object" && value !== null;
+  const isObject = (entry: unknown): entry is Record<string, unknown> =>
+    typeof entry === "object" && entry !== null && !Array.isArray(entry);
+  const documents = Array.isArray(value) ? value : [value];
+  return documents.every((entry) => {
+    if (!isObject(entry)) return false;
+    if (!Object.hasOwn(entry, "@graph")) return true;
+    const graph = entry["@graph"];
+    return Array.isArray(graph) ? graph.every(isObject) : isObject(graph);
+  });
 }
 
 function isInTemplateContents(element: unknown): boolean {
@@ -89,11 +98,14 @@ function isInTemplateContents(element: unknown): boolean {
   return false;
 }
 
-function isAriaHiddenFromAccessibilityTree(element: unknown): boolean {
+function isHiddenFromAccessibilityTree(element: unknown): boolean {
   type ParentNode = { attribs?: Record<string, string>; parent?: unknown };
   let node = element as ParentNode | null;
   while (node) {
-    if (node.attribs?.["aria-hidden"]?.trim().toLowerCase() === "true") return true;
+    const attrs = node.attribs;
+    if (attrs?.["aria-hidden"]?.trim().toLowerCase() === "true") return true;
+    if (attrs && Object.hasOwn(attrs, "hidden")) return true;
+    if ((attrs?.style ?? "").split(";").some((declaration) => /^\s*display\s*:\s*none(?:\s*!important)?\s*$/i.test(declaration))) return true;
     node = (node.parent ?? null) as ParentNode | null;
   }
   return false;
@@ -611,7 +623,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
 
   $("img").filter((_, element) =>
     !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
     && !isUnambiguouslyPresentationalImage(element)
   ).each((_, element) => {
     const img = $(element);
@@ -632,10 +644,10 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
         category: "Accessibility",
         message: "Image needs a non-empty accessible name. Provide meaningful alt text or another supported label such as aria-label, aria-labelledby, or title.",
       });
-    } else if (alt !== undefined && alt !== "" && alt.trim() === "") {
+    } else if (alt !== undefined && alt !== "" && alt.trim() === "" && !hasAlternateAccessibleName) {
       collector.add({
         code: "accessibility.image_alt.empty",
-        severity: "info",
+        severity: "error",
         category: "Accessibility",
         message: "Whitespace-only alt text does not provide an accessible name. Use alt=\"\" for a decorative image or meaningful alternative text for an informative image.",
       });
@@ -645,7 +657,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   $("div[role], span[role]").filter((_, element) =>
     hasExplicitSemanticImageRole(element)
     && !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const semanticImage = $(element);
     const labelledByIds = (semanticImage.attr("aria-labelledby") ?? "")
@@ -669,7 +681,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   $("[role]").filter((_, element) =>
     hasExplicitSvgImageRole(element)
     && !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const svgImage = $(element);
     const labelledByIds = (svgImage.attr("aria-labelledby") ?? "")
@@ -691,7 +703,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   });
 
   $("input[type=\"image\" i]").filter((_, element) =>
-    !isInTemplateContents(element) && !isAriaHiddenFromAccessibilityTree(element)
+    !isInTemplateContents(element) && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const input = $(element);
     const labelledByIds = (input.attr("aria-labelledby") ?? "")
@@ -716,7 +728,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
 
   $("iframe").filter((_, element) =>
     !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
     && !hasNegativeTabIndex(element)
     && !isDecorativeIframe(element)
   ).each((_, element) => {
@@ -740,7 +752,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   });
 
   $("area[href]").filter((_, element) =>
-    !isInTemplateContents(element) && !isAriaHiddenFromAccessibilityTree(element)
+    !isInTemplateContents(element) && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const area = $(element);
     const labelledByIds = (area.attr("aria-labelledby") ?? "")
@@ -758,7 +770,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
       const map = area.closest("map");
       const hasLabeledEquivalent = map.find("area[href]").filter((_, peer) =>
         !isInTemplateContents(peer)
-        && !isAriaHiddenFromAccessibilityTree(peer)
+        && !isHiddenFromAccessibilityTree(peer)
         && ($(peer).attr("href")?.trim() ?? "") === href
         && Boolean($(peer).attr("alt")?.trim())
       ).length > 0;
@@ -778,7 +790,8 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   const htmlElement = $("html").first();
   const htmlNode = htmlElement.get(0) as { sourceCodeLocation?: unknown } | undefined;
   if (htmlNode?.sourceCodeLocation) {
-    const pageLanguage = htmlElement.attr("lang")?.trim();
+    const isXhtml = htmlElement.attr("xmlns") === "http://www.w3.org/1999/xhtml";
+    const pageLanguage = (htmlElement.attr("lang") ?? (isXhtml ? htmlElement.attr("xml:lang") : undefined))?.trim();
     if (!pageLanguage) {
       collector.add({
         code: "accessibility.page_language.missing_or_empty",
@@ -940,7 +953,11 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
       url: url.toString(),
       status: response.status,
       ok: response.status >= 200 && response.status < 400,
-      message: isHttpRedirectStatus(response.status) ? "Redirect not followed." : undefined,
+      message: response.status === 429
+        ? "Rate limited; destination availability not verified."
+        : isHttpRedirectStatus(response.status)
+          ? "Redirect not followed."
+          : undefined,
     };
   } catch {
     return {

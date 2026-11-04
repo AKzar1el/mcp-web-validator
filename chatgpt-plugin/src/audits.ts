@@ -946,7 +946,8 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
 
   try {
     let response = await execute("HEAD");
-    if (response.status === 403 || response.status === 405 || response.status === 501) {
+    // Some origins return a false negative to HEAD while a normal GET works.
+    if ([403, 404, 405, 410, 501].includes(response.status)) {
       response = await execute("GET");
     }
     return {

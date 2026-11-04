@@ -497,6 +497,7 @@ describe("polished tool responses", () => {
       vi.fn()
         .mockResolvedValueOnce(new Response(null, { status: 200 }))
         .mockResolvedValueOnce(new Response(null, { status: 301 }))
+        .mockResolvedValueOnce(new Response(null, { status: 404 }))
         .mockResolvedValueOnce(new Response(null, { status: 404 })),
     );
 
@@ -575,7 +576,7 @@ describe("polished tool responses", () => {
   });
 
   it("checks fragment-only links pointing to a different HTML base document", async () => {
-    const fetchMock = vi.fn(async (_target: unknown) => new Response(null, { status: 404 }));
+    const fetchMock = vi.fn(async (_target: unknown, _options?: RequestInit) => new Response(null, { status: 404 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const remote = await callTool("check_broken_links", {
@@ -584,7 +585,11 @@ describe("polished tool responses", () => {
       max_links: 1,
     });
     expect(remote.structuredContent).toMatchObject({ links_checked: 1, unreachable_links: 1 });
-    expect(fetchMock.mock.calls.map(([target]) => String(target))).toEqual(["https://example.com/docs/"]);
+    expect(fetchMock.mock.calls.map(([target]) => String(target))).toEqual([
+      "https://example.com/docs/",
+      "https://example.com/docs/",
+    ]);
+    expect(fetchMock.mock.calls.map(([, options]) => options?.method)).toEqual(["HEAD", "GET"]);
 
     const samePage = await callTool("check_broken_links", {
       html: '<base href="/source"><a href="#local">Same page</a>',
@@ -599,7 +604,7 @@ describe("polished tool responses", () => {
       max_links: 1,
     });
     expect(privateBase.structuredContent).toMatchObject({ links_checked: 0 });
-    expect(fetchMock.mock.calls).toHaveLength(1);
+    expect(fetchMock.mock.calls).toHaveLength(2);
   });
   it("does not classify HTTP 304 as a redirect", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(null, { status: 304 })));

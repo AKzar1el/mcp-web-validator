@@ -983,6 +983,41 @@ describe("link checks", () => {
     });
   });
 
+  it("tries a bounded GET when a HEAD network request throws before returning status", async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError("HEAD method blocked by origin"))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks('<a href="https://example.com/online">Online</a>', undefined, 1)).resolves.toEqual([
+      { url: "https://example.com/online", status: 200, ok: true, message: undefined },
+    ]);
+    expect(fetchMock.mock.calls.map(([, options]) => options?.method)).toEqual(["HEAD", "GET"]);
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ redirect: "manual" });
+  });
+
+  it("does not issue a third request when GET confirms a transport-failed HEAD link is missing", async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError("HEAD refused"))
+      .mockResolvedValueOnce(new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks('<a href="https://example.com/missing">Missing</a>', undefined, 1)).resolves.toEqual([
+      { url: "https://example.com/missing", status: 404, ok: false, message: undefined },
+    ]);
+    expect(fetchMock.mock.calls.map(([, options]) => options?.method)).toEqual(["HEAD", "GET"]);
+  });
+
+  it("does not retry GET after a timed-out HEAD attempt", async () => {
+    const fetchMock = vi.fn().mockRejectedValueOnce(new DOMException("Timed out", "AbortError"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks('<a href="https://example.com/slow">Slow</a>', undefined, 1)).resolves.toEqual([
+      { url: "https://example.com/slow", status: "failed", ok: false, message: "Connection failed or timed out." },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("resolves relative links from the first document base instead of base_url", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);

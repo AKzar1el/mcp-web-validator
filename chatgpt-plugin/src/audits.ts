@@ -945,9 +945,19 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
   };
 
   try {
-    let response = await execute("HEAD");
+    let response: Response;
+    let usedGet = false;
+    try {
+      response = await execute("HEAD");
+    } catch (error) {
+      // Some public origins reject HEAD at the transport layer; only retry
+      // network-type failures, not aborted/expired requests.
+      if (!(error instanceof TypeError)) throw error;
+      response = await execute("GET");
+      usedGet = true;
+    }
     // Some origins return a false negative to HEAD while a normal GET works.
-    if ([403, 404, 405, 410, 501].includes(response.status)) {
+    if (!usedGet && [403, 404, 405, 410, 501].includes(response.status)) {
       response = await execute("GET");
     }
     return {

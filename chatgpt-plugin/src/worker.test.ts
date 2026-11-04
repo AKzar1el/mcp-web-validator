@@ -893,6 +893,37 @@ describe("public webpage audit", () => {
 });
 
 describe("public site audit", () => {
+  it("does not claim a complete pass when sitemap discovery fails but the root audit succeeds", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") {
+        return new Response("<!doctype html><html><head><title>Example site root</title></head><body><h1>Example</h1></body></html>", {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/sitemap.xml") return new Response("Unavailable", { status: 503 });
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    }));
+
+    const result = await callTool("audit_public_site", { site_url: "https://example.com/", max_pages: 1 });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      discovery: "root_only",
+      discovery_error: "sitemap_unavailable",
+      pages_audited: 1,
+      pages_selected: 1,
+      score_coverage_percent: 100,
+      overview: { status: "partial" },
+    });
+    expect(result.structuredContent.overview.next_action).toContain("sitemap");
+    expect(result.structuredContent.overview.detail).toContain("not site-wide coverage");
+  });
+
   it("returns compact same-origin sitemap summaries without exposing fetched HTML", async () => {
     const privateMarker = "private-site-marker-that-must-not-be-returned";
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {

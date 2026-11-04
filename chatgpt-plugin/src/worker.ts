@@ -687,7 +687,8 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     { errors: 0, warnings: 0, notes: 0 },
   );
   const completed = result.pages_audited;
-  const hasCoverageGap = result.pages_partial > 0
+  const hasCoverageGap = result.discovery_error !== undefined
+    || result.pages_partial > 0
     || result.pages_failed > 0
     || result.pages_skipped_robots > 0
     || result.truncated;
@@ -708,9 +709,14 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
   const scoreDetail = result.audit_health_score === undefined
     ? "No full HTML-and-metadata score was available."
     : `Audit health score: ${result.audit_health_score}/100 across ${result.score_coverage_percent}% of selected pages.`;
-  const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_selected, "page")} were selected. ${scoreDetail} Link checks are intentionally not run by this bounded site tool.`;
+  const discoveryDetail = result.discovery_error
+    ? `Discovery was incomplete (${result.discovery_error}); selected-page coverage is not site-wide coverage. `
+    : "";
+  const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_selected, "page")} were selected. ${discoveryDetail}${scoreDetail} Link checks are intentionally not run by this bounded site tool.`;
   const nextAction = result.next_page_offset !== undefined
     ? `Continue with page_offset ${result.next_page_offset} to audit the next bounded sitemap batch.`
+    : result.discovery_error
+      ? "Check robots.txt and sitemap availability, then retry discovery before treating this as a complete site audit."
     : totals.errors > 0 || totals.warnings > 0
       ? "Fix the highest-impact grouped findings, then rerun the bounded site audit."
       : result.pages_partial > 0 || result.pages_failed > 0

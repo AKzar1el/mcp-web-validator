@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 import type { ValidationReport } from "./report.js";
-import { isHttpRedirectStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
+import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
   getW3CMessageSeverity,
   type CSSMessage,
@@ -290,7 +290,7 @@ export function schemaValidationContent(
 }
 
 function linkPriority(link: LinkStatus): ActionPriority {
-  if (isRedirect(link)) return 1;
+  if (isRedirect(link) || isUnverifiedLinkStatus(link.status)) return 1;
   return 0;
 }
 
@@ -301,6 +301,9 @@ function isRedirect(link: LinkStatus): boolean {
 function linkActionMessage(link: LinkStatus): string {
   if (isRedirect(link)) {
     return `${link.status} redirect; destination was not followed`;
+  }
+  if (isUnverifiedLinkStatus(link.status)) {
+    return `Link could not be verified (${link.status})${link.message ? ` — ${link.message}` : ""}`;
   }
   return `Link returned ${typeof link.status === "number" ? `HTTP ${link.status}` : link.status}${link.message ? ` — ${link.message}` : ""}`;
 }
@@ -317,9 +320,10 @@ export function linkCheckContent(links: LinkStatus[], baseUrl?: string): string 
     });
   }
 
-  const unreachable = links.filter((link) => !link.ok);
+  const unreachable = links.filter((link) => !link.ok && !isUnverifiedLinkStatus(link.status));
+  const unverified = links.filter((link) => !link.ok && isUnverifiedLinkStatus(link.status));
   const redirects = links.filter(isRedirect);
-  if (unreachable.length === 0 && redirects.length === 0) {
+  if (unreachable.length === 0 && unverified.length === 0 && redirects.length === 0) {
     return toolContent({
       title: "Link check",
       status: "clean",
@@ -332,6 +336,7 @@ export function linkCheckContent(links: LinkStatus[], baseUrl?: string): string 
 
   const actions = [
     ...unreachable,
+    ...unverified,
     ...redirects,
   ].map((link) => ({
     priority: linkPriority(link),
@@ -341,8 +346,11 @@ export function linkCheckContent(links: LinkStatus[], baseUrl?: string): string 
 
   const linkOutcome = [
     unreachable.length > 0
-      ? `${countLabel(unreachable.length, "link")} ${unreachable.length === 1 ? "is" : "are"} broken or unreachable`
-      : "no checked links are broken or unreachable",
+      ? `${countLabel(unreachable.length, "link")} ${unreachable.length === 1 ? "returned an HTTP failure" : "returned HTTP failures"}`
+      : "no confirmed HTTP failures",
+    unverified.length > 0
+      ? `${countLabel(unverified.length, "check")} unverified`
+      : undefined,
     redirects.length > 0
       ? `${countLabel(redirects.length, "redirect")} ${redirects.length === 1 ? "needs" : "need"} review`
       : undefined,
@@ -350,10 +358,12 @@ export function linkCheckContent(links: LinkStatus[], baseUrl?: string): string 
 
   return toolContent({
     title: "Link check",
-    status: unreachable.length > 0 ? "attention needed" : "review suggested",
+    status: unreachable.length > 0 ? "attention needed" : unverified.length > 0 ? "partial" : "review suggested",
     outcome: `${linkOutcome} of ${links.length} checked. Redirect destinations are not followed.`,
     actions,
-    nextStep: "Update failed destinations and review redirects, then rerun the link check.",
+    nextStep: unverified.length > 0
+      ? "Review confirmed HTTP failures and redirects; retry unverified links only if public and permitted."
+      : "Update failed destinations and review redirects, then rerun the link check.",
   });
 }
 
@@ -400,16 +410,19 @@ export function reportContent(reportData: ValidationReportResult): string {
   const actions = reportActionItems(reportData);
   const partial = reportData.failedChecks.length > 0;
   const compatibilityLimited = summary.cssCompatibilityLimitations > 0;
+  const incompleteLinks = summary.unverifiedLinks > 0;
   const hasActionableFinding = actions.some((action) => action.priority < 2);
   const status = partial
     ? "partial"
     : compatibilityLimited
       ? "compatibility-limited"
-      : actions.length === 0
-        ? "clean across completed checks"
-        : hasActionableFinding
-          ? "attention needed"
-          : "review suggested";
+      : incompleteLinks
+        ? "partial"
+        : actions.length === 0
+          ? "clean across completed checks"
+          : hasActionableFinding
+            ? "attention needed"
+            : "review suggested";
   const cssSummary = summary.cssScore === null
     ? reportData.failedChecks.includes("css")
       ? "CSS validation unavailable"
@@ -421,8 +434,10 @@ export function reportContent(reportData: ValidationReportResult): string {
   const linkSummary = summary.linkScore === null
     ? reportData.failedChecks.includes("links")
       ? "link checking unavailable"
-      : "no eligible links checked"
-    : `${summary.brokenLinks} broken or unreachable and ${countLabel(redirects, "redirect")} to review of ${countLabel(summary.linksChecked, "link")}`;
+      : incompleteLinks
+        ? `${countLabel(summary.brokenLinks, "confirmed HTTP failure")}, ${countLabel(summary.unverifiedLinks, "unverified link check")}, and ${countLabel(redirects, "redirect")} to review of ${countLabel(summary.linksChecked, "link")}`
+        : "no eligible links checked"
+    : `${countLabel(summary.brokenLinks, "confirmed HTTP failure")} and ${countLabel(redirects, "redirect")} to review of ${countLabel(summary.linksChecked, "link")}`;
   const checkLabels = {
     input: "input file",
     html: "HTML validation",
@@ -456,12 +471,16 @@ export function reportContent(reportData: ValidationReportResult): string {
       ? `Partial validation report: ${unavailableChecks.join(", ")} ${unavailableChecks.length === 1 ? "was" : "were"} unavailable; remaining checks completed. HTML has ${countLabel(summary.htmlErrors, "error")}; ${cssSummary}; SEO has ${countLabel(summary.seoErrors, "error")}; JSON-LD has ${countLabel(summary.schemaErrors, "syntax error")}; ${linkSummary}.`
       : compatibilityLimited
         ? `The overall heuristic score is withheld because CSS validation includes ${countLabel(summary.cssCompatibilityLimitations, "known validator limitation")}. HTML has ${countLabel(summary.htmlErrors, "error")} and ${countLabel(summary.htmlWarnings, "warning")}; ${cssSummary}; SEO has ${countLabel(summary.seoErrors, "error")} and ${countLabel(summary.seoWarnings, "warning")}; JSON-LD has ${countLabel(summary.schemaErrors, "syntax error")}; ${linkSummary}.`
-        : `The report's heuristic overall score is **${summary.overallScore}/100**. HTML has ${countLabel(summary.htmlErrors, "error")} and ${countLabel(summary.htmlWarnings, "warning")}; ${cssSummary}; SEO has ${countLabel(summary.seoErrors, "error")} and ${countLabel(summary.seoWarnings, "warning")}; JSON-LD has ${countLabel(summary.schemaErrors, "syntax error")}; ${linkSummary}.`,
+        : incompleteLinks
+          ? `The overall heuristic score is withheld because ${countLabel(summary.unverifiedLinks, "unverified link check")} cannot establish destination availability. HTML has ${countLabel(summary.htmlErrors, "error")} and ${countLabel(summary.htmlWarnings, "warning")}; ${cssSummary}; SEO has ${countLabel(summary.seoErrors, "error")} and ${countLabel(summary.seoWarnings, "warning")}; JSON-LD has ${countLabel(summary.schemaErrors, "syntax error")}; ${linkSummary}.`
+          : `The report's heuristic overall score is **${summary.overallScore}/100**. HTML has ${countLabel(summary.htmlErrors, "error")} and ${countLabel(summary.htmlWarnings, "warning")}; ${cssSummary}; SEO has ${countLabel(summary.seoErrors, "error")} and ${countLabel(summary.seoWarnings, "warning")}; JSON-LD has ${countLabel(summary.schemaErrors, "syntax error")}; ${linkSummary}.`,
     actions,
     nextStep: partial
       ? "Review the completed findings, then retry the unavailable checks."
       : compatibilityLimited
         ? "Review actionable findings normally, and treat the marked @container diagnostic as an upstream validator limitation rather than proof of invalid CSS."
+        : incompleteLinks
+          ? "Review confirmed HTTP failures; retry unverified links only when the URLs are public and checks are permitted."
         : actions.length === 0
           ? "Use the full Markdown report as the audit record and rerun it after meaningful page changes."
           : "Work through these priorities, then regenerate the report to compare the heuristic score.",
@@ -469,6 +488,8 @@ export function reportContent(reportData: ValidationReportResult): string {
       ? ["No overall score is shown while one or more checks are unavailable.", truncationNote].filter(Boolean).join(" ")
       : compatibilityLimited
         ? ["CSS and overall scores are withheld while a known Jigsaw parser limitation is present; the original upstream diagnostic remains visible.", truncationNote].filter(Boolean).join(" ")
+        : incompleteLinks
+          ? ["Link and overall scores are withheld while link checks remain unverified; blocked or failed checks are not proof that destinations are broken.", truncationNote].filter(Boolean).join(" ")
         : [scoreNote, truncationNote].filter(Boolean).join(" "),
   });
 }

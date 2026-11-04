@@ -36,6 +36,11 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
   return typeof status === "number" && HTTP_REDIRECT_STATUSES.has(status);
 }
 
+/** A network or safety-policy failure is not evidence of a broken destination. */
+export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
+  return typeof status !== "number";
+}
+
 export interface AuditCounts {
   error: number;
   warning: number;

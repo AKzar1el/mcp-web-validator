@@ -183,7 +183,7 @@ test("link narration treats redirects as review items instead of broken links", 
   ]);
 
   assert.match(output, /^### Link check: attention needed/m);
-  assert.match(output, /1 link is broken or unreachable; 1 redirect needs review/i);
+  assert.match(output, /1 link returned an HTTP failure; 1 redirect needs review/i);
   assert.match(output, /301 redirect; destination was not followed/);
   assert.match(output, /Link returned HTTP 404/);
 
@@ -191,10 +191,37 @@ test("link narration treats redirects as review items instead of broken links", 
     { url: "https://example.test/redirect", status: 308, ok: true, message: "Redirect not followed" },
   ]);
   assert.match(redirectsOnly, /^### Link check: review suggested/m);
-  assert.match(redirectsOnly, /no checked links are broken or unreachable; 1 redirect needs review/i);
+  assert.match(redirectsOnly, /no confirmed HTTP failures; 1 redirect needs review/i);
   assert.match(redirectsOnly, /\*\*Review\*\*/);
   assert.doesNotMatch(redirectsOnly, /\*\*Fix first\*\*/);
   assert.doesNotMatch(redirectsOnly, /Link returned HTTP 308/);
+});
+
+test("link and report narration distinguish unverified checks from HTTP failures", () => {
+  const links = [
+    { url: "https://example.test/missing", status: 404, ok: false },
+    { url: "https://example.test/blocked", status: "blocked", ok: false, message: "Address blocked" },
+    { url: "https://example.test/timeout", status: "failed", ok: false, message: "Timeout" },
+  ];
+  const linkOutput = linkCheckContent(links);
+  assert.match(linkOutput, /1 link returned an HTTP failure; 2 checks unverified/i);
+  assert.match(linkOutput, /could not be verified .*blocked/i);
+  assert.doesNotMatch(linkOutput, /3 links? (?:is|are) broken/i);
+
+  const reportData = createValidationReport({
+    htmlFilePath: "index.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links,
+  });
+  const reportOutput = reportContent(reportData);
+  assert.match(reportOutput, /^### Validation report: partial/m);
+  assert.match(reportOutput, /overall heuristic score is withheld.*2 unverified link checks/i);
+  assert.match(reportOutput, /1 confirmed HTTP failure, 2 unverified/i);
+  assert.doesNotMatch(reportOutput, /null\/100/);
 });
 
 test("link narration does not call HTTP 304 a redirect", () => {

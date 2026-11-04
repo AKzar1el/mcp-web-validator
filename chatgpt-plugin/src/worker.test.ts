@@ -893,6 +893,32 @@ describe("public webpage audit", () => {
 });
 
 describe("public site audit", () => {
+  it("explains unsupported sitemap queries without exposing their values or claiming full coverage", async () => {
+    const privateMarker = "private-sitemap-token-should-not-escape";
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/robots.txt") {
+        return new Response(`User-agent: *\nSitemap: /map.xml?key=${privateMarker}\n`, {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === "https://example.com/") return new Response("<!doctype html><html lang='en'><title>Example</title><body><h1>Example</h1></body></html>", { headers: { "content-type": "text/html" } });
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    }));
+
+    const result = await callTool("audit_public_site", { site_url: "https://example.com/", max_pages: 1 });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      discovery: "root_only",
+      discovery_error: "sitemap_query_unsupported",
+      overview: { status: "partial" },
+    });
+    expect(result.structuredContent.overview.detail).toContain("query-bearing sitemap");
+    expect(result.structuredContent.overview.next_action).toContain("without query parameters");
+    expect(JSON.stringify(result)).not.toContain(privateMarker);
+  });
+
   it("does not claim a complete pass when sitemap discovery fails but the root audit succeeds", async () => {
     vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);

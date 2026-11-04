@@ -382,6 +382,10 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
 
     const legacyUnnamespacedDocument = !documentElementName.includes(":")
       && documentElement.attr("xmlns") === undefined;
+    if (!["urlset", "sitemapindex"].includes(documentElementLocalName)
+      || (!legacyUnnamespacedDocument && documentElementNamespace !== SITEMAP_XML_NAMESPACE)) {
+      return { pageUrls: [], childSitemaps: [], invalid: true };
+    }
     const protocolElements = $("*").filter((_index, element) => {
       if (element.type !== "tag") return false;
       const qualifiedName = element.name;
@@ -438,6 +442,15 @@ function parseTextSitemap(value: string, baseUrl: string, origin: string): Parse
   for (const line of value.split(/\r\n|\n|\r/)) {
     const candidate = line.trim();
     if (!candidate) continue;
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(candidate);
+    } catch {
+      return { pageUrls: [], childSitemaps: [], invalid: true };
+    }
+    if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+      return { pageUrls: [], childSitemaps: [], invalid: true };
+    }
     const url = sameOriginCrawlUrl(candidate, baseUrl, origin);
     if (url) addUniqueUrl(pageUrls, seenPages, url);
   }

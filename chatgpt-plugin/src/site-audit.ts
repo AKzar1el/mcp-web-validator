@@ -76,7 +76,7 @@ export interface PublicSiteAuditResult {
   site_url: string;
   sitemap_url?: string;
   discovery: SiteDiscovery;
-  discovery_error?: "robots_unavailable" | "sitemap_unavailable" | "sitemap_invalid";
+  discovery_error?: "robots_unavailable" | "sitemap_unavailable" | "sitemap_invalid" | "sitemap_query_unsupported";
   pages_discovered: number;
   pages_selected: number;
   pages_audited: number;
@@ -100,12 +100,14 @@ interface RobotsRule {
 interface ParsedRobots {
   rules: RobotsRule[];
   sitemapUrls: URL[];
+  sitemapQueryUnsupported: boolean;
 }
 
 interface ParsedSitemap {
   pageUrls: URL[];
   childSitemaps: URL[];
   invalid: boolean;
+  queryUnsupported?: boolean;
 }
 
 interface DiscoveryResult {
@@ -144,9 +146,13 @@ function compactMessage(value: string): string {
   return compact.length <= 220 ? compact : `${compact.slice(0, 219).trimEnd()}…`;
 }
 
-function sameOriginCrawlUrl(value: string, baseUrl: string, origin: string): URL | undefined {
+function sameOriginCrawlUrl(value: string, baseUrl: string, origin: string, onQueryUnsupported?: () => void): URL | undefined {
   const url = toPublicHttpUrl(value, baseUrl);
   if (!url || url.origin !== origin) return undefined;
+  if (url.search && onQueryUnsupported) {
+    onQueryUnsupported();
+    return undefined;
+  }
   url.hash = "";
   // Query values can contain secrets and create an unbounded crawl surface.
   url.search = "";
@@ -228,6 +234,7 @@ function robotsPatternMatches(path: string, rule: string): boolean {
 export function parseRobotsTxt(value: string, origin: string): ParsedRobots {
   const groups: Array<{ agents: string[]; rules: RobotsRule[] }> = [];
   const sitemapUrls: URL[] = [];
+  let sitemapQueryUnsupported = false;
   let current = { agents: [] as string[], rules: [] as RobotsRule[] };
   let currentHasRules = false;
 
@@ -246,7 +253,9 @@ export function parseRobotsTxt(value: string, origin: string): ParsedRobots {
     const directiveValue = line.slice(separator + 1).trim();
 
     if (field === "sitemap") {
-      const sitemapUrl = sameOriginCrawlUrl(directiveValue, origin, origin);
+      const sitemapUrl = sameOriginCrawlUrl(directiveValue, origin, origin, () => {
+        sitemapQueryUnsupported = true;
+      });
       if (sitemapUrl) sitemapUrls.push(sitemapUrl);
       continue;
     }
@@ -286,6 +295,7 @@ export function parseRobotsTxt(value: string, origin: string): ParsedRobots {
   return {
     rules: matchingGroups.flatMap((group) => group.rules),
     sitemapUrls: uniqueSitemaps,
+    sitemapQueryUnsupported,
   };
 }
 
@@ -316,6 +326,9 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
     const childSitemaps: URL[] = [];
     const seenPages = new Set<string>();
     const seenSitemaps = new Set<string>();
+    let queryUnsupported = false;
+    const sitemapCrawlUrl = (value: string): URL | undefined =>
+      sameOriginCrawlUrl(value, baseUrl, origin, () => { queryUnsupported = true; });
 
     const documentElement = $.root().children().first();
     const documentElementName = String(documentElement.prop("tagName") ?? "");
@@ -325,10 +338,10 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
 
     if (documentElementLocalName === "rss" && documentElement.attr("version") === "2.0") {
       $("channel > item > link").each((_index, element) => {
-        const url = sameOriginCrawlUrl($(element).text().trim(), baseUrl, origin);
+        const url = sitemapCrawlUrl($(element).text().trim());
         if (url) addUniqueUrl(pageUrls, seenPages, url);
       });
-      return { pageUrls, childSitemaps, invalid: false };
+      return { pageUrls, childSitemaps, invalid: false, queryUnsupported };
     }
 
     const documentElementQualifiedName = documentElement.get(0)?.name ?? documentElementName.toLowerCase();
@@ -374,10 +387,10 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
 
         const rel = $(element).attr("rel")?.trim().toLowerCase();
         if (rel && rel !== "alternate") return;
-        const url = sameOriginCrawlUrl($(element).attr("href")?.trim() ?? "", baseUrl, origin);
+        const url = sitemapCrawlUrl($(element).attr("href")?.trim() ?? "");
         if (url) addUniqueUrl(pageUrls, seenPages, url);
       });
-      return { pageUrls, childSitemaps, invalid: false };
+      return { pageUrls, childSitemaps, invalid: false, queryUnsupported };
     }
 
     const legacyUnnamespacedDocument = !documentElementName.includes(":")
@@ -421,7 +434,7 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
       const grandparentName = String($(grandparent).prop("tagName") ?? "");
       const parentLocalName = parentName.slice(parentName.indexOf(":") + 1).toLowerCase();
       const grandparentLocalName = grandparentName.slice(grandparentName.indexOf(":") + 1).toLowerCase();
-      const url = sameOriginCrawlUrl($(element).text().trim(), baseUrl, origin);
+      const url = sitemapCrawlUrl($(element).text().trim());
       if (!url) return;
 
       if (parentLocalName === "url" && grandparentLocalName === "urlset") {
@@ -430,7 +443,7 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
         addUniqueUrl(childSitemaps, seenSitemaps, url);
       }
     });
-    return { pageUrls, childSitemaps, invalid: false };
+    return { pageUrls, childSitemaps, invalid: false, queryUnsupported };
   } catch {
     return { pageUrls: [], childSitemaps: [], invalid: true };
   }
@@ -439,6 +452,7 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
 function parseTextSitemap(value: string, baseUrl: string, origin: string): ParsedSitemap {
   const pageUrls: URL[] = [];
   const seenPages = new Set<string>();
+  let queryUnsupported = false;
   for (const line of value.split(/\r\n|\n|\r/)) {
     const candidate = line.trim();
     if (!candidate) continue;
@@ -451,10 +465,10 @@ function parseTextSitemap(value: string, baseUrl: string, origin: string): Parse
     if (!["http:", "https:"].includes(parsedUrl.protocol)) {
       return { pageUrls: [], childSitemaps: [], invalid: true };
     }
-    const url = sameOriginCrawlUrl(candidate, baseUrl, origin);
+    const url = sameOriginCrawlUrl(candidate, baseUrl, origin, () => { queryUnsupported = true; });
     if (url) addUniqueUrl(pageUrls, seenPages, url);
   }
-  return { pageUrls, childSitemaps: [], invalid: false };
+  return { pageUrls, childSitemaps: [], invalid: false, queryUnsupported };
 }
 
 function parseSitemapRepresentation(
@@ -507,6 +521,7 @@ async function discoverFromSitemaps(
         discoveryError ??= "sitemap_invalid";
         continue;
       }
+      if (parsed.queryUnsupported) discoveryError ??= "sitemap_query_unsupported";
 
       for (const pageUrl of parsed.pageUrls) {
         if (pageUrls.length >= SITE_AUDIT_MAX_SITEMAP_URLS) {
@@ -551,7 +566,7 @@ async function discoverSitePages(origin: string): Promise<DiscoveryResult> {
     const status = robotsHttpStatus(cause);
     const emptySuccessfulRobots = cause instanceof PublicHtmlFetchError && cause.code === "empty";
     if (emptySuccessfulRobots || (status !== undefined && status >= 400 && status <= 499 && status !== 429)) {
-      robots = { rules: [], sitemapUrls: [] };
+      robots = { rules: [], sitemapUrls: [], sitemapQueryUnsupported: false };
     } else if (status === 429 || (status !== undefined && status >= 500 && status <= 599)) {
       return {
         rules: [{ allow: false, path: "/" }],
@@ -572,14 +587,17 @@ async function discoverSitePages(origin: string): Promise<DiscoveryResult> {
   }
 
   const fallbackSitemap = new URL("/sitemap.xml", origin);
-  const sitemapUrls = robots.sitemapUrls.length > 0 ? robots.sitemapUrls : [fallbackSitemap];
+  const sitemapUrls = robots.sitemapUrls.length > 0
+    ? robots.sitemapUrls
+    : robots.sitemapQueryUnsupported ? [] : [fallbackSitemap];
   const discovered = await discoverFromSitemaps(origin, sitemapUrls);
+  const discoveryError = discovered.discoveryError ?? (robots.sitemapQueryUnsupported ? "sitemap_query_unsupported" : undefined);
   return {
     rules: robots.rules,
     pageUrls: discovered.pageUrls,
-    discovery: discovered.pageUrls.length > 0 ? (discovered.discoveryError ? "partial" : "sitemap") : "root_only",
+    discovery: discovered.pageUrls.length > 0 ? (discoveryError ? "partial" : "sitemap") : "root_only",
     sitemapUrl: discovered.sitemapUrl,
-    discoveryError: discovered.discoveryError,
+    discoveryError,
     truncated: discovered.truncated,
   };
 }

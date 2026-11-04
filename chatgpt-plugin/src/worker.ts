@@ -113,7 +113,7 @@ const siteAuditOutputSchema = {
   site_url: z.string(),
   sitemap_url: z.string().optional(),
   discovery: z.enum(["sitemap", "root_only", "partial"]),
-  discovery_error: z.enum(["robots_unavailable", "sitemap_unavailable", "sitemap_invalid"]).optional(),
+  discovery_error: z.enum(["robots_unavailable", "sitemap_unavailable", "sitemap_invalid", "sitemap_query_unsupported"]).optional(),
   pages_discovered: z.number().int().nonnegative(),
   pages_selected: z.number().int().nonnegative(),
   pages_audited: z.number().int().nonnegative(),
@@ -709,12 +709,16 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
   const scoreDetail = result.audit_health_score === undefined
     ? "No full HTML-and-metadata score was available."
     : `Audit health score: ${result.audit_health_score}/100 across ${result.score_coverage_percent}% of selected pages.`;
-  const discoveryDetail = result.discovery_error
-    ? `Discovery was incomplete (${result.discovery_error}); selected-page coverage is not site-wide coverage. `
-    : "";
+  const discoveryDetail = result.discovery_error === "sitemap_query_unsupported"
+    ? "Discovery skipped query-bearing sitemap sources or page entries instead of silently requesting different URLs; selected-page coverage is not site-wide coverage. "
+    : result.discovery_error
+      ? `Discovery was incomplete (${result.discovery_error}); selected-page coverage is not site-wide coverage. `
+      : "";
   const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_selected, "page")} were selected. ${discoveryDetail}${scoreDetail} Link checks are intentionally not run by this bounded site tool.`;
   const nextAction = result.next_page_offset !== undefined
     ? `Continue with page_offset ${result.next_page_offset} to audit the next bounded sitemap batch.`
+    : result.discovery_error === "sitemap_query_unsupported"
+      ? "Provide public same-origin sitemap and page URLs without query parameters, then rerun discovery; skipped URLs were not audited."
     : result.discovery_error
       ? "Check robots.txt and sitemap availability, then retry discovery before treating this as a complete site audit."
     : totals.errors > 0 || totals.warnings > 0

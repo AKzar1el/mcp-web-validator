@@ -204,3 +204,48 @@ test("screenshot permits successful and non-HTTP document navigations", async (t
     await assertProxyListenerClosed(proxyUrl);
   }
 });
+
+test("screenshot failure after a successful viewport preserves completed output paths", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-web-validator-partial-screenshots-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const targetPath = path.join(directory, "fixture.html");
+  await fs.writeFile(targetPath, "<!doctype html><title>Fixture</title>");
+  let navigationCount = 0;
+  let proxyUrl;
+  const viewports = [
+    { name: "desktop", width: 1440, height: 900 },
+    { name: "mobile", width: 375, height: 812 },
+  ];
+  await assert.rejects(
+    captureScreenshots(targetPath, directory, viewports, {
+      async launch(url) {
+        proxyUrl = url;
+        return {
+          async newPage() {
+            return {
+              setDefaultNavigationTimeout() {},
+              async setRequestInterception() {},
+              on() {},
+              async setViewport() {},
+              async goto() {
+                if (++navigationCount === 2) throw new Error("fixture mobile navigation failed");
+                return { status: () => 200 };
+              },
+              async screenshot({ path: outputPath }) { await fs.writeFile(outputPath, "fixture png"); },
+            };
+          },
+          async close() {},
+        };
+      },
+    }),
+    (error) => {
+      assert.match(error.message, /fixture mobile navigation failed/);
+      assert.deepEqual(error.screenshots?.map(({ viewportName }) => viewportName), ["desktop"]);
+      assert.equal(error.screenshots[0].outputPath, path.join(directory, "desktop_1440x900.png"));
+      return true;
+    },
+  );
+  assert.equal(await fs.readFile(path.join(directory, "desktop_1440x900.png"), "utf8"), "fixture png");
+  await assert.rejects(fs.stat(path.join(directory, "mobile_375x812.png")), { code: "ENOENT" });
+  await assertProxyListenerClosed(proxyUrl);
+});

@@ -8,6 +8,7 @@ import {
   reportContent,
   schemaValidationContent,
   screenshotCaptureContent,
+  screenshotPartialCaptureContent,
   seoAuditContent,
 } from "../dist/presentation.js";
 import { createValidationReport } from "../dist/report.js";
@@ -264,6 +265,15 @@ test("user-derived URLs, snippets, and paths remain inside unbreakable code span
     false,
   );
   assert.ok(seo.includes("`` `<img src=https://evil.test>` ``"));
+});
+
+test("partial screenshots report retained files without claiming the whole capture succeeded", () => {
+  const output = screenshotPartialCaptureContent(1, "C:\\screenshots", "mobile navigation failed");
+  assert.match(output, /^### Screenshot capture: partial/m);
+  assert.match(output, /Saved 1 PNG screenshot/);
+  assert.match(output, /mobile navigation failed/);
+  assert.match(output, /retry the unfinished viewport/i);
+  assert.doesNotMatch(output, /status: complete/i);
 });
 
 test("JSON-LD narration counts parameterized media types that the schema parser accepts", () => {

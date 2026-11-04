@@ -631,7 +631,8 @@ export async function fetchPublicText(
     maxRedirects: options.maxRedirects,
   });
 
-  if (!response.ok) {
+  // A partial body cannot be treated as a complete HTML document or sitemap.
+  if (!response.ok || response.status === 206) {
     const status = response.status;
     await cancelResponseBody(response);
     throw new Error(`URL returned HTTP status ${status}`);

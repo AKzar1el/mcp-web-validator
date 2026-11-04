@@ -889,6 +889,32 @@ describe("bounded audits", () => {
     ].join(""));
     expect(valid.total).toBe(0);
   });
+  it("rejects invalid top-level @graph values and accepts valid graph nodes", () => {
+    const bad = [
+      { "@graph": "not nodes" },
+      { "@graph": null },
+      { "@graph": [{ "@type": "Thing" }, 42] },
+      { "@graph": [[{ "@type": "Thing" }]] },
+    ];
+    const invalid = validateSchemaMarkup(bad.map((value) =>
+      `<script type="application/ld+json">${JSON.stringify(value)}</script>`,
+    ).join(""));
+    expect(invalid.total).toBe(bad.length);
+    expect(invalid.issues.map((issue) => issue.code)).toEqual(
+      bad.map(() => "schema.jsonld.invalid_document"),
+    );
+
+    const good = [
+      { "@graph": { "@id": "https://example.com/a" } },
+      { "@graph": [{ "@type": "Thing" }, {}] },
+      { "@graph": [] },
+      { "@context": "https://schema.org", "@type": "Thing" },
+    ];
+    const valid = validateSchemaMarkup(good.map((value) =>
+      `<script type="application/ld+json">${JSON.stringify(value)}</script>`,
+    ).join(""));
+    expect(valid.total).toBe(0);
+  });
 });
 
 describe("link checks", () => {

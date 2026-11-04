@@ -73,10 +73,15 @@ function isJsonLdScriptType(type: string | undefined): boolean {
 }
 
 function hasJsonLdDocumentShape(value: unknown): boolean {
-  if (Array.isArray(value)) {
-    return value.every((entry) => typeof entry === "object" && entry !== null && !Array.isArray(entry));
-  }
-  return typeof value === "object" && value !== null;
+  const isObject = (entry: unknown): entry is Record<string, unknown> =>
+    typeof entry === "object" && entry !== null && !Array.isArray(entry);
+  const documents = Array.isArray(value) ? value : [value];
+  return documents.every((entry) => {
+    if (!isObject(entry)) return false;
+    if (!Object.hasOwn(entry, "@graph")) return true;
+    const graph = entry["@graph"];
+    return Array.isArray(graph) ? graph.every(isObject) : isObject(graph);
+  });
 }
 
 function isInTemplateContents(element: unknown): boolean {

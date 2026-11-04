@@ -74,6 +74,31 @@ test("JSON-LD audit rejects non-document top-level JSON shapes", () => {
   ].join(""));
   assert.equal(valid.totalIssues, 0);
 });
+test("JSON-LD audit rejects invalid top-level @graph entries without rejecting valid graphs", () => {
+  const badGraphs = [
+    { "@graph": "not nodes" },
+    { "@graph": null },
+    { "@graph": [{ "@type": "Thing" }, 42] },
+    { "@graph": [[{ "@type": "Thing" }]] },
+  ];
+  const invalid = validateSchemaMarkupDetailed(badGraphs.map((value) =>
+    `<script type="application/ld+json">${JSON.stringify(value)}</script>`,
+  ).join(""));
+  assert.equal(invalid.totalIssues, badGraphs.length);
+  assert.deepEqual(invalid.issues.map((issue) => issue.code),
+    badGraphs.map(() => "schema.jsonld.invalid_document"));
+
+  const goodGraphs = [
+    { "@graph": { "@id": "https://example.com/a" } },
+    { "@graph": [{ "@type": "Thing" }, {}] },
+    { "@graph": [] },
+    { "@context": "https://schema.org", "@type": "Thing" },
+  ];
+  const valid = validateSchemaMarkupDetailed(goodGraphs.map((value) =>
+    `<script type="application/ld+json">${JSON.stringify(value)}</script>`,
+  ).join(""));
+  assert.equal(valid.totalIssues, 0);
+});
 test("audit findings expose stable machine-readable rule codes", () => {
   const html = [
     "<html><head>",

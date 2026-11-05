@@ -280,7 +280,9 @@ export function parseRobotsTxt(value: string, origin: string): ParsedRobots {
   for (const group of groups) {
     const specificity = group.agents.reduce((best, agent) => {
       if (agent === "*") return Math.max(best, 0);
-      return SITE_AUDIT_USER_AGENT === agent ? Math.max(best, agent.length) : best;
+      // Robots product tokens match case-insensitively within the crawler name.
+      // Prefer the longest matching token over a shorter one or the wildcard.
+      return SITE_AUDIT_USER_AGENT.includes(agent) ? Math.max(best, agent.length) : best;
     }, -1);
     if (specificity > bestSpecificity) {
       bestSpecificity = specificity;

@@ -363,7 +363,7 @@ function isWellFormedSitemapXml(value: string): boolean {
       return stack.length === 0 && roots === 1 && (position === value.length || !value.slice(position).trim());
     }
     const text = value.slice(position, start);
-    if ((stack.length === 0 && text.trim()) || !hasValidXmlEntities(text)) return false;
+    if ((stack.length === 0 && text.trim()) || text.includes("]]>") || !hasValidXmlEntities(text)) return false;
 
     if (value.startsWith("<!--", start)) {
       const end = value.indexOf("-->", start + 4);

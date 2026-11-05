@@ -453,6 +453,11 @@ describe("auditPublicSite", () => {
     ["raw angle bracket in single-quoted attribute", "<urlset label='a < b'><url><loc>https://example.com/hidden</loc></url></urlset>"],
     ["CDATA close delimiter in ordinary text", "<urlset><url><loc>https://example.com/hidden</loc><lastmod>bad]]>date</lastmod></url></urlset>"],
     ["CDATA close delimiter at end of ordinary text", "<urlset><url><loc>https://example.com/hidden</loc><lastmod>bad]]></lastmod></url></urlset>"],
+    ["XML declaration after the document root", '<urlset><url><loc>https://example.com/hidden</loc></url></urlset><?xml version="1.0"?>'],
+    ["XML declaration inside the document root", '<urlset><?xml version="1.0"?><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["XML declaration after a leading comment", '<!-- comment --><?xml version="1.0"?><urlset><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["XML declaration after leading whitespace", ' \n<?xml version="1.0"?><urlset><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["mixed-case reserved XML processing instruction target", '<?XmL version="1.0"?><urlset><url><loc>https://example.com/hidden</loc></url></urlset>'],
     ["text after document root", "<urlset></urlset>garbage"],
     ["raw ampersand in text", "<urlset><url><loc>https://example.com/hidden</loc><lastmod>a & b</lastmod></url></urlset>"],
     ["undeclared entity in text", "<urlset><url><loc>https://example.com/hidden</loc><lastmod>&bogus;</lastmod></url></urlset>"],
@@ -492,6 +497,8 @@ describe("auditPublicSite", () => {
     ["valid numeric entities", '<urlset label="&#65;&#xA;"><url><loc>https://example.com/allowed</loc></url></urlset>'],
     ["literal ampersands in CDATA and comments", '<urlset><!-- &bogus; --><url><loc>https://example.com/allowed</loc><lastmod><![CDATA[&bogus;]]></lastmod></url></urlset>'],
     ["CDATA close delimiter ending a CDATA section", '<urlset><url><loc>https://example.com/allowed</loc><lastmod><![CDATA[valid]]>tail</lastmod></url></urlset>'],
+    ["initial XML declaration", '<?xml version="1.0"?><urlset><url><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["ordinary stylesheet processing instruction", '<?xml-stylesheet type="text/xsl" href="style.xsl"?><urlset><url><loc>https://example.com/allowed</loc></url></urlset>'],
     ["legal XML whitespace and supplementary characters", "<urlset label=\"tab\tnewline\n\"><url><loc>https://example.com/allowed</loc><lastmod>ok\r\u{1F680}</lastmod></url></urlset>"],
   ])("accepts well-formed XML sitemap: %s", async (_name, sitemapBody) => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {

@@ -15,7 +15,13 @@ function run(input) {
     cwd: root,
     encoding: "utf8",
     timeout: 35_000,
-    env: { ...process.env, WEB_VALIDATOR_SERVER_PATH: server },
+    // Parallel Windows tests can delay stdio MCP startup beyond the example's 20s default.
+    // Use a bounded test-only allowance; the documented consumer default is unchanged.
+    env: {
+      ...process.env,
+      WEB_VALIDATOR_SERVER_PATH: server,
+      WEB_VALIDATOR_CI_REQUEST_TIMEOUT_MS: "30000",
+    },
   });
 }
 

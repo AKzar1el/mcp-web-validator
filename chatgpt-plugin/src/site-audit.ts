@@ -354,7 +354,11 @@ function isWellFormedSitemapXml(value: string): boolean {
     if (!isValidXmlCharacter(character.codePointAt(0)!)) return false;
   }
   const stack: string[] = [];
+  const namespaceScopes: Map<string, string>[] = [];
+  const xmlNamespace = "http://www.w3.org/XML/1998/namespace";
+  const xmlnsNamespace = "http://www.w3.org/2000/xmlns/";
   const namePattern = /^[\p{L}_][\p{L}\p{N}_.:-]*$/u;
+  const localNamePattern = /^[\p{L}_][\p{L}\p{N}_.-]*$/u;
   let position = 0;
   let roots = 0;
   while (position < value.length) {
@@ -426,6 +430,7 @@ function isWellFormedSitemapXml(value: string): boolean {
     if (content.startsWith("/")) {
       const closingName = content.slice(1).trim();
       if (!namePattern.test(closingName) || stack.pop() !== closingName) return false;
+      namespaceScopes.pop();
     } else {
       const empty = content.endsWith("/");
       if (empty) content = content.slice(0, -1).trimEnd();
@@ -434,14 +439,43 @@ function isWellFormedSitemapXml(value: string): boolean {
       // XML attributes require a name and a quoted value, unlike permissive HTML.
       let attributes = match[2];
       const seenAttributes = new Set<string>();
+      const namespaceDeclarations = new Map<string, string>();
       while (attributes.trim()) {
         const attribute = /^\s+([\p{L}_][\p{L}\p{N}_.:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/u.exec(attributes);
         if (!attribute || seenAttributes.has(attribute[1]) || !hasValidXmlEntities(attribute[2] ?? attribute[3])) return false;
         seenAttributes.add(attribute[1]);
+        if (attribute[1] === "xmlns") {
+          const uri = attribute[2] ?? attribute[3];
+          if (uri === xmlNamespace || uri === xmlnsNamespace) return false;
+        } else if (attribute[1].startsWith("xmlns:")) {
+          const prefix = attribute[1].slice(6);
+          const uri = attribute[2] ?? attribute[3];
+          if (!localNamePattern.test(prefix) || prefix === "xmlns" || !uri ||
+              uri === xmlnsNamespace || (prefix === "xml") !== (uri === xmlNamespace)) return false;
+          namespaceDeclarations.set(prefix, uri);
+        }
         attributes = attributes.slice(attribute[0].length);
       }
+      const bindings = new Map<string, string>(
+        namespaceScopes[namespaceScopes.length - 1] ?? [["xml", xmlNamespace]],
+      );
+      for (const [prefix, uri] of namespaceDeclarations) bindings.set(prefix, uri);
+      const hasBoundPrefix = (name: string): boolean => {
+        const separator = name.indexOf(":");
+        if (separator === -1) return true;
+        return localNamePattern.test(name.slice(0, separator)) &&
+          localNamePattern.test(name.slice(separator + 1)) &&
+          bindings.has(name.slice(0, separator));
+      };
+      if (!hasBoundPrefix(match[1])) return false;
+      for (const name of seenAttributes) {
+        if (name !== "xmlns" && !name.startsWith("xmlns:") && !hasBoundPrefix(name)) return false;
+      }
       if (!stack.length && ++roots > 1) return false;
-      if (!empty) stack.push(match[1]);
+      if (!empty) {
+        stack.push(match[1]);
+        namespaceScopes.push(bindings);
+      }
     }
     position = end + 1;
   }

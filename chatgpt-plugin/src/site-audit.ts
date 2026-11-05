@@ -319,6 +319,14 @@ export function isAllowedByRobots(url: URL, rules: RobotsRule[]): boolean {
   return winner?.allow ?? true;
 }
 
+/** XML 1.0 Char production, for both literal characters and numeric references. */
+function isValidXmlCharacter(codePoint: number): boolean {
+  return codePoint === 0x9 || codePoint === 0xa || codePoint === 0xd ||
+    (codePoint >= 0x20 && codePoint <= 0xd7ff) ||
+    (codePoint >= 0xe000 && codePoint <= 0xfffd) ||
+    (codePoint >= 0x10000 && codePoint <= 0x10ffff);
+}
+
 /** Do not let Cheerio's XML recovery turn malformed entity references into sitemap URLs. */
 function hasValidXmlEntities(text: string): boolean {
   const referencePattern = /&(?:amp|lt|gt|apos|quot|#(?:[0-9]+|x[0-9a-fA-F]+));/y;
@@ -332,11 +340,7 @@ function hasValidXmlEntities(text: string): boolean {
       const codePoint = digits.startsWith("x")
         ? Number.parseInt(digits.slice(1), 16)
         : Number.parseInt(digits, 10);
-      // XML 1.0 Char production excludes NUL, most controls, and surrogate code points.
-      if (!(codePoint === 0x9 || codePoint === 0xa || codePoint === 0xd ||
-        (codePoint >= 0x20 && codePoint <= 0xd7ff) ||
-        (codePoint >= 0xe000 && codePoint <= 0xfffd) ||
-        (codePoint >= 0x10000 && codePoint <= 0x10ffff))) return false;
+      if (!isValidXmlCharacter(codePoint)) return false;
     }
     offset = text.indexOf("&", referencePattern.lastIndex);
   }
@@ -345,6 +349,10 @@ function hasValidXmlEntities(text: string): boolean {
 
 /** Cheerio recovers broken XML; reject malformed markup before using discovered URLs. */
 function isWellFormedSitemapXml(value: string): boolean {
+  // Character validity applies to comments, CDATA and markup too, not only text nodes.
+  for (const character of value) {
+    if (!isValidXmlCharacter(character.codePointAt(0)!)) return false;
+  }
   const stack: string[] = [];
   const namePattern = /^[\p{L}_][\p{L}\p{N}_.:-]*$/u;
   let position = 0;

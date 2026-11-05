@@ -459,6 +459,10 @@ describe("auditPublicSite", () => {
     ["undeclared entity in attribute", '<urlset label="&bogus;"><url><loc>https://example.com/hidden</loc></url></urlset>'],
     ["invalid character reference in attribute", '<urlset label="&#x0;"><url><loc>https://example.com/hidden</loc></url></urlset>'],
     ["unterminated entity reference", "<urlset><url><loc>https://example.com/hidden</loc><lastmod>&amp</lastmod></url></urlset>"],
+    ["raw NUL in text", "<urlset><url><loc>https://example.com/hidden</loc><lastmod>bad\u0000date</lastmod></url></urlset>"],
+    ["raw control in attribute", '<urlset label="bad\u0001value"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["raw control in CDATA", "<urlset><url><loc>https://example.com/hidden</loc><lastmod><![CDATA[bad\u000Bdate]]></lastmod></url></urlset>"],
+    ["invalid XML noncharacter in comment", "<urlset><!-- bad\uFFFEcomment --><url><loc>https://example.com/hidden</loc></url></urlset>"],
   ])("rejects malformed XML sitemap: %s", async (_name, sitemapBody) => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);
@@ -482,6 +486,7 @@ describe("auditPublicSite", () => {
     ["predefined entities", '<urlset label="Fish &amp; Chips"><url><loc>https://example.com/allowed</loc><lastmod>&lt;&gt;&quot;&apos;</lastmod></url></urlset>'],
     ["valid numeric entities", '<urlset label="&#65;&#xA;"><url><loc>https://example.com/allowed</loc></url></urlset>'],
     ["literal ampersands in CDATA and comments", '<urlset><!-- &bogus; --><url><loc>https://example.com/allowed</loc><lastmod><![CDATA[&bogus;]]></lastmod></url></urlset>'],
+    ["legal XML whitespace and supplementary characters", "<urlset label=\"tab\tnewline\n\"><url><loc>https://example.com/allowed</loc><lastmod>ok\r\u{1F680}</lastmod></url></urlset>"],
   ])("accepts well-formed XML sitemap: %s", async (_name, sitemapBody) => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);

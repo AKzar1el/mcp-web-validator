@@ -37,16 +37,17 @@ describe("robots rules", () => {
     expect(parsed.sitemapUrls.map((url) => url.href)).toEqual(["https://example.com/sitemap.xml"]);
   });
 
-  it("falls back to wildcard rules when only a prefix of the crawler product token is named", () => {
+  it("honors a named crawler product-token prefix instead of unrelated wildcard rules", () => {
     const rules = parseRobotsTxt([
-      "User-agent: DigestSEO",
-      "Allow: /",
+      "User-agent: DIGESTSEO",
+      "Disallow: /private",
       "",
       "User-agent: *",
-      "Disallow: /",
+      "Allow: /",
     ].join("\n"), "https://example.com");
 
     expect(isAllowedByRobots(new URL("https://example.com/private"), rules.rules)).toBe(false);
+    expect(isAllowedByRobots(new URL("https://example.com/other"), rules.rules)).toBe(true);
   });
 
   it("normalizes percent-encoded unreserved octets while preserving reserved encodings", () => {

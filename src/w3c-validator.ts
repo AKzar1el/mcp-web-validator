@@ -85,6 +85,10 @@ function normalizeW3CMessage(message: unknown): W3CMessage {
   if (typeof candidate.type !== "string" || typeof candidate.message !== "string") {
     throw new Error("W3C HTML validator returned a malformed message");
   }
+  const type = candidate.type.trim().toLowerCase();
+  if (!["error", "warning", "info", "non-document-error"].includes(type)) {
+    throw new Error("W3C HTML validator returned a malformed message");
+  }
 
   const normalized: W3CMessage = {
     type: candidate.type,

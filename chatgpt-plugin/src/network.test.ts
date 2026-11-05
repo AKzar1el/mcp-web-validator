@@ -267,6 +267,35 @@ describe("fetchPublicHtml", () => {
     await expect(fetchPublicHtml("https://example.com/large")).rejects.toMatchObject({ code: "too_large" });
   });
 
+  it.each([true, false])("rejects partial HTTP 206 HTML with content-range header present=%s", async (hasRange) => {
+    const headers: Record<string, string> = { "content-type": "text/html" };
+    if (hasRange) headers["content-range"] = "bytes 0-39/100";
+    const fetchMock = vi.fn(async () => new Response("<html><title>Incomplete</title></html>", {
+      status: 206,
+      headers,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchPublicHtml("https://example.com/partial")).rejects.toMatchObject({
+      code: "http_status",
+      status: 206,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects HTTP 206 after a valid redirect instead of treating partial HTML as a complete page", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: "/partial" } }))
+      .mockResolvedValueOnce(htmlResponse("<html><title>Partial</title></html>", { status: 206 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchPublicHtml("https://example.com/start")).rejects.toMatchObject({
+      code: "http_status",
+      status: 206,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects streamed bodies and decoded HTML beyond their separate limits", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => htmlResponse("x".repeat(1024 * 1024 + 1))));
     await expect(fetchPublicHtml("https://example.com/bytes")).rejects.toMatchObject({ code: "too_large" });

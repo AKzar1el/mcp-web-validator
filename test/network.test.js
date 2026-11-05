@@ -917,6 +917,8 @@ test("link checker classifies HTTP response classes without following redirects"
     [302, true],
     [307, true],
     [308, true],
+    [401, false],
+    [403, false],
     [429, false],
     [404, false],
     [410, false],
@@ -934,12 +936,31 @@ test("link checker classifies HTTP response classes without following redirects"
       const links = await checkBrokenLinks(`<a href="https://1.1.1.1/${status}">Link</a>`, undefined, 1);
       assert.equal(links[0].status, status);
       assert.equal(links[0].ok, ok);
-      assert.equal(links[0].message, status === 429
-        ? "Rate limited; destination availability not verified"
-        : status >= 300 && status < 400 ? "Redirect not followed" : undefined);
+      assert.equal(links[0].message, status === 401 || status === 403
+        ? "Access restricted; destination availability not verified"
+        : status === 429
+          ? "Rate limited; destination availability not verified"
+          : status >= 300 && status < 400 ? "Redirect not followed" : undefined);
     }
     assert.deepEqual(requested.map((request) => request.method), cases.flatMap(([status]) =>
-      status === 404 || status === 410 ? ["HEAD", "GET"] : ["HEAD"]));
+      [401, 403, 404, 410].includes(status) ? ["HEAD", "GET"] : ["HEAD"]));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker confirms a HEAD 401 with a bounded GET before reporting availability", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: init?.method === "HEAD" ? 401 : 200 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/restricted">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 200);
+    assert.equal(links[0].ok, true);
+    assert.deepEqual(methods, ["HEAD", "GET"]);
   } finally {
     globalThis.fetch = originalFetch;
   }

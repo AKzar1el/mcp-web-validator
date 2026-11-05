@@ -1167,7 +1167,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
             ? { next_action: counts.unreachable > 0
               ? "Fix unreachable links first, then confirm that each redirect is intentional."
               : counts.unverified > 0
-                ? "Retry rate-limited or failed checks later; an unverified result does not prove the destination is broken."
+                ? "Review access restrictions and retry rate-limited or failed checks later; unverified does not prove a broken destination."
                 : "Confirm that each redirect is intentional and points to the preferred destination." }
             : {}),
         };

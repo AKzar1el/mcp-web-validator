@@ -549,6 +549,45 @@ describe("polished tool responses", () => {
     expect(result.content[0]?.text).not.toContain("returned status 429");
   });
 
+  it("treats 401 and 403 as access-restricted checks, not confirmed broken links", async () => {
+    const methods: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL, options?: RequestInit) => {
+      methods.push(options?.method ?? "");
+      return new Response(null, { status: String(target).endsWith("/login") ? 401 : 403 });
+    }));
+    const result = await callTool("check_broken_links", {
+      html: '<a href="https://example.com/login">Login</a><a href="https://example.com/forbidden">Forbidden</a>',
+      max_links: 2,
+    });
+    expect(result.structuredContent).toMatchObject({
+      links_checked: 2,
+      healthy_links: 0,
+      unreachable_links: 0,
+      unverified_links: 2,
+      overview: { status: "partial" },
+    });
+    expect(methods.sort()).toEqual(["GET", "GET", "HEAD", "HEAD"]);
+  });
+
+  it("confirms a HEAD 401 with GET when the public destination is accessible", async () => {
+    const methods: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_target: RequestInfo | URL, options?: RequestInit) => {
+      methods.push(options?.method ?? "");
+      return new Response(null, { status: options?.method === "HEAD" ? 401 : 200 });
+    }));
+    const result = await callTool("check_broken_links", {
+      html: '<a href="https://example.com/login">Login</a>',
+      max_links: 1,
+    });
+    expect(result.structuredContent).toMatchObject({
+      healthy_links: 1,
+      unreachable_links: 0,
+      unverified_links: 0,
+      overview: { status: "passed" },
+    });
+    expect(methods).toEqual(["HEAD", "GET"]);
+  });
+
   it("marks a combined audit partial when a link is rate-limited, without calling it broken", async () => {
     vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL, options?: RequestInit) => {
       const url = String(target);

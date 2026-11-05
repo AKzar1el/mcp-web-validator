@@ -468,8 +468,17 @@ function isWellFormedSitemapXml(value: string): boolean {
           bindings.has(name.slice(0, separator));
       };
       if (!hasBoundPrefix(match[1])) return false;
+      const expandedAttributes = new Set<string>();
       for (const name of seenAttributes) {
-        if (name !== "xmlns" && !name.startsWith("xmlns:") && !hasBoundPrefix(name)) return false;
+        if (name === "xmlns" || name.startsWith("xmlns:")) continue;
+        if (!hasBoundPrefix(name)) return false;
+        // Different prefixes may identify the same attribute after namespace resolution.
+        const separator = name.indexOf(":");
+        const namespace = separator === -1 ? "" : bindings.get(name.slice(0, separator))!;
+        const localName = separator === -1 ? name : name.slice(separator + 1);
+        const expandedName = JSON.stringify([namespace, localName]);
+        if (expandedAttributes.has(expandedName)) return false;
+        expandedAttributes.add(expandedName);
       }
       if (!stack.length && ++roots > 1) return false;
       if (!empty) {

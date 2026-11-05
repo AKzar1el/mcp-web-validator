@@ -319,7 +319,31 @@ export function isAllowedByRobots(url: URL, rules: RobotsRule[]): boolean {
   return winner?.allow ?? true;
 }
 
-/** Cheerio recovers broken XML; reject unbalanced markup before using its discovered URLs. */
+/** Do not let Cheerio's XML recovery turn malformed entity references into sitemap URLs. */
+function hasValidXmlEntities(text: string): boolean {
+  const referencePattern = /&(?:amp|lt|gt|apos|quot|#(?:[0-9]+|x[0-9a-fA-F]+));/y;
+  let offset = text.indexOf("&");
+  while (offset !== -1) {
+    referencePattern.lastIndex = offset;
+    const match = referencePattern.exec(text);
+    if (!match) return false;
+    if (match[0].startsWith("&#")) {
+      const digits = match[0].slice(2, -1);
+      const codePoint = digits.startsWith("x")
+        ? Number.parseInt(digits.slice(1), 16)
+        : Number.parseInt(digits, 10);
+      // XML 1.0 Char production excludes NUL, most controls, and surrogate code points.
+      if (!(codePoint === 0x9 || codePoint === 0xa || codePoint === 0xd ||
+        (codePoint >= 0x20 && codePoint <= 0xd7ff) ||
+        (codePoint >= 0xe000 && codePoint <= 0xfffd) ||
+        (codePoint >= 0x10000 && codePoint <= 0x10ffff))) return false;
+    }
+    offset = text.indexOf("&", referencePattern.lastIndex);
+  }
+  return true;
+}
+
+/** Cheerio recovers broken XML; reject malformed markup before using discovered URLs. */
 function isWellFormedSitemapXml(value: string): boolean {
   const stack: string[] = [];
   const namePattern = /^[\p{L}_][\p{L}\p{N}_.:-]*$/u;
@@ -330,7 +354,8 @@ function isWellFormedSitemapXml(value: string): boolean {
     if (start === -1) {
       return stack.length === 0 && roots === 1 && (position === value.length || !value.slice(position).trim());
     }
-    if (stack.length === 0 && value.slice(position, start).trim()) return false;
+    const text = value.slice(position, start);
+    if ((stack.length === 0 && text.trim()) || !hasValidXmlEntities(text)) return false;
 
     if (value.startsWith("<!--", start)) {
       const end = value.indexOf("-->", start + 4);
@@ -382,7 +407,7 @@ function isWellFormedSitemapXml(value: string): boolean {
       const seenAttributes = new Set<string>();
       while (attributes.trim()) {
         const attribute = /^\s+([\p{L}_][\p{L}\p{N}_.:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/u.exec(attributes);
-        if (!attribute || seenAttributes.has(attribute[1])) return false;
+        if (!attribute || seenAttributes.has(attribute[1]) || !hasValidXmlEntities(attribute[2] ?? attribute[3])) return false;
         seenAttributes.add(attribute[1]);
         attributes = attributes.slice(attribute[0].length);
       }

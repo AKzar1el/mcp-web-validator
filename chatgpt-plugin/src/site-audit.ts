@@ -347,6 +347,24 @@ function hasValidXmlEntities(text: string): boolean {
   return true;
 }
 
+/** Namespace bindings compare decoded XML attribute values, not their source spellings. */
+function normalizeXmlNamespaceUri(raw: string): string {
+  const predefined: Record<string, string> = {
+    "&amp;": "&", "&lt;": "<", "&gt;": ">", "&apos;": "'", "&quot;": '"',
+  };
+  return raw.replace(/\r\n|[\r\n\t]|&(?:amp|lt|gt|apos|quot|#(?:[0-9]+|x[0-9a-fA-F]+));/g, (reference) => {
+    if (reference[0] !== "&") return " ";
+    if (reference.startsWith("&#")) {
+      const digits = reference.slice(2, -1);
+      const codePoint = digits.startsWith("x")
+        ? Number.parseInt(digits.slice(1), 16)
+        : Number.parseInt(digits, 10);
+      return String.fromCodePoint(codePoint);
+    }
+    return predefined[reference];
+  });
+}
+
 /** Cheerio recovers broken XML; reject malformed markup before using discovered URLs. */
 function isWellFormedSitemapXml(value: string): boolean {
   // Character validity applies to comments, CDATA and markup too, not only text nodes.
@@ -445,11 +463,11 @@ function isWellFormedSitemapXml(value: string): boolean {
         if (!attribute || seenAttributes.has(attribute[1]) || !hasValidXmlEntities(attribute[2] ?? attribute[3])) return false;
         seenAttributes.add(attribute[1]);
         if (attribute[1] === "xmlns") {
-          const uri = attribute[2] ?? attribute[3];
+          const uri = normalizeXmlNamespaceUri(attribute[2] ?? attribute[3]);
           if (uri === xmlNamespace || uri === xmlnsNamespace) return false;
         } else if (attribute[1].startsWith("xmlns:")) {
           const prefix = attribute[1].slice(6);
-          const uri = attribute[2] ?? attribute[3];
+          const uri = normalizeXmlNamespaceUri(attribute[2] ?? attribute[3]);
           if (!localNamePattern.test(prefix) || prefix === "xmlns" || !uri ||
               uri === xmlnsNamespace || (prefix === "xml") !== (uri === xmlNamespace)) return false;
           namespaceDeclarations.set(prefix, uri);

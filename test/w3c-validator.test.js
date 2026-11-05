@@ -67,6 +67,21 @@ test("malformed HTML validator messages fail instead of being silently dropped",
   }
 });
 
+test("unknown Nu message types fail closed instead of being counted as informational", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    messages: [{ type: "validation-aborted", message: "The checker could not finish" }],
+  });
+  try {
+    await assert.rejects(
+      validateHtmlContent("<!doctype html><html><title>Example</title></html>"),
+      /HTML validation failed: W3C HTML validator returned a malformed message/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("HTML validator normalizes upstream messages to the advertised contract", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(

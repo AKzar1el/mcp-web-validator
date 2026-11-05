@@ -323,6 +323,31 @@ test("visible aria-labelledby targets exclude hidden descendant-only text", () =
     assert.equal(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.image_alt.missing"), false, html);
   }
 });
+test("inline CSS-hidden elements and subtrees do not produce accessibility naming errors", () => {
+  for (const [html, code] of [
+    ['<img src="hidden.png" style="visibility: hidden">', "accessibility.image_alt.missing"],
+    ['<div style="visibility: collapse"><img src="hidden.png"></div>', "accessibility.image_alt.missing"],
+    ['<div style="content-visibility: hidden"><iframe src="/private"></iframe></div>', "accessibility.iframe_name.missing_or_empty"],
+    ['<input type="image" src="hidden.png" style="content-visibility: hidden">', "accessibility.input_image_alt.missing_or_empty"],
+    ['<img src="hidden.png" style="visibility: hidden !important; visibility: visible">', "accessibility.image_alt.missing"],
+    ['<div style="content-visibility: hidden"><img src="hidden.png" style="content-visibility: visible"></div>', "accessibility.image_alt.missing"],
+    ['<img src="hidden.png" style="visibility: visible; visibility: hidden">', "accessibility.image_alt.missing"],
+  ]) {
+    assert.equal(auditSeoMetadata(html).some((issue) => issue.code === code), false, html);
+  }
+});
+
+test("inline visibility overrides and later declarations keep exposed images auditable", () => {
+  for (const html of [
+    '<div style="visibility: hidden"><img src="visible.png" style="visibility: visible"></div>',
+    '<div style="visibility: hidden"><div style="visibility: visible"><img src="visible.png"></div></div>',
+    '<img src="visible.png" style="visibility: hidden; visibility: visible">',
+    '<img src="visible.png" style="display: none; display: block">',
+    '<img src="visible.png" style="content-visibility: hidden; content-visibility: visible">',
+  ]) {
+    assert.equal(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.image_alt.missing"), true, html);
+  }
+});
 test("ordinary images accept an explicit empty alt as decorative", () => {
   const decorative = auditSeoMetadata('<img src="divider.png" alt="">');
   assert.equal(

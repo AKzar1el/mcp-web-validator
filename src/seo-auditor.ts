@@ -112,17 +112,44 @@ function isInTemplateContents(element: unknown): boolean {
   return false;
 }
 
+function inlineStyleValue(style: string, property: string): string | undefined {
+  let selected: string | undefined;
+  let selectedImportant = false;
+  for (const declaration of style.split(";")) {
+    const separator = declaration.indexOf(":");
+    if (separator < 0 || declaration.slice(0, separator).trim().toLowerCase() !== property) continue;
+    const raw = declaration.slice(separator + 1).trim().toLowerCase();
+    const important = /\s*!important\s*$/.test(raw);
+    const value = raw.replace(/\s*!important\s*$/, "").trim();
+    if (value && (!selectedImportant || important)) {
+      selected = value;
+      selectedImportant = important;
+    }
+  }
+  return selected;
+}
+
 function isHiddenFromAccessibilityTree(element: unknown): boolean {
   type ParentNode = { attribs?: Record<string, string>; parent?: unknown };
   let node = element as ParentNode | null;
+  let inheritedVisibility: "visible" | "hidden" | "collapse" | undefined;
   while (node) {
     const attrs = node.attribs;
     if (attrs?.["aria-hidden"]?.trim().toLowerCase() === "true") return true;
     if (attrs && Object.hasOwn(attrs, "hidden")) return true;
-    if ((attrs?.style ?? "").split(";").some((declaration) => /^\s*display\s*:\s*none(?:\s*!important)?\s*$/i.test(declaration))) return true;
+    const style = attrs?.style ?? "";
+    if (inlineStyleValue(style, "display") === "none"
+      || inlineStyleValue(style, "content-visibility") === "hidden") return true;
+    // Visibility inherits but a descendant can explicitly restore visibility.
+    if (inheritedVisibility === undefined) {
+      const visibility = inlineStyleValue(style, "visibility");
+      if (visibility === "visible" || visibility === "hidden" || visibility === "collapse") {
+        inheritedVisibility = visibility;
+      }
+    }
     node = (node.parent ?? null) as ParentNode | null;
   }
-  return false;
+  return inheritedVisibility === "hidden" || inheritedVisibility === "collapse";
 }
 function referencedTextContent(element: unknown): string {
   type TextNode = {

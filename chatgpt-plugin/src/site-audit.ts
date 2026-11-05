@@ -381,11 +381,24 @@ function isWellFormedSitemapXml(value: string): boolean {
     if (value.startsWith("<?", start)) {
       const end = value.indexOf("?>", start + 2);
       if (end === -1) return false;
-      const target = /^[^\s?]+/.exec(value.slice(start + 2, end))?.[0];
+      const instruction = value.slice(start + 2, end);
+      const target = /^[^\s?]+/.exec(instruction)?.[0];
+      if (!target || !namePattern.test(target)) return false;
+      let data = instruction.slice(target.length);
+      if (data && !/^[ \t\r\n]/.test(data)) return false;
       // The PI target "xml" is reserved for the initial declaration only.
       if (target?.toLowerCase() === "xml") {
         const atDocumentStart = start === 0 || (start === 1 && value.charCodeAt(0) === 0xfeff);
         if (target !== "xml" || !atDocumentStart || stack.length !== 0 || roots !== 0) return false;
+        // XML declarations require version first, then optional encoding and standalone.
+        const version = /^[ \t\r\n]+version[ \t\r\n]*=[ \t\r\n]*(?:"1\.[0-9]+"|'1\.[0-9]+')/.exec(data);
+        if (!version) return false;
+        data = data.slice(version[0].length);
+        const encoding = /^[ \t\r\n]+encoding[ \t\r\n]*=[ \t\r\n]*(?:"[A-Za-z][A-Za-z0-9._-]*"|'[A-Za-z][A-Za-z0-9._-]*')/.exec(data);
+        if (encoding) data = data.slice(encoding[0].length);
+        const standalone = /^[ \t\r\n]+standalone[ \t\r\n]*=[ \t\r\n]*(?:"(?:yes|no)"|'(?:yes|no)')/.exec(data);
+        if (standalone) data = data.slice(standalone[0].length);
+        if (!/^[ \t\r\n]*$/.test(data)) return false;
       }
       position = end + 2;
       continue;

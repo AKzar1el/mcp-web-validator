@@ -381,6 +381,12 @@ function isWellFormedSitemapXml(value: string): boolean {
     if (value.startsWith("<?", start)) {
       const end = value.indexOf("?>", start + 2);
       if (end === -1) return false;
+      const target = /^[^\s?]+/.exec(value.slice(start + 2, end))?.[0];
+      // The PI target "xml" is reserved for the initial declaration only.
+      if (target?.toLowerCase() === "xml") {
+        const atDocumentStart = start === 0 || (start === 1 && value.charCodeAt(0) === 0xfeff);
+        if (target !== "xml" || !atDocumentStart || stack.length !== 0 || roots !== 0) return false;
+      }
       position = end + 2;
       continue;
     }

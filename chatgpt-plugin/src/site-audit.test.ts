@@ -445,6 +445,10 @@ describe("auditPublicSite", () => {
 
   it.each([
     ["missing root end tag", "<urlset><url><loc>https://example.com/hidden</loc></url>"],
+    ["uppercase sitemap root", "<URLSET><url><loc>https://example.com/hidden</loc></url></URLSET>"],
+    ["mixed-case prefixed sitemap root", '<sm:UrlSet xmlns:sm="http://www.sitemaps.org/schemas/sitemap/0.9"><sm:url><sm:loc>https://example.com/hidden</sm:loc></sm:url></sm:UrlSet>'],
+    ["uppercase Atom feed root", '<Feed xmlns="http://www.w3.org/2005/Atom"><entry><link href="https://example.com/hidden"/></entry></Feed>'],
+    ["uppercase RSS root", '<RSS version="2.0"><channel><item><link>https://example.com/hidden</link></item></channel></RSS>'],
     ["missing URL end tag", "<urlset><url><loc>https://example.com/hidden</loc></urlset>"],
     ["mismatched closing tags", "<urlset><url><loc>https://example.com/hidden</url></loc></urlset>"],
     ["multiple document elements", "<urlset></urlset><urlset><url><loc>https://example.com/hidden</loc></url></urlset>"],
@@ -658,6 +662,8 @@ describe("auditPublicSite", () => {
           '<sm:urlset xmlns:sm="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:ext="https://example.com/extension">',
           "<sm:url><sm:loc>https://example.com/</sm:loc></sm:url>",
           "<sm:url><sm:loc>https://example.com/docs</sm:loc></sm:url>",
+          "<sm:URL><sm:loc>https://example.com/ignored-case-url</sm:loc></sm:URL>",
+          "<sm:url><sm:LOC>https://example.com/ignored-case-loc</sm:LOC></sm:url>",
           "<ext:url><ext:loc>https://example.com/ignored</ext:loc></ext:url>",
           "</sm:urlset>",
         ].join(""), { headers: { "content-type": "application/xml" } });

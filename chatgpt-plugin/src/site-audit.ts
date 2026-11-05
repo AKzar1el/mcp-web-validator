@@ -529,10 +529,10 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
       sameOriginCrawlUrl(value, baseUrl, origin, () => { queryUnsupported = true; });
 
     const documentElement = $.root().children().first();
-    const documentElementName = String(documentElement.prop("tagName") ?? "");
+    // Cheerio's tagName property uppercases names even in XML mode; the node name preserves XML case.
+    const documentElementName = documentElement.get(0)?.name ?? "";
     const documentElementLocalName = documentElementName
-      .slice(documentElementName.indexOf(":") + 1)
-      .toLowerCase();
+      .slice(documentElementName.indexOf(":") + 1);
 
     if (documentElementLocalName === "rss" && documentElement.attr("version") === "2.0") {
       $("channel > item > link").each((_index, element) => {
@@ -542,10 +542,9 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
       return { pageUrls, childSitemaps, invalid: false, queryUnsupported };
     }
 
-    const documentElementQualifiedName = documentElement.get(0)?.name ?? documentElementName.toLowerCase();
-    const documentElementSeparator = documentElementQualifiedName.indexOf(":");
+    const documentElementSeparator = documentElementName.indexOf(":");
     const documentElementPrefix = documentElementSeparator >= 0
-      ? documentElementQualifiedName.slice(0, documentElementSeparator)
+      ? documentElementName.slice(0, documentElementSeparator)
       : "";
     const documentElementNamespaceDeclaration = documentElementPrefix
       ? `xmlns:${documentElementPrefix}`
@@ -573,14 +572,15 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
       const atomNodes = new Set(atomElements.toArray());
 
       atomElements.each((_index, element) => {
-        const qualifiedName = String($(element).prop("tagName") ?? "");
-        const localName = qualifiedName.slice(qualifiedName.indexOf(":") + 1).toLowerCase();
+        if (element.type !== "tag") return;
+        const qualifiedName = element.name;
+        const localName = qualifiedName.slice(qualifiedName.indexOf(":") + 1);
         if (localName !== "link") return;
 
         const parent = $(element).parent().get(0);
         if (!parent || !atomNodes.has(parent)) return;
-        const parentName = String($(parent).prop("tagName") ?? "");
-        const parentLocalName = parentName.slice(parentName.indexOf(":") + 1).toLowerCase();
+        const parentName = parent.name;
+        const parentLocalName = parentName.slice(parentName.indexOf(":") + 1);
         if (parentLocalName !== "entry") return;
 
         const rel = $(element).attr("rel")?.trim().toLowerCase();
@@ -620,18 +620,19 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
     const protocolNodes = new Set(protocolElements.toArray());
 
     protocolElements.each((_index, element) => {
-      const qualifiedName = String($(element).prop("tagName") ?? "");
-      const localName = qualifiedName.slice(qualifiedName.indexOf(":") + 1).toLowerCase();
+      if (element.type !== "tag") return;
+      const qualifiedName = element.name;
+      const localName = qualifiedName.slice(qualifiedName.indexOf(":") + 1);
       if (localName !== "loc") return;
 
       const parent = $(element).parent().get(0);
       const grandparent = parent ? $(parent).parent().get(0) : undefined;
       if (!parent || !grandparent || !protocolNodes.has(parent) || !protocolNodes.has(grandparent)) return;
 
-      const parentName = String($(parent).prop("tagName") ?? "");
-      const grandparentName = String($(grandparent).prop("tagName") ?? "");
-      const parentLocalName = parentName.slice(parentName.indexOf(":") + 1).toLowerCase();
-      const grandparentLocalName = grandparentName.slice(grandparentName.indexOf(":") + 1).toLowerCase();
+      const parentName = parent.name;
+      const grandparentName = grandparent.name;
+      const parentLocalName = parentName.slice(parentName.indexOf(":") + 1);
+      const grandparentLocalName = grandparentName.slice(grandparentName.indexOf(":") + 1);
       const url = sitemapCrawlUrl($(element).text().trim());
       if (!url) return;
 

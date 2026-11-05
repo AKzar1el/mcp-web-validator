@@ -26,7 +26,7 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
 }
 
 export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
-  return typeof status !== "number" || status === 429;
+  return typeof status !== "number" || [401, 403, 429].includes(status);
 }
 
 export interface AuditResult {
@@ -957,15 +957,17 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
       usedGet = true;
     }
     // Some origins return a false negative to HEAD while a normal GET works.
-    if (!usedGet && [403, 404, 405, 410, 501].includes(response.status)) {
+    if (!usedGet && [401, 403, 404, 405, 410, 501].includes(response.status)) {
       response = await execute("GET");
     }
     return {
       url: url.toString(),
       status: response.status,
       ok: response.status >= 200 && response.status < 400,
-      message: response.status === 429
-        ? "Rate limited; destination availability not verified."
+      message: response.status === 401 || response.status === 403
+        ? "Access restricted; destination availability not verified."
+        : response.status === 429
+          ? "Rate limited; destination availability not verified."
         : isHttpRedirectStatus(response.status)
           ? "Redirect not followed."
           : undefined,

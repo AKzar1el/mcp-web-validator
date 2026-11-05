@@ -36,9 +36,9 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
   return typeof status === "number" && HTTP_REDIRECT_STATUSES.has(status);
 }
 
-/** A network, safety-policy, or rate-limit response cannot establish destination health. */
+/** Network, access policy, and rate limiting cannot establish public destination health. */
 export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
-  return typeof status !== "number" || status === 429;
+  return typeof status !== "number" || [401, 403, 429].includes(status);
 }
 
 export interface AuditCounts {
@@ -989,7 +989,7 @@ export async function checkBrokenLinks(
 
       // Some sites reject HEAD or return a false 404/410 for an otherwise
       // available resource. Confirm negative HEAD results with a bounded GET.
-      if ([403, 404, 405, 410, 501].includes(headStatus)) {
+      if ([401, 403, 404, 405, 410, 501].includes(headStatus)) {
         let getResult = await fetchPublicHttp(url, {
           method: "GET",
           headers: {
@@ -1018,7 +1018,9 @@ export async function checkBrokenLinks(
           status,
           ok,
           message:
-            status === 429
+            status === 401 || status === 403
+              ? "Access restricted; destination availability not verified"
+              : status === 429
               ? "Rate limited; destination availability not verified"
               : isHttpRedirectStatus(status)
                 ? "Redirect not followed"
@@ -1033,7 +1035,9 @@ export async function checkBrokenLinks(
         status: headStatus,
         ok: headStatus >= 200 && headStatus < 400,
         message:
-          headStatus === 429
+          headStatus === 401 || headStatus === 403
+            ? "Access restricted; destination availability not verified"
+            : headStatus === 429
             ? "Rate limited; destination availability not verified"
             : isHttpRedirectStatus(headStatus)
               ? "Redirect not followed"

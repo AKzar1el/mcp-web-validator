@@ -217,6 +217,28 @@ test("report treats HTTP 429 rate limits as unverified rather than broken destin
   assert.match(result.report, /Incomplete link verification/);
 });
 
+test("report withholds scores for authenticated or forbidden link destinations", () => {
+  for (const status of [401, 403]) {
+    const result = createValidationReport({
+      htmlFilePath: "restricted.html",
+      cssAudited: false,
+      htmlMessages: [],
+      cssMessages: [],
+      seoIssues: [],
+      schemaIssues: [],
+      links: [
+        { url: "https://example.test/restricted", status, ok: false },
+        { url: "https://example.test/missing", status: 404, ok: false },
+      ],
+    });
+    assert.equal(result.summary.brokenLinks, 1);
+    assert.equal(result.summary.unverifiedLinks, 1);
+    assert.equal(result.summary.linkScore, null);
+    assert.equal(result.summary.overallScore, null);
+    assert.match(result.report, /Incomplete link verification/);
+  }
+});
+
 test("report does not count HTTP 304 as a redirect", () => {
   const result = createValidationReport({
     htmlFilePath: "not-modified.html",

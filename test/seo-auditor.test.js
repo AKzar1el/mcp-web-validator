@@ -348,6 +348,27 @@ test("inline visibility overrides and later declarations keep exposed images aud
     assert.equal(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.image_alt.missing"), true, html);
   }
 });
+
+test("inert elements and descendants are excluded from accessible-name checks", () => {
+  for (const [html, code] of [
+    ['<img src="hidden.png" inert>', "accessibility.image_alt.missing"],
+    ['<section inert><img src="hidden.png"></section>', "accessibility.image_alt.missing"],
+    ['<section inert=""><iframe src="/private"></iframe></section>', "accessibility.iframe_name.missing_or_empty"],
+    ['<div inert="false"><input type="image" src="submit.png"></div>', "accessibility.input_image_alt.missing_or_empty"],
+    ['<div inert><div aria-hidden="false"><img src="hidden.png"></div></div>', "accessibility.image_alt.missing"],
+    ['<div inert><span role="img"></span></div>', "accessibility.image_alt.missing"],
+  ]) {
+    assert.equal(auditSeoMetadata(html).some((issue) => issue.code === code), false, html);
+  }
+
+  for (const [html, code] of [
+    ['<div inert><img src="hidden.png"></div><img src="visible.png">', "accessibility.image_alt.missing"],
+    ['<div inert><iframe src="/private"></iframe></div><iframe src="/public"></iframe>', "accessibility.iframe_name.missing_or_empty"],
+    ['<div inert><input type="image" src="hidden.png"></div><input type="image" src="visible.png">', "accessibility.input_image_alt.missing_or_empty"],
+  ]) {
+    assert.equal(auditSeoMetadata(html).some((issue) => issue.code === code), true, html);
+  }
+});
 test("ordinary images accept an explicit empty alt as decorative", () => {
   const decorative = auditSeoMetadata('<img src="divider.png" alt="">');
   assert.equal(

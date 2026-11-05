@@ -137,6 +137,8 @@ function isHiddenFromAccessibilityTree(element: unknown): boolean {
     const attrs = node.attribs;
     if (attrs?.["aria-hidden"]?.trim().toLowerCase() === "true") return true;
     if (attrs && Object.hasOwn(attrs, "hidden")) return true;
+    // The boolean inert attribute excludes its entire subtree, regardless of its string value.
+    if (attrs && Object.hasOwn(attrs, "inert")) return true;
     const style = attrs?.style ?? "";
     if (inlineStyleValue(style, "display") === "none"
       || inlineStyleValue(style, "content-visibility") === "hidden") return true;

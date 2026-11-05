@@ -194,6 +194,24 @@ test("CSS validator rejects an empty diagnostics object instead of reporting suc
   }
 });
 
+test("CSS validator rejects null diagnostic arrays instead of hiding indeterminate results", async () => {
+  const originalFetch = globalThis.fetch;
+
+  try {
+    for (const field of ["errors", "warnings"]) {
+      globalThis.fetch = async () => Response.json({
+        cssvalidation: { validity: true, errors: [], warnings: [], [field]: null },
+      });
+      await assert.rejects(
+        validateCssContent("body { color: black; }"),
+        /CSS validation failed: W3C CSS validator returned an invalid response shape/,
+      );
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("CSS validator refuses to report clean when the upstream validity verdict is missing or malformed", async () => {
   const originalFetch = globalThis.fetch;
 

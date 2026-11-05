@@ -226,6 +226,10 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
     if (typeof data.cssvalidation.validity !== "boolean") {
       throw new Error("W3C CSS validator returned an invalid response shape");
     }
+    if (("errors" in data.cssvalidation && !Array.isArray(data.cssvalidation.errors))
+      || ("warnings" in data.cssvalidation && !Array.isArray(data.cssvalidation.warnings))) {
+      throw new Error("W3C CSS validator returned an invalid response shape");
+    }
 
     const errors = data.cssvalidation.errors || [];
     const warnings = data.cssvalidation.warnings || [];

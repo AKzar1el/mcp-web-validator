@@ -424,7 +424,7 @@ export async function fetchPublicHtml(
         continue;
       }
 
-      if (!response.ok) {
+      if (!response.ok || response.status === 206) {
         const status = response.status;
         await cancelQuietly(response);
         throw new PublicHtmlFetchError("http_status", `The page returned HTTP ${status}.`, status);

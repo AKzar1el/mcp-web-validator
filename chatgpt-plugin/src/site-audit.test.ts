@@ -467,6 +467,8 @@ describe("auditPublicSite", () => {
     ["processing instruction target starting with a digit", '<?1invalid?><urlset><url><loc>https://example.com/hidden</loc></url></urlset>'],
     ["undeclared child element prefix", '<urlset><bad:meta/><url><loc>https://example.com/hidden</loc></url></urlset>'],
     ["undeclared root attribute prefix", '<urlset bad:label="x"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["duplicate expanded attribute names on the root", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:a="urn:shared" xmlns:b="urn:shared" a:id="1" b:id="2"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["duplicate expanded attribute names through inherited bindings", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:a="urn:shared"><url xmlns:b="urn:shared" a:id="1" b:id="2"><loc>https://example.com/hidden</loc></url></urlset>'],
     ["namespace declaration leaked to sibling", '<urlset><url xmlns:ext="urn:extension"><ext:meta/></url><url><ext:meta/><loc>https://example.com/hidden</loc></url></urlset>'],
     ["empty namespace binding for a prefix", '<urlset xmlns:ext=""><ext:meta/><url><loc>https://example.com/hidden</loc></url></urlset>'],
     ["reserved xml prefix rebound", '<urlset xmlns:xml="urn:not-xml"><url><loc>https://example.com/hidden</loc></url></urlset>'],
@@ -521,6 +523,8 @@ describe("auditPublicSite", () => {
     ["declared extension prefix on child", '<urlset><url xmlns:ext="urn:extension"><ext:meta/><loc>https://example.com/allowed</loc></url></urlset>'],
     ["built-in xml prefix on attribute", '<urlset xml:lang="en"><url><loc>https://example.com/allowed</loc></url></urlset>'],
     ["default sitemap namespace", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["same local attribute name in distinct namespaces", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:a="urn:one" xmlns:b="urn:two" a:id="1" b:id="2"><url><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["unprefixed attributes remain unnamespaced with a default namespace", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:a="http://www.sitemaps.org/schemas/sitemap/0.9" id="1" a:id="2"><url><loc>https://example.com/allowed</loc></url></urlset>'],
     ["legal XML whitespace and supplementary characters", "<urlset label=\"tab\tnewline\n\"><url><loc>https://example.com/allowed</loc><lastmod>ok\r\u{1F680}</lastmod></url></urlset>"],
   ])("accepts well-formed XML sitemap: %s", async (_name, sitemapBody) => {
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {

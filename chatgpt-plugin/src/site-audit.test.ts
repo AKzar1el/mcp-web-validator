@@ -449,6 +449,8 @@ describe("auditPublicSite", () => {
     ["mismatched closing tags", "<urlset><url><loc>https://example.com/hidden</url></loc></urlset>"],
     ["multiple document elements", "<urlset></urlset><urlset><url><loc>https://example.com/hidden</loc></url></urlset>"],
     ["unclosed quoted attribute", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["raw angle bracket in double-quoted attribute", '<urlset label="a < b"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["raw angle bracket in single-quoted attribute", "<urlset label='a < b'><url><loc>https://example.com/hidden</loc></url></urlset>"],
     ["text after document root", "<urlset></urlset>garbage"],
     ["raw ampersand in text", "<urlset><url><loc>https://example.com/hidden</loc><lastmod>a & b</lastmod></url></urlset>"],
     ["undeclared entity in text", "<urlset><url><loc>https://example.com/hidden</loc><lastmod>&bogus;</lastmod></url></urlset>"],
@@ -484,6 +486,7 @@ describe("auditPublicSite", () => {
 
   it.each([
     ["predefined entities", '<urlset label="Fish &amp; Chips"><url><loc>https://example.com/allowed</loc><lastmod>&lt;&gt;&quot;&apos;</lastmod></url></urlset>'],
+    ["escaped angle bracket in attribute", '<urlset label="a &lt; b"><url><loc>https://example.com/allowed</loc></url></urlset>'],
     ["valid numeric entities", '<urlset label="&#65;&#xA;"><url><loc>https://example.com/allowed</loc></url></urlset>'],
     ["literal ampersands in CDATA and comments", '<urlset><!-- &bogus; --><url><loc>https://example.com/allowed</loc><lastmod><![CDATA[&bogus;]]></lastmod></url></urlset>'],
     ["legal XML whitespace and supplementary characters", "<urlset label=\"tab\tnewline\n\"><url><loc>https://example.com/allowed</loc><lastmod>ok\r\u{1F680}</lastmod></url></urlset>"],

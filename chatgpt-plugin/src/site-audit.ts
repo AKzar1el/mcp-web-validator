@@ -391,6 +391,8 @@ function isWellFormedSitemapXml(value: string): boolean {
     for (; end < value.length; end++) {
       const character = value[end];
       if (quote) {
+        // XML attributes may use &lt;, but never an unescaped '<'.
+        if (character === "<") return false;
         if (character === quote) quote = undefined;
       } else if (character === '"' || character === "'") {
         quote = character;

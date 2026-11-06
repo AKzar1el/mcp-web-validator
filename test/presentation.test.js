@@ -295,6 +295,18 @@ test("link narration distinguishes proxy challenges and misdirected requests fro
   assert.match(mixed, /1 link returned an HTTP failure; 1 check unverified/i);
 });
 
+test("link narration treats HTTP 511 network authentication as unverified, not a broken destination", () => {
+  const partial = linkCheckContent([{ url: "https://example.test/network-login", status: 511, ok: false }]);
+  assert.match(partial, /^### Link check: partial/m);
+  assert.match(partial, /1 check unverified/i);
+  assert.doesNotMatch(partial, /1 link returned an HTTP failure/i);
+  const mixed = linkCheckContent([
+    { url: "https://example.test/network-login", status: 511, ok: false },
+    { url: "https://example.test/server-failure", status: 500, ok: false },
+  ]);
+  assert.match(mixed, /1 link returned an HTTP failure; 1 check unverified/i);
+});
+
 test("link narration treats HTTP 429 as a partial check instead of a broken URL", () => {
   const output = linkCheckContent([
     { url: "https://example.test/limited", status: 429, ok: false, message: "Rate limited" },

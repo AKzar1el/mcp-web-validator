@@ -309,6 +309,27 @@ test("report treats HTTP 425 Too Early as unverified instead of a broken URL", (
   assert.match(result.report, /0 confirmed HTTP failures/);
 });
 
+test("report withholds link score for temporary HTTP gateway/service outages while retaining confirmed failures", () => {
+  const result = createValidationReport({
+    htmlFilePath: "temporary-outages.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [
+      ...[502, 503, 504].map((status) => ({ url: `https://example.test/${status}`, status, ok: false })),
+      { url: "https://example.test/500", status: 500, ok: false },
+    ],
+  });
+  assert.equal(result.summary.brokenLinks, 1);
+  assert.equal(result.summary.unverifiedLinks, 3);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /1 confirmed HTTP failures, 3 unverified/i);
+  assert.match(result.report, /Incomplete link verification/);
+});
+
 test("report surfaces CSS warnings without counting them as CSS errors", () => {
   const result = createValidationReport({
     htmlFilePath: "index.html",

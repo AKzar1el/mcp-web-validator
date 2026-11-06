@@ -166,6 +166,7 @@ function referencedTextContent(element: unknown): string {
     const attrs = node.attribs;
     if (!attrs) return false;
     if (Object.prototype.hasOwnProperty.call(attrs, "hidden")
+      || Object.prototype.hasOwnProperty.call(attrs, "inert")
       || attrs["aria-hidden"]?.trim().toLowerCase() === "true") return true;
     return (attrs.style ?? "").split(";").some((declaration) => {
       const [property, rawValue] = declaration.split(":");

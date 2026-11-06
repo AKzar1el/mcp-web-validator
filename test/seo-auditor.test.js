@@ -323,6 +323,21 @@ test("visible aria-labelledby targets exclude hidden descendant-only text", () =
     assert.equal(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.image_alt.missing"), false, html);
   }
 });
+test("visible aria-labelledby targets exclude inert descendant-only text", () => {
+  for (const [control, code] of [
+    ['<img src="chart.png" aria-labelledby="ref">', "accessibility.image_alt.missing"],
+    ['<iframe src="/account" aria-labelledby="ref"></iframe>', "accessibility.iframe_name.missing_or_empty"],
+    ['<input type="image" src="search.png" aria-labelledby="ref">', "accessibility.input_image_alt.missing_or_empty"],
+    ['<span role="img" aria-labelledby="ref"></span>', "accessibility.image_alt.missing"],
+  ]) {
+    const html = `<span id="ref"><b inert>Excluded label</b></span>${control}`;
+    assert.equal(auditSeoMetadata(html).some((issue) => issue.code === code), true, html);
+    const mixed = `<span id="ref"><b inert>Excluded</b><b>Visible label</b></span>${control}`;
+    assert.equal(auditSeoMetadata(mixed).some((issue) => issue.code === code), false, mixed);
+  }
+  const hiddenRoot = '<span id="ref" inert><b>Directly referenced inert label</b></span><img src="chart.png" aria-labelledby="ref">';
+  assert.equal(auditSeoMetadata(hiddenRoot).some((issue) => issue.code === "accessibility.image_alt.missing"), false);
+});
 test("inline CSS-hidden elements and subtrees do not produce accessibility naming errors", () => {
   for (const [html, code] of [
     ['<img src="hidden.png" style="visibility: hidden">', "accessibility.image_alt.missing"],

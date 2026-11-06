@@ -247,6 +247,25 @@ test("report treats HTTP 429 rate limits as unverified rather than broken destin
   assert.match(result.report, /Incomplete link verification/);
 });
 
+test("report withholds link health scores for HTTP 431 request header rejections", () => {
+  const result = createValidationReport({
+    htmlFilePath: "header-limited.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/header-limited", status: 431, ok: false }],
+  });
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /1 unverified/);
+  assert.match(result.report, /Incomplete link verification/);
+  assert.match(result.report, /\| https:\/\/example\.test\/header-limited \| 431 \| Unverified \|/);
+});
+
 test("report withholds scores for authenticated or forbidden link destinations", () => {
   for (const status of [401, 403]) {
     const result = createValidationReport({

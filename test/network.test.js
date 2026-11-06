@@ -1100,6 +1100,44 @@ test("link checker preserves GET HTTP 428 after a misleading HEAD 404", async ()
   }
 });
 
+test("link checker treats HTTP 431 header rejection as unverified without retrying", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: 431 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/large-headers">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 431);
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+    assert.match(links[0].message, /Request headers too large; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker reports GET HTTP 431 after HEAD 404 without a false broken result", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: init?.method === "HEAD" ? 404 : 431 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/large-headers">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 431);
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+    assert.match(links[0].message, /Request headers too large; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker treats Cloudflare 520-524 edge and origin failures as unverified without retry", async () => {
   const originalFetch = globalThis.fetch;
   const methods = [];

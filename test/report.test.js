@@ -239,7 +239,7 @@ test("report withholds scores for authenticated or forbidden link destinations",
   }
 });
 
-test("report does not count HTTP 304 as a redirect", () => {
+test("report with HTTP 304 withholds link score without marking a redirect or failure", () => {
   const result = createValidationReport({
     htmlFilePath: "not-modified.html",
     cssAudited: false,
@@ -247,11 +247,13 @@ test("report does not count HTTP 304 as a redirect", () => {
     cssMessages: [],
     seoIssues: [],
     schemaIssues: [],
-    links: [{ url: "https://example.test/not-modified", status: 304, ok: true }],
+    links: [{ url: "https://example.test/not-modified", status: 304, ok: false }],
   });
 
   assert.equal(result.summary.brokenLinks, 0);
-  assert.equal(result.summary.linkScore, 100);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.match(result.report, /Incomplete link verification/);
   assert.match(result.report, /0 redirects to review of 1 checked/);
   assert.doesNotMatch(result.report, /1 redirect to review/);
 });

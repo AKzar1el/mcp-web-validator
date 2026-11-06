@@ -225,14 +225,16 @@ test("link and report narration distinguish unverified checks from HTTP failures
   assert.doesNotMatch(reportOutput, /null\/100/);
 });
 
-test("link narration does not call HTTP 304 a redirect", () => {
+test("link narration treats HTTP 304 as unverified, not a redirect or broken link", () => {
   const output = linkCheckContent([
-    { url: "https://example.test/not-modified", status: 304, ok: true },
+    { url: "https://example.test/not-modified", status: 304, ok: false },
   ]);
 
-  assert.match(output, /^### Link check: clean/m);
-  assert.match(output, /reachable response/i);
-  assert.doesNotMatch(output, /redirect/i);
+  assert.match(output, /^### Link check: partial/m);
+  assert.match(output, /1 check unverified/i);
+  assert.match(output, /could not be verified/i);
+  assert.doesNotMatch(output, /304 redirect/i);
+  assert.doesNotMatch(output, /1 link returned an HTTP failure/i);
 });
 
 test("link narration treats HTTP 429 as a partial check instead of a broken URL", () => {

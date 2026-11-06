@@ -36,9 +36,9 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
   return typeof status === "number" && HTTP_REDIRECT_STATUSES.has(status);
 }
 
-/** Network, access policy, and rate limiting cannot establish public destination health. */
+/** Network, access policy, rate limiting and unrequested 304s cannot establish destination health. */
 export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
-  return typeof status !== "number" || [401, 403, 429].includes(status);
+  return typeof status !== "number" || [304, 401, 403, 429].includes(status);
 }
 
 export interface AuditCounts {
@@ -931,7 +931,7 @@ export function validateSchemaMarkup(htmlContent: string): SEOIssue[] {
 }
 
 /**
- * Extracts and tests links, treating redirect responses as reachable and 4xx/5xx as broken.
+ * Extracts and tests links, distinguishing reachable, failed and unverified responses.
  */
 export async function checkBrokenLinks(
   htmlContent: string,
@@ -1033,7 +1033,7 @@ export async function checkBrokenLinks(
 
       // Some sites reject HEAD or return a false 404/410 for an otherwise
       // available resource. Confirm negative HEAD results with a bounded GET.
-      if ([401, 403, 404, 405, 410, 501].includes(headStatus)) {
+      if ([304, 401, 403, 404, 405, 410, 501].includes(headStatus)) {
         let getResult = await fetchPublicHttp(url, {
           method: "GET",
           headers: {
@@ -1054,7 +1054,7 @@ export async function checkBrokenLinks(
         }
 
         const status = getResult.response.status;
-        const ok = status >= 200 && status < 400;
+        const ok = status >= 200 && status < 400 && !isUnverifiedLinkStatus(status);
         const finalUrl = getResult.url.href;
         await cancelResponseBody(getResult.response);
         return {
@@ -1062,7 +1062,9 @@ export async function checkBrokenLinks(
           status,
           ok,
           message:
-            status === 401 || status === 403
+            status === 304
+              ? "Not modified without a conditional request; destination availability not verified"
+              : status === 401 || status === 403
               ? "Access restricted; destination availability not verified"
               : status === 429
               ? "Rate limited; destination availability not verified"
@@ -1077,9 +1079,11 @@ export async function checkBrokenLinks(
       return {
         url,
         status: headStatus,
-        ok: headStatus >= 200 && headStatus < 400,
+        ok: headStatus >= 200 && headStatus < 400 && !isUnverifiedLinkStatus(headStatus),
         message:
-          headStatus === 401 || headStatus === 403
+          headStatus === 304
+            ? "Not modified without a conditional request; destination availability not verified"
+            : headStatus === 401 || headStatus === 403
             ? "Access restricted; destination availability not verified"
             : headStatus === 429
             ? "Rate limited; destination availability not verified"

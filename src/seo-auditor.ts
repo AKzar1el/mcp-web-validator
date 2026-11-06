@@ -162,31 +162,20 @@ function referencedTextContent(element: unknown): string {
     parent?: TextNode | null;
   };
   const root = element as TextNode;
-  const isHidden = (node: TextNode): boolean => {
-    const attrs = node.attribs;
-    if (!attrs) return false;
-    if (Object.prototype.hasOwnProperty.call(attrs, "hidden")
-      || Object.prototype.hasOwnProperty.call(attrs, "inert")
-      || attrs["aria-hidden"]?.trim().toLowerCase() === "true") return true;
-    return (attrs.style ?? "").split(";").some((declaration) => {
-      const [property, rawValue] = declaration.split(":");
-      const value = rawValue?.trim().toLowerCase().replace(/\s*!important\s*$/, "");
-      switch (property?.trim().toLowerCase()) {
-        case "display": return value === "none";
-        case "visibility": return value === "hidden" || value === "collapse";
-        case "content-visibility": return value === "hidden";
-        default: return false;
-      }
-    });
-  };
   // A directly referenced hidden root contributes its full subtree; hidden descendants of a visible root do not.
-  let hiddenReference = false;
-  for (let ancestor: TextNode | null | undefined = root; ancestor; ancestor = ancestor.parent) {
-    if (isHidden(ancestor)) { hiddenReference = true; break; }
-  }
+  const hiddenReference = isHiddenFromAccessibilityTree(root);
   const traverse = (node: TextNode): string => {
-    if (!hiddenReference && node !== root && isHidden(node)) return "";
-    if (node.type === "text") return node.data ?? "";
+    if (!hiddenReference && node !== root) {
+      const attrs = node.attribs;
+      // Visibility can be restored deeper in the subtree; display, inert and aria-hidden cannot.
+      if (attrs && (Object.hasOwn(attrs, "hidden") || Object.hasOwn(attrs, "inert")
+        || attrs["aria-hidden"]?.trim().toLowerCase() === "true"
+        || inlineStyleValue(attrs.style ?? "", "display") === "none"
+        || inlineStyleValue(attrs.style ?? "", "content-visibility") === "hidden")) return "";
+    }
+    if (node.type === "text") {
+      return !hiddenReference && isHiddenFromAccessibilityTree(node) ? "" : (node.data ?? "");
+    }
     return (node.children ?? []).map(traverse).join("");
   };
   return traverse(root).trim();

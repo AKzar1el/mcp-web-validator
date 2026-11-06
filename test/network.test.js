@@ -986,6 +986,24 @@ test("link checker treats HTTP 408 as unverified after a bounded GET confirmatio
   }
 });
 
+test("link checker treats HTTP 425 Too Early as unverified without replaying the request", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: 425 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/too-early">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 425);
+    assert.equal(links[0].ok, false);
+    assert.match(links[0].message, /availability not verified/i);
+    assert.deepEqual(methods, ["HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker verifies a successful GET after a transient HEAD HTTP 408", async () => {
   const originalFetch = globalThis.fetch;
   const methods = [];

@@ -38,7 +38,7 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
 
 /** Ambiguous responses, access restrictions and network errors cannot establish destination health. */
 export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
-  return typeof status !== "number" || [300, 304, 401, 403, 408, 429].includes(status);
+  return typeof status !== "number" || [300, 304, 401, 403, 408, 425, 429].includes(status);
 }
 
 export interface AuditCounts {
@@ -1070,6 +1070,8 @@ export async function checkBrokenLinks(
               ? "Access restricted; destination availability not verified"
               : status === 408
               ? "Request timed out; destination availability not verified"
+              : status === 425
+              ? "Request rejected as Too Early; destination availability not verified"
               : status === 429
               ? "Rate limited; destination availability not verified"
               : isHttpRedirectStatus(status)
@@ -1093,6 +1095,8 @@ export async function checkBrokenLinks(
             ? "Access restricted; destination availability not verified"
             : headStatus === 408
             ? "Request timed out; destination availability not verified"
+            : headStatus === 425
+            ? "Request rejected as Too Early; destination availability not verified"
             : headStatus === 429
             ? "Rate limited; destination availability not verified"
             : isHttpRedirectStatus(headStatus)

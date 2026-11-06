@@ -257,6 +257,15 @@ test("link narration treats HTTP 408 as an unverified timeout, not a broken URL"
   assert.doesNotMatch(output, /1 link returned an HTTP failure/i);
 });
 
+test("link narration treats HTTP 425 Too Early as partial verification, not a broken URL", () => {
+  const output = linkCheckContent([
+    { url: "https://example.test/too-early", status: 425, ok: false },
+  ]);
+  assert.match(output, /^### Link check: partial/m);
+  assert.match(output, /1 check unverified/i);
+  assert.doesNotMatch(output, /1 link returned an HTTP failure/i);
+});
+
 test("link narration treats HTTP 429 as a partial check instead of a broken URL", () => {
   const output = linkCheckContent([
     { url: "https://example.test/limited", status: 429, ok: false, message: "Rate limited" },

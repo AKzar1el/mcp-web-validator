@@ -112,6 +112,25 @@ function isInTemplateContents(element: unknown): boolean {
   return false;
 }
 
+function hasGoogleNoindexHeader(value: string | undefined): boolean {
+  if (!value) return false;
+  // Each newline represents a separate response-header field; a crawler scope
+  // applies only to following comma-separated directives in that field.
+  for (const line of value.split(/\r?\n/)) {
+    let appliesToGoogle = true;
+    for (const part of line.split(",")) {
+      const directive = part.trim().toLowerCase();
+      const scoped = /^([a-z][a-z0-9_-]*):\s*(.+)$/.exec(directive);
+      if (scoped) {
+        appliesToGoogle = scoped[1] === "googlebot";
+      }
+      const action = scoped ? scoped[2].trim() : directive;
+      if (appliesToGoogle && (action === "noindex" || action === "none")) return true;
+    }
+  }
+  return false;
+}
+
 function inlineStyleValue(style: string, property: string): string | undefined {
   let selected: string | undefined;
   let selectedImportant = false;
@@ -357,7 +376,7 @@ function canParseCanonicalHref(href: string): boolean {
 /**
  * Audits technical SEO and accessibility basics on HTML content using Cheerio
  */
-export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
+export function auditSeoMetadataDetailed(htmlContent: string, xRobotsTag?: string): AuditDetails {
   const $ = cheerio.load(htmlContent, { sourceCodeLocationInfo: true });
   const collector = createIssueCollector();
   const { add } = collector;
@@ -541,7 +560,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       .split(",")
       .some((directive) => ["noindex", "none"].includes(directive.trim().toLowerCase()));
   });
-  if (indexBlockingRobotsMeta.length > 0) {
+  if (indexBlockingRobotsMeta.length > 0 || hasGoogleNoindexHeader(xRobotsTag)) {
     add({
       code: "seo.robots.noindex",
       severity: "warning",
@@ -855,8 +874,8 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   return collector.details();
 }
 
-export function auditSeoMetadata(htmlContent: string): SEOIssue[] {
-  return auditSeoMetadataDetailed(htmlContent).issues;
+export function auditSeoMetadata(htmlContent: string, xRobotsTag?: string): SEOIssue[] {
+  return auditSeoMetadataDetailed(htmlContent, xRobotsTag).issues;
 }
 
 /**

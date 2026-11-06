@@ -338,6 +338,30 @@ test("visible aria-labelledby targets exclude inert descendant-only text", () =>
   const hiddenRoot = '<span id="ref" inert><b>Directly referenced inert label</b></span><img src="chart.png" aria-labelledby="ref">';
   assert.equal(auditSeoMetadata(hiddenRoot).some((issue) => issue.code === "accessibility.image_alt.missing"), false);
 });
+test("referenced label text honors winning inline CSS declarations and visibility inheritance", () => {
+  for (const label of [
+    '<b style="display: none; display: block">Visible label</b>',
+    '<b style="display: block !important; display: none">Visible label</b>',
+    '<b style="visibility: hidden; visibility: visible">Visible label</b>',
+    '<b style="visibility: visible !important; visibility: hidden">Visible label</b>',
+    '<b style="content-visibility: hidden; content-visibility: visible">Visible label</b>',
+    '<span style="visibility: hidden"><b style="visibility: visible">Visible label</b></span>',
+  ]) {
+    const html = `<span id="ref">${label}</span><img src="chart.png" aria-labelledby="ref">`;
+    assert.equal(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.image_alt.missing"), false, html);
+  }
+  for (const label of [
+    '<b style="display: block; display: none">Hidden label</b>',
+    '<b style="display: none !important; display: block">Hidden label</b>',
+    '<b style="visibility: visible; visibility: hidden">Hidden label</b>',
+    '<b style="visibility: hidden !important; visibility: visible">Hidden label</b>',
+    '<b style="content-visibility: visible; content-visibility: hidden">Hidden label</b>',
+    '<span style="visibility: hidden"><b>Hidden label</b></span>',
+  ]) {
+    const html = `<span id="ref">${label}</span><img src="chart.png" aria-labelledby="ref">`;
+    assert.equal(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.image_alt.missing"), true, html);
+  }
+});
 test("inline CSS-hidden elements and subtrees do not produce accessibility naming errors", () => {
   for (const [html, code] of [
     ['<img src="hidden.png" style="visibility: hidden">', "accessibility.image_alt.missing"],

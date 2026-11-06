@@ -281,6 +281,20 @@ test("link narration keeps temporary HTTP 502/503/504 outages unverified without
   assert.match(mixed, /1 link returned an HTTP failure; 1 check unverified/i);
 });
 
+test("link narration distinguishes proxy challenges and misdirected requests from broken URLs", () => {
+  const partial = linkCheckContent(
+    [407, 421].map((status) => ({ url: `https://example.test/${status}`, status, ok: false })),
+  );
+  assert.match(partial, /^### Link check: partial/m);
+  assert.match(partial, /2 checks unverified/i);
+  assert.doesNotMatch(partial, /links? returned an HTTP failure/i);
+  const mixed = linkCheckContent([
+    { url: "https://example.test/500", status: 500, ok: false },
+    { url: "https://example.test/407", status: 407, ok: false },
+  ]);
+  assert.match(mixed, /1 link returned an HTTP failure; 1 check unverified/i);
+});
+
 test("link narration treats HTTP 429 as a partial check instead of a broken URL", () => {
   const output = linkCheckContent([
     { url: "https://example.test/limited", status: 429, ok: false, message: "Rate limited" },

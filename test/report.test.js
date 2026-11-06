@@ -360,6 +360,28 @@ test("report withholds link score for temporary HTTP gateway/service outages whi
   assert.match(result.report, /Incomplete link verification/);
 });
 
+test("report does not call proxy-auth or misdirected responses confirmed broken links", () => {
+  const result = createValidationReport({
+    htmlFilePath: "upstream-routing.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [
+      { url: "https://example.test/407", status: 407, ok: false },
+      { url: "https://example.test/421", status: 421, ok: false },
+      { url: "https://example.test/500", status: 500, ok: false },
+    ],
+  });
+  assert.equal(result.summary.brokenLinks, 1);
+  assert.equal(result.summary.unverifiedLinks, 2);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /1 confirmed HTTP failures, 2 unverified/i);
+  assert.match(result.report, /Incomplete link verification/);
+});
+
 test("report surfaces CSS warnings without counting them as CSS errors", () => {
   const result = createValidationReport({
     htmlFilePath: "index.html",

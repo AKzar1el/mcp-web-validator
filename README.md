@@ -58,6 +58,12 @@ The npm package exposes these exact runtime tool names:
 | `report.validation` | Combine HTML/XHTML, optional CSS, SEO, JSON-LD, and bounded link checks in a Markdown report. | Reads selected files, contacts the validators, and checks eligible public links found in the markup; `.xhtml` inputs use XHTML parsing semantics for Nu validation. |
 | `screenshot.capture` | Capture desktop, tablet, mobile, or custom viewport screenshots. | Opens a selected local file or eligible public URL and writes PNG files to the selected output directory; existing matching files may be replaced. |
 
+For direct Node.js integrations, `auditSeoMetadata(html, xRobotsTag)` and
+`auditSeoMetadataDetailed(html, xRobotsTag)` from `dist/seo-auditor.js` accept
+an optional caller-observed `X-Robots-Tag` HTTP response-header value. Separate
+multiple header fields with newlines. This inspection is offline and never
+fetches headers; the MCP `seo.metadata` tool still analyzes supplied HTML only.
+
 ## Hosted app tools
 
 The hosted app exposes eight tools:

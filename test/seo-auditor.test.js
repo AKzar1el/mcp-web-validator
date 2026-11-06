@@ -814,6 +814,37 @@ test("robots meta audit reports noindex-equivalent directives that affect Google
   assert.equal(allowed.find((issue) => issue.code === "seo.robots.noindex"), undefined);
 });
 
+test("robots audit uses supplied X-Robots-Tag headers without assuming a network fetch", () => {
+  const html = '<meta name="robots" content="index, follow">';
+  const expected = {
+    code: "seo.robots.noindex",
+    severity: "warning",
+    category: "SEO",
+    message: "A robots directive prevents Google from indexing this page. Confirm that noindex is intentional.",
+  };
+  for (const header of [
+    "noindex",
+    "FOLLOW, NONE",
+    "googlebot: noindex, follow",
+    "bingbot: noindex\ngooglebot: noindex",
+  ]) {
+    assert.deepEqual(auditSeoMetadata(html, header).find((issue) => issue.code === "seo.robots.noindex"), expected);
+  }
+  for (const header of [
+    "",
+    "index, follow",
+    "bingbot: noindex",
+    "bingbot: noindex, follow",
+    "googlebot-image: noindex",
+    "noindex-something",
+  ]) {
+    assert.equal(auditSeoMetadata(html, header).find((issue) => issue.code === "seo.robots.noindex"), undefined);
+  }
+  assert.equal(auditSeoMetadata(html).find((issue) => issue.code === "seo.robots.noindex"), undefined);
+  const both = auditSeoMetadataDetailed('<meta name="robots" content="noindex">', "googlebot: noindex");
+  assert.equal(both.issues.filter((issue) => issue.code === "seo.robots.noindex").length, 1);
+});
+
 test("SEO and JSON-LD audits ignore inert template contents", () => {
   const html = [
     "<html><head></head><body>",

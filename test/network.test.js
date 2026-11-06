@@ -1100,6 +1100,46 @@ test("link checker leaves a GET HTTP 511 challenge unverified after a HEAD 404",
   }
 });
 
+test("link checker explains Cloudflare 525/526 origin TLS failures without retrying", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: Number(new URL(String(input)).pathname.slice(1)) });
+  };
+  try {
+    for (const [status, explanation] of [[525, /Cloudflare.*TLS handshake.*origin/i], [526, /Cloudflare.*origin.*certificate/i]]) {
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/${status}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, status);
+      assert.equal(links[0].ok, false);
+      assert.match(links[0].message, explanation);
+    }
+    assert.deepEqual(methods, ["HEAD", "HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker preserves Cloudflare TLS error provenance after a misleading HEAD 404", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: init?.method === "HEAD" ? 404 : Number(new URL(String(input)).pathname.slice(1)) });
+  };
+  try {
+    for (const [status, explanation] of [[525, /Cloudflare.*TLS handshake.*origin/i], [526, /Cloudflare.*origin.*certificate/i]]) {
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/${status}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, status);
+      assert.equal(links[0].ok, false);
+      assert.match(links[0].message, explanation);
+    }
+    assert.deepEqual(methods, ["HEAD", "GET", "HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker verifies a successful GET after a transient HEAD HTTP 408", async () => {
   const originalFetch = globalThis.fetch;
   const methods = [];

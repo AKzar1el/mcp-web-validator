@@ -258,6 +258,23 @@ test("report with HTTP 304 withholds link score without marking a redirect or fa
   assert.doesNotMatch(result.report, /1 redirect to review/);
 });
 
+test("report treats ambiguous HTTP 300 as incomplete verification rather than a redirect", () => {
+  const result = createValidationReport({
+    htmlFilePath: "multiple-choices.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/choices", status: 300, ok: false }],
+  });
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.match(result.report, /Incomplete link verification/);
+  assert.match(result.report, /0 redirects to review of 1 checked/);
+});
+
 test("report surfaces CSS warnings without counting them as CSS errors", () => {
   const result = createValidationReport({
     htmlFilePath: "index.html",

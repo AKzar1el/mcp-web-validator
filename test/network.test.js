@@ -949,6 +949,25 @@ test("link checker classifies HTTP response classes without following redirects"
   }
 });
 
+test("link checker does not claim HTTP 300 Multiple Choices is a verified destination", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: 300 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/choices">Link</a>', undefined, 1);
+    assert.equal(links.length, 1);
+    assert.equal(links[0].status, 300);
+    assert.equal(links[0].ok, false);
+    assert.match(links[0].message, /availability not verified/i);
+    assert.deepEqual(methods, ["HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker cannot verify an unconditional 304 and retries HEAD with a bounded GET", async () => {
   const originalFetch = globalThis.fetch;
   const methods = [];

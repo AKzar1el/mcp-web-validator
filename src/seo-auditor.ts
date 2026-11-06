@@ -36,9 +36,9 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
   return typeof status === "number" && HTTP_REDIRECT_STATUSES.has(status);
 }
 
-/** Network, access policy, rate limiting and unrequested 304s cannot establish destination health. */
+/** Ambiguous responses, access restrictions and network errors cannot establish destination health. */
 export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
-  return typeof status !== "number" || [304, 401, 403, 429].includes(status);
+  return typeof status !== "number" || [300, 304, 401, 403, 429].includes(status);
 }
 
 export interface AuditCounts {
@@ -1062,7 +1062,9 @@ export async function checkBrokenLinks(
           status,
           ok,
           message:
-            status === 304
+            status === 300
+              ? "Multiple choices without a selected destination; availability not verified"
+              : status === 304
               ? "Not modified without a conditional request; destination availability not verified"
               : status === 401 || status === 403
               ? "Access restricted; destination availability not verified"
@@ -1081,7 +1083,9 @@ export async function checkBrokenLinks(
         status: headStatus,
         ok: headStatus >= 200 && headStatus < 400 && !isUnverifiedLinkStatus(headStatus),
         message:
-          headStatus === 304
+          headStatus === 300
+            ? "Multiple choices without a selected destination; availability not verified"
+            : headStatus === 304
             ? "Not modified without a conditional request; destination availability not verified"
             : headStatus === 401 || headStatus === 403
             ? "Access restricted; destination availability not verified"

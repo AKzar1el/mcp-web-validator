@@ -403,6 +403,20 @@ test("report withholds broken-link scoring for network authentication challenges
   assert.match(result.report, /\| Unverified \| Destination availability not verified/);
 });
 
+test("report keeps Cloudflare 520-524 unverified but treats 500 and 525-526 as failures", () => {
+  const result = createValidationReport({
+    htmlFilePath: "edge-failures.html", cssAudited: false,
+    htmlMessages: [], cssMessages: [], seoIssues: [], schemaIssues: [],
+    links: [500, 520, 521, 522, 523, 524, 525, 526].map((status) => ({
+      url: `https://example.test/${status}`, status, ok: false,
+    })),
+  });
+  assert.equal(result.summary.brokenLinks, 3);
+  assert.equal(result.summary.unverifiedLinks, 5);
+  assert.equal(result.summary.linkScore, null);
+  assert.match(result.report, /3 confirmed HTTP failures, 5 unverified/i);
+});
+
 test("report surfaces CSS warnings without counting them as CSS errors", () => {
   const result = createValidationReport({
     htmlFilePath: "index.html",

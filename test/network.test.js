@@ -9,7 +9,7 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { assertPublicHttpUrl, fetchPublicText, readResponseText, readTextFile } from "../dist/network.js";
 import { captureScreenshots } from "../dist/screenshot.js";
-import { checkBrokenLinks } from "../dist/seo-auditor.js";
+import { checkBrokenLinks, isUnverifiedLinkStatus } from "../dist/seo-auditor.js";
 import { validateCssContent, validateHtmlContent } from "../dist/w3c-validator.js";
 
 const screenshotViewport = [{ name: "test", width: 800, height: 600 }];
@@ -1057,6 +1057,44 @@ test("link checker leaves HTTP 511 network authentication challenges unverified 
     assert.equal(links[0].ok, false);
     assert.match(links[0].message, /Network authentication required; destination availability not verified/i);
     assert.deepEqual(methods, ["HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker treats a HEAD HTTP 428 precondition challenge as unverified without retry", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: 428 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/conditional">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 428);
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+    assert.match(links[0].message, /Precondition required; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker preserves GET HTTP 428 after a misleading HEAD 404", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: init?.method === "HEAD" ? 404 : 428 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/conditional">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 428);
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+    assert.match(links[0].message, /Precondition required; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD", "GET"]);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -673,12 +673,22 @@ test("image-map links require usable alt text", () => {
     '<div aria-hidden="true"><map name="nav"><area href="/docs"></map></div>',
     '<map name="nav"><area shape="default"></map>',
     '<map name="nav"><area href="/docs" alt=""><area href="/docs" alt="Documentation"></map>',
+    '<map name="nav"><area href="/docs" alt=""><area href="/docs" aria-label="Documentation"></map>',
+    '<span id="docs-label">Documentation</span><map name="nav"><area href="/docs" alt=""><area href="/docs" aria-labelledby="docs-label"></map>',
+    '<map name="nav"><area href="/docs" alt=""><area href="/docs" title="Documentation"></map>',
     '<template><map name="nav"><area href="/docs"></map></template>',
   ]) {
     assert.equal(
       auditSeoMetadata(html).find((issue) => issue.code === "accessibility.area_alt.missing_or_empty"),
       undefined,
     );
+  }
+  for (const html of [
+    '<map name="nav"><area href="/docs" alt=""><area href="/other" aria-label="Other"></map>',
+    '<map name="nav"><area href="/docs" alt=""><area href="/docs" aria-hidden="true" aria-label="Hidden"></map>',
+    '<map name="nav"><area href="/docs" alt=""><area href="/docs" title=" "></map>',
+  ]) {
+    assert.ok(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.area_alt.missing_or_empty"));
   }
 });
 

@@ -98,6 +98,12 @@ function isRedirect(link: LinkStatus): boolean {
   return isHttpRedirectStatus(link.status);
 }
 
+function fallbackLinkMessage(link: LinkStatus): string {
+  if (isUnverifiedLinkStatus(link.status)) return "Destination availability not verified";
+  if (isRedirect(link)) return "Redirect not followed";
+  return link.ok ? "Accessible" : "HTTP response indicated failure";
+}
+
 /** Builds the human-readable report and its machine-readable equivalent. */
 export function createValidationReport(input: ValidationReportInput): ValidationReport {
   const failedChecks = input.failedChecks ?? [];
@@ -262,7 +268,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
     report.push("", "| URL | Status | Reachable | Details |", "| :--- | :---: | :---: | :--- |");
     for (const link of input.links) {
       report.push(
-        `| ${markdownCell(link.url)} | ${markdownCell(link.status)} | ${isUnverifiedLinkStatus(link.status) ? "Unverified" : link.ok ? "Yes" : "No"} | ${markdownCell(link.message ?? "Accessible")} |`,
+        `| ${markdownCell(link.url)} | ${markdownCell(link.status)} | ${isUnverifiedLinkStatus(link.status) ? "Unverified" : link.ok ? "Yes" : "No"} | ${markdownCell(link.message ?? fallbackLinkMessage(link))} |`,
       );
     }
   }

@@ -176,6 +176,36 @@ test("report keeps redirects visible without counting them as broken links", () 
   assert.equal(redirectsOnly.summary.linkScore, 100);
 });
 
+test("report link details never default to Accessible for failures or unverified checks", () => {
+  const result = createValidationReport({
+    htmlFilePath: "fallback-details.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [
+      { url: "https://example.test/ok", status: 200, ok: true },
+      { url: "https://example.test/redirect", status: 301, ok: true },
+      { url: "https://example.test/missing", status: 404, ok: false },
+      { url: "https://example.test/error", status: 500, ok: false },
+      { url: "https://example.test/limited", status: 429, ok: false },
+      { url: "https://example.test/blocked", status: "blocked", ok: false },
+      { url: "https://example.test/failed", status: "failed", ok: false },
+      { url: "https://example.test/custom", status: 410, ok: false, message: "Gone by owner" },
+    ],
+  });
+
+  assert.match(result.report, /\| https:\/\/example\.test\/ok \| 200 \| Yes \| Accessible \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/redirect \| 301 \| Yes \| Redirect not followed \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/missing \| 404 \| No \| HTTP response indicated failure \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/error \| 500 \| No \| HTTP response indicated failure \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/limited \| 429 \| Unverified \| Destination availability not verified \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/blocked \| blocked \| Unverified \| Destination availability not verified \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/failed \| failed \| Unverified \| Destination availability not verified \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/custom \| 410 \| No \| Gone by owner \|/);
+});
+
 test("report does not penalize or falsely clear checks blocked by policy or network failures", () => {
   const result = createValidationReport({
     htmlFilePath: "partial-links.html",

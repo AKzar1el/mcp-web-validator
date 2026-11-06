@@ -266,6 +266,21 @@ test("link narration treats HTTP 425 Too Early as partial verification, not a br
   assert.doesNotMatch(output, /1 link returned an HTTP failure/i);
 });
 
+test("link narration keeps temporary HTTP 502/503/504 outages unverified without hiding HTTP 500", () => {
+  const outageOnly = linkCheckContent(
+    [502, 503, 504].map((status) => ({ url: `https://example.test/${status}`, status, ok: false })),
+  );
+  assert.match(outageOnly, /^### Link check: partial/m);
+  assert.match(outageOnly, /3 checks unverified/i);
+  assert.doesNotMatch(outageOnly, /links? returned an HTTP failure/i);
+
+  const mixed = linkCheckContent([
+    { url: "https://example.test/500", status: 500, ok: false },
+    { url: "https://example.test/503", status: 503, ok: false },
+  ]);
+  assert.match(mixed, /1 link returned an HTTP failure; 1 check unverified/i);
+});
+
 test("link narration treats HTTP 429 as a partial check instead of a broken URL", () => {
   const output = linkCheckContent([
     { url: "https://example.test/limited", status: 429, ok: false, message: "Rate limited" },

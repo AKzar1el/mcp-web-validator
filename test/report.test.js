@@ -376,6 +376,24 @@ test("report treats HTTP 425 Too Early as unverified instead of a broken URL", (
   assert.match(result.report, /0 confirmed HTTP failures/);
 });
 
+test("report withholds scores for HTTP 426 protocol upgrade requirements", () => {
+  const result = createValidationReport({
+    htmlFilePath: "protocol-upgrade.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/upgrade", status: 426, ok: false }],
+  });
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /Incomplete link verification/);
+  assert.match(result.report, /0 confirmed HTTP failures/);
+});
+
 test("report withholds link score for temporary HTTP gateway/service outages while retaining confirmed failures", () => {
   const result = createValidationReport({
     htmlFilePath: "temporary-outages.html",

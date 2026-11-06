@@ -1176,6 +1176,44 @@ test("link checker preserves GET HTTP 451 following a misleading HEAD 404", asyn
   }
 });
 
+test("link checker treats HTTP 426 upgrade requirements as unverified without negotiating protocols", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: 426, headers: { Upgrade: "HTTP/3.0" } });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/protocol">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 426);
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+    assert.match(links[0].message, /Protocol upgrade required; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker retains an HTTP 426 GET upgrade requirement after a HEAD 404", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: init?.method === "HEAD" ? 404 : 426 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/protocol">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 426);
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+    assert.match(links[0].message, /Protocol upgrade required; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker treats Cloudflare 520-524 edge and origin failures as unverified without retry", async () => {
   const originalFetch = globalThis.fetch;
   const methods = [];

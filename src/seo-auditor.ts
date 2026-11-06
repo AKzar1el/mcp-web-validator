@@ -38,7 +38,7 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
 
 /** Ambiguous responses, access restrictions and network errors cannot establish destination health. */
 export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
-  return typeof status !== "number" || [300, 304, 401, 403, 407, 408, 421, 425, 429, 502, 503, 504].includes(status);
+  return typeof status !== "number" || [300, 304, 401, 403, 407, 408, 421, 425, 429, 502, 503, 504, 511].includes(status);
 }
 
 export interface AuditCounts {
@@ -1080,6 +1080,8 @@ export async function checkBrokenLinks(
               ? "Rate limited; destination availability not verified"
               : status === 502 || status === 503 || status === 504
               ? "Temporary gateway or service failure; destination availability not verified"
+              : status === 511
+              ? "Network authentication required; destination availability not verified"
               : isHttpRedirectStatus(status)
                 ? "Redirect not followed"
                 : finalUrl !== url
@@ -1111,6 +1113,8 @@ export async function checkBrokenLinks(
             ? "Rate limited; destination availability not verified"
             : headStatus === 502 || headStatus === 503 || headStatus === 504
             ? "Temporary gateway or service failure; destination availability not verified"
+            : headStatus === 511
+            ? "Network authentication required; destination availability not verified"
             : isHttpRedirectStatus(headStatus)
               ? "Redirect not followed"
               : headFinalUrl !== url

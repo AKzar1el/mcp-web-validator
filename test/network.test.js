@@ -1044,6 +1044,42 @@ test("link checker leaves HTTP 407 proxy challenges and 421 misdirected requests
   }
 });
 
+test("link checker leaves HTTP 511 network authentication challenges unverified without retry or credentials", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: 511 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/network-login">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 511);
+    assert.equal(links[0].ok, false);
+    assert.match(links[0].message, /Network authentication required; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker leaves a GET HTTP 511 challenge unverified after a HEAD 404", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: init?.method === "HEAD" ? 404 : 511 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/network-login">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 511);
+    assert.equal(links[0].ok, false);
+    assert.match(links[0].message, /Network authentication required; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker verifies a successful GET after a transient HEAD HTTP 408", async () => {
   const originalFetch = globalThis.fetch;
   const methods = [];

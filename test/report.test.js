@@ -382,6 +382,27 @@ test("report does not call proxy-auth or misdirected responses confirmed broken 
   assert.match(result.report, /Incomplete link verification/);
 });
 
+test("report withholds broken-link scoring for network authentication challenges", () => {
+  const result = createValidationReport({
+    htmlFilePath: "network-login.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [
+      { url: "https://example.test/network-login", status: 511, ok: false },
+      { url: "https://example.test/server-failure", status: 500, ok: false },
+    ],
+  });
+  assert.equal(result.summary.brokenLinks, 1);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /1 confirmed HTTP failures, 1 unverified/i);
+  assert.match(result.report, /\| Unverified \| Destination availability not verified/);
+});
+
 test("report surfaces CSS warnings without counting them as CSS errors", () => {
   const result = createValidationReport({
     htmlFilePath: "index.html",

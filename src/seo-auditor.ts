@@ -786,12 +786,18 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     if (needsAccessibleName) {
       const href = area.attr("href")?.trim() ?? "";
       const map = area.closest("map");
-      const hasLabeledEquivalent = map.find("area[href]").filter((_, peer) =>
-        !isInTemplateContents(peer)
-        && !isHiddenFromAccessibilityTree(peer)
-        && ($(peer).attr("href")?.trim() ?? "") === href
-        && Boolean($(peer).attr("alt")?.trim())
-      ).length > 0;
+      const hasLabeledEquivalent = map.find("area[href]").filter((_, peer) => {
+        const peerArea = $(peer);
+        const peerLabelledByIds = (peerArea.attr("aria-labelledby") ?? "")
+          .trim().split(/[\t\n\f\r ]+/).filter(Boolean);
+        return !isInTemplateContents(peer)
+          && !isHiddenFromAccessibilityTree(peer)
+          && (peerArea.attr("href")?.trim() ?? "") === href
+          && (Boolean(peerArea.attr("alt")?.trim())
+            || Boolean(peerArea.attr("aria-label")?.trim())
+            || Boolean(peerArea.attr("title")?.trim())
+            || peerLabelledByIds.some((id) => Boolean(textById.get(id))));
+      }).length > 0;
       needsAccessibleName = !hasLabeledEquivalent;
     }
 

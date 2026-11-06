@@ -266,6 +266,24 @@ test("report withholds link health scores for HTTP 431 request header rejections
   assert.match(result.report, /\| https:\/\/example\.test\/header-limited \| 431 \| Unverified \|/);
 });
 
+test("report withholds scores for HTTP 451 legal access restrictions", () => {
+  const result = createValidationReport({
+    htmlFilePath: "legal-access.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/legal", status: 451, ok: false }],
+  });
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /Incomplete link verification/);
+  assert.match(result.report, /\| https:\/\/example\.test\/legal \| 451 \| Unverified \|/);
+});
+
 test("report withholds scores for authenticated or forbidden link destinations", () => {
   for (const status of [401, 403]) {
     const result = createValidationReport({

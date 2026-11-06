@@ -38,7 +38,7 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
 
 /** Ambiguous responses, access restrictions and network errors cannot establish destination health. */
 export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
-  return typeof status !== "number" || [300, 304, 401, 403, 408, 425, 429, 502, 503, 504].includes(status);
+  return typeof status !== "number" || [300, 304, 401, 403, 407, 408, 421, 425, 429, 502, 503, 504].includes(status);
 }
 
 export interface AuditCounts {
@@ -1068,8 +1068,12 @@ export async function checkBrokenLinks(
               ? "Not modified without a conditional request; destination availability not verified"
               : status === 401 || status === 403
               ? "Access restricted; destination availability not verified"
+              : status === 407
+              ? "Proxy authentication required; destination availability not verified"
               : status === 408
               ? "Request timed out; destination availability not verified"
+              : status === 421
+              ? "Request was misdirected; destination availability not verified"
               : status === 425
               ? "Request rejected as Too Early; destination availability not verified"
               : status === 429
@@ -1095,8 +1099,12 @@ export async function checkBrokenLinks(
             ? "Not modified without a conditional request; destination availability not verified"
             : headStatus === 401 || headStatus === 403
             ? "Access restricted; destination availability not verified"
+            : headStatus === 407
+            ? "Proxy authentication required; destination availability not verified"
             : headStatus === 408
             ? "Request timed out; destination availability not verified"
+            : headStatus === 421
+            ? "Request was misdirected; destination availability not verified"
             : headStatus === 425
             ? "Request rejected as Too Early; destination availability not verified"
             : headStatus === 429

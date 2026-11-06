@@ -38,7 +38,7 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
 
 /** Ambiguous responses, access restrictions and network errors cannot establish destination health. */
 export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
-  return typeof status !== "number" || [300, 304, 401, 403, 429].includes(status);
+  return typeof status !== "number" || [300, 304, 401, 403, 408, 429].includes(status);
 }
 
 export interface AuditCounts {
@@ -1031,9 +1031,9 @@ export async function checkBrokenLinks(
       const headFinalUrl = headResult.url.href;
       await cancelResponseBody(headResult.response);
 
-      // Some sites reject HEAD or return a false 404/410 for an otherwise
-      // available resource. Confirm negative HEAD results with a bounded GET.
-      if ([304, 401, 403, 404, 405, 410, 501].includes(headStatus)) {
+      // Some sites reject HEAD, time out, or return a false 404/410 for an
+      // otherwise available resource. Confirm inconclusive HEAD results with a bounded GET.
+      if ([304, 401, 403, 404, 405, 408, 410, 501].includes(headStatus)) {
         let getResult = await fetchPublicHttp(url, {
           method: "GET",
           headers: {
@@ -1068,6 +1068,8 @@ export async function checkBrokenLinks(
               ? "Not modified without a conditional request; destination availability not verified"
               : status === 401 || status === 403
               ? "Access restricted; destination availability not verified"
+              : status === 408
+              ? "Request timed out; destination availability not verified"
               : status === 429
               ? "Rate limited; destination availability not verified"
               : isHttpRedirectStatus(status)
@@ -1089,6 +1091,8 @@ export async function checkBrokenLinks(
             ? "Not modified without a conditional request; destination availability not verified"
             : headStatus === 401 || headStatus === 403
             ? "Access restricted; destination availability not verified"
+            : headStatus === 408
+            ? "Request timed out; destination availability not verified"
             : headStatus === 429
             ? "Rate limited; destination availability not verified"
             : isHttpRedirectStatus(headStatus)

@@ -968,6 +968,41 @@ test("link checker does not claim HTTP 300 Multiple Choices is a verified destin
   }
 });
 
+test("link checker treats HTTP 408 as unverified after a bounded GET confirmation", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: 408 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/slow">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 408);
+    assert.equal(links[0].ok, false);
+    assert.match(links[0].message, /availability not verified/i);
+    assert.deepEqual(methods, ["HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker verifies a successful GET after a transient HEAD HTTP 408", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: init?.method === "HEAD" ? 408 : 200 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/recovered">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 200);
+    assert.equal(links[0].ok, true);
+    assert.deepEqual(methods, ["HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker cannot verify an unconditional 304 and retries HEAD with a bounded GET", async () => {
   const originalFetch = globalThis.fetch;
   const methods = [];

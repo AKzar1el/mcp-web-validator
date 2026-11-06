@@ -275,6 +275,23 @@ test("report treats ambiguous HTTP 300 as incomplete verification rather than a 
   assert.match(result.report, /0 redirects to review of 1 checked/);
 });
 
+test("report withholds link score on HTTP 408 instead of claiming a broken URL", () => {
+  const result = createValidationReport({
+    htmlFilePath: "request-timeout.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/slow", status: 408, ok: false }],
+  });
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.match(result.report, /Incomplete link verification/);
+  assert.match(result.report, /0 confirmed HTTP failures/);
+});
+
 test("report surfaces CSS warnings without counting them as CSS errors", () => {
   const result = createValidationReport({
     htmlFilePath: "index.html",

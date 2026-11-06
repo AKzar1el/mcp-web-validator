@@ -1062,6 +1062,26 @@ test("link checker leaves HTTP 511 network authentication challenges unverified 
   }
 });
 
+test("link checker treats Cloudflare 520-524 edge and origin failures as unverified without retry", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: Number(new URL(String(input)).pathname.slice(1)) });
+  };
+  try {
+    for (const status of [520, 521, 522, 523, 524]) {
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/${status}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, status);
+      assert.equal(links[0].ok, false);
+      assert.match(links[0].message, /availability not verified/i);
+    }
+    assert.deepEqual(methods, Array(5).fill("HEAD"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker leaves a GET HTTP 511 challenge unverified after a HEAD 404", async () => {
   const originalFetch = globalThis.fetch;
   const methods = [];

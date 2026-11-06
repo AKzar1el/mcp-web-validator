@@ -307,6 +307,14 @@ test("link narration treats HTTP 511 network authentication as unverified, not a
   assert.match(mixed, /1 link returned an HTTP failure; 1 check unverified/i);
 });
 
+test("link narration distinguishes Cloudflare edge failures from origin and TLS failures", () => {
+  const links = [500, 520, 521, 522, 523, 524, 525, 526].map((status) => ({
+    url: `https://example.test/${status}`, status, ok: false,
+  }));
+  const output = linkCheckContent(links);
+  assert.match(output, /3 links returned HTTP failures; 5 checks unverified/i);
+});
+
 test("link narration treats HTTP 429 as a partial check instead of a broken URL", () => {
   const output = linkCheckContent([
     { url: "https://example.test/limited", status: 429, ok: false, message: "Rate limited" },

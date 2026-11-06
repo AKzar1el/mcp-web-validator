@@ -1082,6 +1082,10 @@ export async function checkBrokenLinks(
               ? "Temporary gateway or service failure; destination availability not verified"
               : status === 511
               ? "Network authentication required; destination availability not verified"
+              : status === 525
+              ? "Cloudflare TLS handshake with origin failed; destination unavailable"
+              : status === 526
+              ? "Cloudflare could not validate origin TLS certificate; destination unavailable"
               : isHttpRedirectStatus(status)
                 ? "Redirect not followed"
                 : finalUrl !== url
@@ -1115,6 +1119,10 @@ export async function checkBrokenLinks(
             ? "Temporary gateway or service failure; destination availability not verified"
             : headStatus === 511
             ? "Network authentication required; destination availability not verified"
+            : headStatus === 525
+            ? "Cloudflare TLS handshake with origin failed; destination unavailable"
+            : headStatus === 526
+            ? "Cloudflare could not validate origin TLS certificate; destination unavailable"
             : isHttpRedirectStatus(headStatus)
               ? "Redirect not followed"
               : headFinalUrl !== url

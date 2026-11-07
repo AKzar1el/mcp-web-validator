@@ -435,6 +435,29 @@ test("closed dialogs exclude their content from accessibility naming checks", ()
     .some((issue) => issue.code === "accessibility.iframe_name.missing_or_empty"), true);
 });
 
+test("closed details expose only their first summary to accessible-name checks", () => {
+  const missingImageNames = (html) => auditSeoMetadata(html)
+    .filter((issue) => issue.code === "accessibility.image_alt.missing").length;
+
+  for (const html of [
+    '<details><summary>More</summary><img src="hidden.png"></details>',
+    '<details><img src="no-summary.png"></details>',
+    '<details><summary>First</summary><summary><img src="second.png"></summary></details>',
+    '<details open><summary>Outer</summary><details><summary>Inner</summary><img src="nested.png"></details></details>',
+  ]) {
+    assert.equal(missingImageNames(html), 0, html);
+  }
+
+  for (const html of [
+    '<details open><summary>More</summary><img src="visible.png"></details>',
+    '<details open="false"><summary>More</summary><img src="visible.png"></details>',
+    '<details><summary><img src="summary.png"></summary><img src="hidden.png"></details>',
+    '<details><p>Before</p><summary><img src="summary.png"></summary><img src="hidden.png"></details>',
+  ]) {
+    assert.equal(missingImageNames(html), 1, html);
+  }
+});
+
 test("ordinary images accept an explicit empty alt as decorative", () => {
   const decorative = auditSeoMetadata('<img src="divider.png" alt="">');
   assert.equal(

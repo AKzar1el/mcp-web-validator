@@ -260,6 +260,10 @@ test("manual redirects keep same-origin headers but strip credentials after a cr
         "X-Amz-Security-Token": "fixture-aws-token",
         "X-Client-Secret": "fixture-client-secret",
         "X-Session-ID": "fixture-session",
+        XApiKey: "fixture-compact-api-key",
+        XAuthToken: "fixture-compact-auth-token",
+        XClientSecret: "fixture-compact-client-secret",
+        XSessionId: "fixture-compact-session-id",
         "X-Trace": "safe",
       },
       acceptedContentTypes: ["text/plain"],
@@ -282,12 +286,17 @@ test("manual redirects keep same-origin headers but strip credentials after a cr
       assert.equal(request.headers.get("Cookie"), "fixture-cookie");
       assert.equal(request.headers.get("X-API-Key"), "fixture-api-key");
       assert.equal(request.headers.get("X-Amz-Security-Token"), "fixture-aws-token");
+      assert.equal(request.headers.get("XApiKey"), "fixture-compact-api-key");
+      assert.equal(request.headers.get("XAuthToken"), "fixture-compact-auth-token");
+      assert.equal(request.headers.get("XClientSecret"), "fixture-compact-client-secret");
+      assert.equal(request.headers.get("XSessionId"), "fixture-compact-session-id");
     }
     for (const request of requests.slice(2)) {
       for (const name of [
         "Authorization", "Cookie", "Proxy-Authorization", "Cookie2",
         "X-API-Key", "Api-Key", "X-Auth-Token", "X-Access-Token",
         "X-Amz-Security-Token", "X-Client-Secret", "X-Session-ID",
+        "XApiKey", "XAuthToken", "XClientSecret", "XSessionId",
       ]) {
         assert.equal(request.headers.get(name), null, name);
       }

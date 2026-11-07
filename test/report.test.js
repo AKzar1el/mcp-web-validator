@@ -443,6 +443,19 @@ test("report withholds link and overall scores for negotiation, precondition and
   assert.match(result.report, /Incomplete link verification/);
 });
 
+test("report treats exhausted HTTP 416 range negotiation as unverified, not missing", () => {
+  const result = createValidationReport({
+    htmlFilePath: "range-unsatisfied.html", cssAudited: false,
+    htmlMessages: [], cssMessages: [], seoIssues: [], schemaIssues: [],
+    links: [{ url: "https://example.test/empty", status: 416, ok: false }],
+  });
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /Incomplete link verification/);
+});
+
 test("report withholds link score for temporary HTTP gateway/service outages while retaining confirmed failures", () => {
   const result = createValidationReport({
     htmlFilePath: "temporary-outages.html",

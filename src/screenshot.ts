@@ -368,6 +368,7 @@ export async function captureScreenshots(
     });
 
     for (const vp of viewports) {
+      blockedRequestMessage = undefined;
       incompleteAssetUrls.clear();
       pendingAssetUrls.clear();
       await page.setViewport({

@@ -295,6 +295,60 @@ test("screenshot failure after a successful viewport preserves completed output 
   await assertProxyListenerClosed(proxyUrl);
 });
 
+test("screenshot navigation diagnostics do not reuse blocked requests from an earlier viewport", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-web-validator-viewport-diagnostic-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const targetPath = path.join(directory, "fixture.html");
+  await fs.writeFile(targetPath, "<!doctype html><title>Fixture</title>");
+  const handlers = new Map();
+  let navigationCount = 0;
+  let proxyUrl;
+
+  await assert.rejects(
+    captureScreenshots(targetPath, directory, [
+      { name: "desktop", width: 1440, height: 900 },
+      { name: "mobile", width: 375, height: 812 },
+    ], {
+      async launch(url) {
+        proxyUrl = url;
+        return {
+          async newPage() {
+            return {
+              setDefaultNavigationTimeout() {},
+              async setRequestInterception() {},
+              on(name, handler) { handlers.set(name, handler); },
+              async setViewport() {},
+              async goto() {
+                if (++navigationCount === 2) throw new Error("fixture mobile navigation timeout");
+                await new Promise((resolve) => {
+                  handlers.get("request")({
+                    resourceType: () => "fetch",
+                    url: () => "ftp://invalid.example/blocked-resource",
+                    isInterceptResolutionHandled: () => false,
+                    async continue() { throw new Error("Blocked protocol must not be allowed"); },
+                    async abort() { resolve(); },
+                  });
+                });
+                return { status: () => 200 };
+              },
+              async screenshot({ path: outputPath }) { await fs.writeFile(outputPath, "fixture png"); },
+            };
+          },
+          async close() {},
+        };
+      },
+    }),
+    (error) => {
+      assert.match(error.message, /Screenshot navigation failed: fixture mobile navigation timeout/);
+      assert.doesNotMatch(error.message, /blocked.*ftp:/i);
+      assert.deepEqual(error.screenshots?.map(({ viewportName }) => viewportName), ["desktop"]);
+      return true;
+    },
+  );
+  assert.equal(navigationCount, 2);
+  await assertProxyListenerClosed(proxyUrl);
+});
+
 test("screenshot reports failed visual assets per viewport without leaking asset URLs", async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-web-validator-asset-coverage-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));

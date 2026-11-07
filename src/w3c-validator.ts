@@ -82,7 +82,7 @@ function normalizeW3CMessage(message: unknown): W3CMessage {
   }
 
   const candidate = message as Record<string, unknown>;
-  if (typeof candidate.type !== "string" || typeof candidate.message !== "string") {
+  if (typeof candidate.type !== "string" || typeof candidate.message !== "string" || !candidate.message.trim()) {
     throw new Error("W3C HTML validator returned a malformed message");
   }
   const type = candidate.type.trim().toLowerCase();

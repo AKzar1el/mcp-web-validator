@@ -20,7 +20,11 @@ interface ValidationReportResult extends ValidationReport {
 }
 
 function collapseWhitespace(value: string, maxLength = 240): string {
-  const collapsed = value.replace(/\s+/g, " ").trim();
+  // Validator text is untrusted; terminal control bytes survive ordinary whitespace folding.
+  const collapsed = value
+    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   if (collapsed.length <= maxLength) {
     return collapsed;
   }

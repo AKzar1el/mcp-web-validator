@@ -36,6 +36,20 @@ test("screenshot browser pin matches puppeteer-core's supported headless shell",
   assert.equal(SCREENSHOT_BROWSER_BUILD_ID, PUPPETEER_REVISIONS["chrome-headless-shell"]);
 });
 
+test("explicitly empty screenshot viewports fail instead of silently taking default captures", async () => {
+  let browserLaunched = false;
+  await assert.rejects(
+    captureScreenshots("missing-screenshot-viewport-fixture.html", ".mcp-validator/screenshots", [], {
+      async launch() {
+        browserLaunched = true;
+        throw new Error("Browser should not launch for invalid viewport selection");
+      },
+    }),
+    /Between 1 and 10 viewports are required/,
+  );
+  assert.equal(browserLaunched, false);
+});
+
 test("first screenshot browser resolution can install the pinned headless shell lazily", async (t) => {
   const platform = detectBrowserPlatform();
   if (!platform) {

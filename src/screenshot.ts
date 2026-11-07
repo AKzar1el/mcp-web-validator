@@ -292,9 +292,7 @@ export async function captureScreenshots(
     throw new Error("outputDirectory must be a non-empty string");
   }
 
-  const viewports = validateViewports(
-    customViewports && customViewports.length > 0 ? customViewports : DEFAULT_VIEWPORTS,
-  );
+  const viewports = validateViewports(customViewports ?? DEFAULT_VIEWPORTS);
   const resolvedOutputDirectory = path.resolve(outputDirectory);
 
   // Resolve target to file:// URL if it is a local file path

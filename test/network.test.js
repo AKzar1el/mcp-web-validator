@@ -306,6 +306,44 @@ test("manual redirects keep same-origin headers but strip credentials after a cr
   }
 });
 
+test("redirect hops share one request timeout instead of resetting the budget", async () => {
+  const originalFetch = globalThis.fetch;
+  const signals = [];
+  let calls = 0;
+
+  globalThis.fetch = async (_input, init) => {
+    calls += 1;
+    const signal = init?.signal;
+    signals.push(signal);
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, 240);
+      function onAbort() {
+        clearTimeout(timer);
+        reject(signal.reason);
+      }
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) onAbort();
+    });
+    return calls === 1
+      ? new Response(null, { status: 302, headers: { location: "https://8.8.8.8/next" } })
+      : new Response("ok", { status: 200 });
+  };
+
+  try {
+    await assert.rejects(
+      fetchPublicText("https://1.1.1.1/start", { timeoutMs: 350 }),
+      /timeout|timed out/i,
+    );
+    assert.equal(signals.length, 2, "the second hop should consume only the remaining budget");
+    assert.strictEqual(signals[0], signals[1], "all hops must share the same deadline signal");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("bounded response reader rejects a body beyond the configured cap", async () => {
   await assert.rejects(
     readResponseText(new Response("123456", { headers: { "content-length": "6" } }), 5),

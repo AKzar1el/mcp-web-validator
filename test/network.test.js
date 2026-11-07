@@ -1544,6 +1544,46 @@ test("link checker retries without Range when the bounded GET returns 416", asyn
   }
 });
 
+for (const scenario of [
+  { name: "GET succeeds", rangedStatus: 200, expectedStatus: 200, expectedOk: true, methods: ["HEAD", "GET"] },
+  { name: "GET confirms missing", rangedStatus: 404, expectedStatus: 404, expectedOk: false, methods: ["HEAD", "GET"] },
+  { name: "full GET recovers after rejected range", rangedStatus: 416, fullStatus: 200, expectedStatus: 200, expectedOk: true, methods: ["HEAD", "GET", "GET"] },
+  { name: "both GET attempts reject range", rangedStatus: 416, expectedStatus: 416, expectedOk: false, methods: ["HEAD", "GET", "GET"] },
+  { name: "GET fails", throwGet: true, expectedStatus: "failed", expectedOk: false, methods: ["HEAD", "GET"] },
+]) {
+  test(`link checker confirms a 416 HEAD response with bounded GET: ${scenario.name}`, async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (_input, init) => {
+      requests.push({ method: init?.method, range: init?.headers?.Range });
+      if (init?.method === "HEAD") return new Response(null, { status: 416 });
+      if (scenario.throwGet) throw new Error("GET confirmation failed");
+      if (!init?.headers?.Range && scenario.fullStatus !== undefined) {
+        return new Response(null, { status: scenario.fullStatus });
+      }
+      return new Response(null, { status: scenario.rangedStatus });
+    };
+
+    try {
+      const links = await checkBrokenLinks('<a href="https://1.1.1.1/head-416">Link</a>', undefined, 1);
+      assert.equal(links[0].status, scenario.expectedStatus);
+      assert.equal(links[0].ok, scenario.expectedOk);
+      assert.deepEqual(requests.map((request) => request.method), scenario.methods);
+      assert.equal(requests[0].range, undefined);
+      assert.equal(requests[1].range, "bytes=0-0");
+      if (scenario.rangedStatus === 416) {
+        assert.equal(requests[2].range, undefined);
+        if (scenario.expectedStatus === 416) {
+          assert.match(links[0].message, /availability not verified/i);
+          assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+        }
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+}
+
 test("link checker reports the bounded GET result after a 501 HEAD response", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];

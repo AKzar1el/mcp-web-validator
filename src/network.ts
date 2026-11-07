@@ -565,6 +565,8 @@ export async function fetchPublicHttp(
     throw new Error("maxRedirects must be an integer between 0 and 10");
   }
 
+  // One deadline covers the entire manual redirect chain, not each hop separately.
+  const requestSignal = AbortSignal.timeout(timeoutMs);
   let currentTarget = await resolvePublicHttpUrl(input);
   let requestHeaders = options.headers;
   for (let redirectCount = 0; ; redirectCount += 1) {
@@ -575,7 +577,7 @@ export async function fetchPublicHttp(
         method: options.method ?? "GET",
         headers: requestHeaders,
         redirect: "manual",
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: requestSignal,
         dispatcher,
       } as RequestInit & { dispatcher: Agent });
     } catch (error) {

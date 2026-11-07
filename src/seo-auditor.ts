@@ -187,6 +187,7 @@ function isHiddenFromAccessibilityTree(element: unknown): boolean {
 function referencedTextContent(element: unknown): string {
   type TextNode = {
     type?: string;
+    name?: string;
     data?: string;
     attribs?: Record<string, string>;
     children?: TextNode[];
@@ -196,6 +197,8 @@ function referencedTextContent(element: unknown): string {
   // A directly referenced hidden root contributes its full subtree; hidden descendants of a visible root do not.
   const hiddenReference = isHiddenFromAccessibilityTree(root);
   const traverse = (node: TextNode): string => {
+    // Script, stylesheet and template contents never supply rendered label text.
+    if (node.name && ["script", "style", "template"].includes(node.name.toLowerCase())) return "";
     if (!hiddenReference && node !== root) {
       const attrs = node.attribs;
       // Visibility can be restored deeper in the subtree; display, inert and aria-hidden cannot.

@@ -149,11 +149,17 @@ function inlineStyleValue(style: string, property: string): string | undefined {
 }
 
 function isHiddenFromAccessibilityTree(element: unknown): boolean {
-  type ParentNode = { attribs?: Record<string, string>; parent?: unknown };
+  type ParentNode = { name?: string; attribs?: Record<string, string>; children?: ParentNode[]; parent?: unknown };
   let node = element as ParentNode | null;
+  let childWithinParent: ParentNode | null = null;
   let inheritedVisibility: "visible" | "hidden" | "collapse" | undefined;
   while (node) {
     const attrs = node.attribs;
+    if (childWithinParent && node.name?.toLowerCase() === "details" && !Object.hasOwn(attrs ?? {}, "open")) {
+      // Closed details exposes its first direct summary, not the remaining descendants.
+      const summary = node.children?.find((child) => child.name?.toLowerCase() === "summary");
+      if (childWithinParent !== summary) return true;
+    }
     if (attrs?.["aria-hidden"]?.trim().toLowerCase() === "true") return true;
     if (attrs && Object.hasOwn(attrs, "hidden")) return true;
     // The boolean inert attribute excludes its entire subtree, regardless of its string value.
@@ -168,6 +174,7 @@ function isHiddenFromAccessibilityTree(element: unknown): boolean {
         inheritedVisibility = visibility;
       }
     }
+    childWithinParent = node;
     node = (node.parent ?? null) as ParentNode | null;
   }
   return inheritedVisibility === "hidden" || inheritedVisibility === "collapse";

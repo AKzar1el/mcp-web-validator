@@ -97,6 +97,9 @@ const blockedHostnameSuffixes = [
 ];
 
 const redirectStatuses = new Set([301, 302, 303, 307, 308]);
+// Custom API keys and session tokens are credentials too, even when they are
+// not sent in the standard Authorization or Cookie headers.
+const crossOriginCredentialHeader = /(?:^|[-_])(?:authorization|auth|cookie2?|api[-_]?key|token|secret|credential|password|session)(?:$|[-_])/i;
 
 export interface PublicFetchOptions {
   method?: "GET" | "HEAD";
@@ -608,7 +611,7 @@ export async function fetchPublicHttp(
       // credential-header stripping automatically. Never forward them onward.
       requestHeaders = Object.fromEntries(
         Object.entries(requestHeaders).filter(
-          ([name]) => !/^(authorization|proxy-authorization|cookie|cookie2)$/i.test(name),
+          ([name]) => !crossOriginCredentialHeader.test(name),
         ),
       );
     }

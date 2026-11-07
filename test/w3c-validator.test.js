@@ -67,6 +67,23 @@ test("malformed HTML validator messages fail instead of being silently dropped",
   }
 });
 
+test("empty Nu diagnostic messages fail closed instead of producing unhelpful success output", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const message of ["", "  \n \t"]) {
+      globalThis.fetch = async () => Response.json({
+        messages: [{ type: "info", message }],
+      });
+      await assert.rejects(
+        validateHtmlContent("<!doctype html><html><title>Example</title></html>"),
+        /HTML validation failed: W3C HTML validator returned a malformed message/,
+      );
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("unknown Nu message types fail closed instead of being counted as informational", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => Response.json({

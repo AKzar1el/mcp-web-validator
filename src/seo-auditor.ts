@@ -149,11 +149,14 @@ function inlineStyleValue(style: string, property: string): string | undefined {
 }
 
 function isHiddenFromAccessibilityTree(element: unknown): boolean {
-  type ParentNode = { attribs?: Record<string, string>; parent?: unknown };
+  type ParentNode = { name?: string; attribs?: Record<string, string>; parent?: unknown };
   let node = element as ParentNode | null;
   let inheritedVisibility: "visible" | "hidden" | "collapse" | undefined;
   while (node) {
     const attrs = node.attribs;
+    // User-agent styles hide a dialog and its descendants until the boolean open attribute is set.
+    if (node.name?.toLowerCase() === "dialog"
+      && !Object.hasOwn(attrs ?? {}, "open")) return true;
     if (attrs?.["aria-hidden"]?.trim().toLowerCase() === "true") return true;
     if (attrs && Object.hasOwn(attrs, "hidden")) return true;
     // The boolean inert attribute excludes its entire subtree, regardless of its string value.

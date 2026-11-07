@@ -38,7 +38,7 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
 
 /** Ambiguous responses, access restrictions and network errors cannot establish destination health. */
 export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
-  return typeof status !== "number" || [300, 304, 401, 403, 407, 408, 421, 425, 426, 428, 429, 431, 451, 502, 503, 504, 511, 520, 521, 522, 523, 524].includes(status);
+  return typeof status !== "number" || [300, 304, 401, 403, 406, 407, 408, 412, 421, 423, 425, 426, 428, 429, 431, 451, 502, 503, 504, 511, 520, 521, 522, 523, 524].includes(status);
 }
 
 export interface AuditCounts {
@@ -1068,12 +1068,18 @@ export async function checkBrokenLinks(
               ? "Not modified without a conditional request; destination availability not verified"
               : status === 401 || status === 403
               ? "Access restricted; destination availability not verified"
+              : status === 406
+              ? "Not acceptable under content negotiation; destination availability not verified"
               : status === 407
               ? "Proxy authentication required; destination availability not verified"
               : status === 408
               ? "Request timed out; destination availability not verified"
+              : status === 412
+              ? "Precondition failed; destination availability not verified"
               : status === 421
               ? "Request was misdirected; destination availability not verified"
+              : status === 423
+              ? "Resource locked; destination availability not verified"
               : status === 425
               ? "Request rejected as Too Early; destination availability not verified"
               : status === 426
@@ -1113,12 +1119,18 @@ export async function checkBrokenLinks(
             ? "Not modified without a conditional request; destination availability not verified"
             : headStatus === 401 || headStatus === 403
             ? "Access restricted; destination availability not verified"
+            : headStatus === 406
+            ? "Not acceptable under content negotiation; destination availability not verified"
             : headStatus === 407
             ? "Proxy authentication required; destination availability not verified"
             : headStatus === 408
             ? "Request timed out; destination availability not verified"
+            : headStatus === 412
+            ? "Precondition failed; destination availability not verified"
             : headStatus === 421
             ? "Request was misdirected; destination availability not verified"
+            : headStatus === 423
+            ? "Resource locked; destination availability not verified"
             : headStatus === 425
             ? "Request rejected as Too Early; destination availability not verified"
             : headStatus === 426

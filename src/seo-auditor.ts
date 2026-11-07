@@ -38,7 +38,7 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
 
 /** Ambiguous responses, access restrictions and network errors cannot establish destination health. */
 export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
-  return typeof status !== "number" || [300, 304, 401, 403, 406, 407, 408, 412, 416, 421, 423, 425, 426, 428, 429, 431, 451, 502, 503, 504, 511, 520, 521, 522, 523, 524].includes(status);
+  return typeof status !== "number" || [300, 304, 401, 403, 406, 407, 408, 409, 412, 415, 416, 417, 421, 422, 423, 424, 425, 426, 428, 429, 431, 451, 502, 503, 504, 511, 520, 521, 522, 523, 524].includes(status);
 }
 
 export interface AuditCounts {
@@ -1033,7 +1033,7 @@ export async function checkBrokenLinks(
 
       // Some sites reject HEAD, time out, or return a false 404/410 for an
       // otherwise available resource. Confirm inconclusive HEAD results with a bounded GET.
-      if ([304, 401, 403, 404, 405, 408, 410, 416, 501].includes(headStatus)) {
+      if ([304, 401, 403, 404, 405, 408, 409, 410, 415, 416, 417, 422, 424, 501].includes(headStatus)) {
         let getResult = await fetchPublicHttp(url, {
           method: "GET",
           headers: {
@@ -1074,14 +1074,24 @@ export async function checkBrokenLinks(
               ? "Proxy authentication required; destination availability not verified"
               : status === 408
               ? "Request timed out; destination availability not verified"
+              : status === 409
+              ? "Request conflict; destination availability not verified"
               : status === 412
               ? "Precondition failed; destination availability not verified"
+              : status === 415
+              ? "Unsupported media type; destination availability not verified"
               : status === 416
               ? "Range not satisfiable; destination availability not verified"
+              : status === 417
+              ? "Expectation failed; destination availability not verified"
               : status === 421
               ? "Request was misdirected; destination availability not verified"
+              : status === 422
+              ? "Unprocessable request; destination availability not verified"
               : status === 423
               ? "Resource locked; destination availability not verified"
+              : status === 424
+              ? "Failed dependency; destination availability not verified"
               : status === 425
               ? "Request rejected as Too Early; destination availability not verified"
               : status === 426
@@ -1127,14 +1137,24 @@ export async function checkBrokenLinks(
             ? "Proxy authentication required; destination availability not verified"
             : headStatus === 408
             ? "Request timed out; destination availability not verified"
+            : headStatus === 409
+            ? "Request conflict; destination availability not verified"
             : headStatus === 412
             ? "Precondition failed; destination availability not verified"
+            : headStatus === 415
+            ? "Unsupported media type; destination availability not verified"
             : headStatus === 416
             ? "Range not satisfiable; destination availability not verified"
+            : headStatus === 417
+            ? "Expectation failed; destination availability not verified"
             : headStatus === 421
             ? "Request was misdirected; destination availability not verified"
+            : headStatus === 422
+            ? "Unprocessable request; destination availability not verified"
             : headStatus === 423
             ? "Resource locked; destination availability not verified"
+            : headStatus === 424
+            ? "Failed dependency; destination availability not verified"
             : headStatus === 425
             ? "Request rejected as Too Early; destination availability not verified"
             : headStatus === 426

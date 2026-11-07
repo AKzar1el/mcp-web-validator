@@ -1214,6 +1214,50 @@ test("link checker retains an HTTP 426 GET upgrade requirement after a HEAD 404"
   }
 });
 
+for (const [status, diagnostic] of [
+  [406, /Not acceptable.*availability not verified/i],
+  [412, /Precondition failed.*availability not verified/i],
+  [423, /Resource locked.*availability not verified/i],
+]) {
+  test(`link checker does not mark HTTP ${status} as a confirmed broken destination`, async () => {
+    const originalFetch = globalThis.fetch;
+    const methods = [];
+    globalThis.fetch = async (_input, init) => {
+      methods.push(init?.method);
+      return new Response(null, { status });
+    };
+    try {
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/status-${status}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, status);
+      assert.equal(links[0].ok, false);
+      assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+      assert.match(links[0].message, diagnostic);
+      assert.deepEqual(methods, ["HEAD"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test(`link checker retains GET HTTP ${status} after an inconclusive HEAD 404`, async () => {
+    const originalFetch = globalThis.fetch;
+    const methods = [];
+    globalThis.fetch = async (_input, init) => {
+      methods.push(init?.method);
+      return new Response(null, { status: init?.method === "HEAD" ? 404 : status });
+    };
+    try {
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/status-${status}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, status);
+      assert.equal(links[0].ok, false);
+      assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+      assert.match(links[0].message, diagnostic);
+      assert.deepEqual(methods, ["HEAD", "GET"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+}
+
 test("link checker treats Cloudflare 520-524 edge and origin failures as unverified without retry", async () => {
   const originalFetch = globalThis.fetch;
   const methods = [];

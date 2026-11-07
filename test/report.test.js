@@ -456,6 +456,22 @@ test("report treats exhausted HTTP 416 range negotiation as unverified, not miss
   assert.match(result.report, /Incomplete link verification/);
 });
 
+test("report withholds scores when request-condition refusals cannot establish missing links", () => {
+  const result = createValidationReport({
+    htmlFilePath: "request-refusals.html", cssAudited: false,
+    htmlMessages: [], cssMessages: [], seoIssues: [], schemaIssues: [],
+    links: [409, 415, 417, 422, 424, 404].map((status) => ({
+      url: `https://example.test/${status}`, status, ok: false,
+    })),
+  });
+  assert.equal(result.summary.brokenLinks, 1);
+  assert.equal(result.summary.unverifiedLinks, 5);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /1 confirmed HTTP failures, 5 unverified/i);
+  assert.match(result.report, /Incomplete link verification/);
+});
+
 test("report withholds link score for temporary HTTP gateway/service outages while retaining confirmed failures", () => {
   const result = createValidationReport({
     htmlFilePath: "temporary-outages.html",

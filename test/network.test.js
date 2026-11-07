@@ -1584,6 +1584,77 @@ for (const scenario of [
   });
 }
 
+for (const headStatus of [409, 415, 417, 422, 424]) {
+  test(`link checker confirms HEAD ${headStatus} request refusal with bounded GET`, async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (_input, init) => {
+      requests.push({ method: init?.method, range: init?.headers?.Range });
+      return new Response(null, { status: init?.method === "HEAD" ? headStatus : 200 });
+    };
+    try {
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/refusal-${headStatus}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, 200);
+      assert.equal(links[0].ok, true);
+      assert.deepEqual(requests, [
+        { method: "HEAD", range: undefined },
+        { method: "GET", range: "bytes=0-0" },
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test(`link checker leaves HTTP ${headStatus} unverified when GET also refuses`, async () => {
+    const originalFetch = globalThis.fetch;
+    const methods = [];
+    globalThis.fetch = async (_input, init) => {
+      methods.push(init?.method);
+      return new Response(null, { status: headStatus });
+    };
+    try {
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/refusal-${headStatus}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, headStatus);
+      assert.equal(links[0].ok, false);
+      assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+      assert.match(links[0].message, /destination availability not verified/i);
+      assert.deepEqual(methods, ["HEAD", "GET"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+}
+
+test("link checker honors a definitive GET 404 after HEAD 409 conflict", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_input, init) =>
+    new Response(null, { status: init?.method === "HEAD" ? 409 : 404 });
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/conflict">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 404);
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker reports failed confirmation after HEAD 422 without claiming a broken URL", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_input, init) => {
+    if (init?.method === "HEAD") return new Response(null, { status: 422 });
+    throw new Error("GET confirmation failed");
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/unprocessable">Link</a>', undefined, 1);
+    assert.equal(links[0].status, "failed");
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker reports the bounded GET result after a 501 HEAD response", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];

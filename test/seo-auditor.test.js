@@ -435,6 +435,33 @@ test("closed dialogs exclude their content from accessibility naming checks", ()
     .some((issue) => issue.code === "accessibility.iframe_name.missing_or_empty"), true);
 });
 
+test("initially hidden popovers exclude descendants from accessible-name checks", () => {
+  const missingImageNames = (html) => auditSeoMetadata(html)
+    .filter((issue) => issue.code === "accessibility.image_alt.missing").length;
+
+  for (const html of [
+    '<div popover><img src="auto.png"></div>',
+    '<div popover="manual"><img src="manual.png"></div>',
+    '<div popover="hint"><section><img src="hint.png"></section></div>',
+    '<div popover="invalid"><img src="fallback-manual.png"></div>',
+    '<div popover><span aria-hidden="false" role="img"></span></div>',
+  ]) {
+    assert.equal(missingImageNames(html), 0, html);
+  }
+
+  for (const html of [
+    '<div popover><img src="hidden.png"></div><img src="visible.png">',
+    '<button popovertarget="panel"><img src="trigger.png"></button><div popover id="panel"></div>',
+    '<div data-popover="manual"><img src="ordinary.png"></div>',
+  ]) {
+    assert.equal(missingImageNames(html), 1, html);
+  }
+  assert.equal(auditSeoMetadata('<div popover><iframe src="/hidden"></iframe></div>')
+    .some((issue) => issue.code === "accessibility.iframe_name.missing_or_empty"), false);
+  assert.equal(auditSeoMetadata('<iframe src="/visible"></iframe>')
+    .some((issue) => issue.code === "accessibility.iframe_name.missing_or_empty"), true);
+});
+
 test("closed details expose only their first summary to accessible-name checks", () => {
   const missingImageNames = (html) => auditSeoMetadata(html)
     .filter((issue) => issue.code === "accessibility.image_alt.missing").length;

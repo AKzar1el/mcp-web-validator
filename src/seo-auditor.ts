@@ -158,6 +158,8 @@ function isHiddenFromAccessibilityTree(element: unknown): boolean {
     // User-agent styles hide a dialog and its descendants until the boolean open attribute is set.
     if (node.name?.toLowerCase() === "dialog"
       && !Object.hasOwn(attrs ?? {}, "open")) return true;
+    // A popover starts hidden until script or a user action shows it; static HTML has no open state.
+    if (attrs && Object.hasOwn(attrs, "popover")) return true;
     if (childWithinParent && node.name?.toLowerCase() === "details" && !Object.hasOwn(attrs ?? {}, "open")) {
       // Closed details exposes its first direct summary, not the remaining descendants.
       const summary = node.children?.find((child) => child.name?.toLowerCase() === "summary");

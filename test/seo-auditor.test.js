@@ -409,6 +409,32 @@ test("inert elements and descendants are excluded from accessible-name checks", 
   }
 });
 
+test("closed dialogs exclude their content from accessibility naming checks", () => {
+  const imageNamesMissing = (html) => auditSeoMetadata(html)
+    .filter((issue) => issue.code === "accessibility.image_alt.missing").length;
+
+  for (const html of [
+    '<dialog><img src="closed.png"></dialog>',
+    '<dialog aria-modal="true"><div role="img"></div></dialog>',
+    '<dialog><section><img src="nested.png"></section></dialog>',
+    '<dialog open><dialog><img src="closed-inner.png"></dialog></dialog>',
+  ]) {
+    assert.equal(imageNamesMissing(html), 0, html);
+  }
+
+  for (const html of [
+    '<dialog open><img src="open.png"></dialog>',
+    '<dialog open="false"><img src="open.png"></dialog>',
+    '<dialog><img src="closed.png"></dialog><img src="outside.png">',
+  ]) {
+    assert.equal(imageNamesMissing(html), 1, html);
+  }
+  assert.equal(auditSeoMetadata('<dialog><iframe src="/closed"></iframe></dialog>')
+    .some((issue) => issue.code === "accessibility.iframe_name.missing_or_empty"), false);
+  assert.equal(auditSeoMetadata('<dialog open><iframe src="/open"></iframe></dialog>')
+    .some((issue) => issue.code === "accessibility.iframe_name.missing_or_empty"), true);
+});
+
 test("closed details expose only their first summary to accessible-name checks", () => {
   const missingImageNames = (html) => auditSeoMetadata(html)
     .filter((issue) => issue.code === "accessibility.image_alt.missing").length;

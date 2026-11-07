@@ -566,7 +566,11 @@ export async function fetchPublicHttp(
   }
 
   let currentTarget = await resolvePublicHttpUrl(input);
-  let requestHeaders = options.headers;
+  // The validated URL, not caller-supplied headers, must control HTTP authority.
+  // A spoofed Host header can select another virtual host on the pinned IP.
+  let requestHeaders = options.headers && Object.fromEntries(
+    Object.entries(options.headers).filter(([name]) => name.toLowerCase() !== "host"),
+  );
   for (let redirectCount = 0; ; redirectCount += 1) {
     const dispatcher = createPinnedDispatcher(currentTarget.addresses);
     let response: Response;

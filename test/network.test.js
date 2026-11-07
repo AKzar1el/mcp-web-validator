@@ -264,6 +264,7 @@ test("manual redirects keep same-origin headers but strip credentials after a cr
         XAuthToken: "fixture-compact-auth-token",
         XClientSecret: "fixture-compact-client-secret",
         XSessionId: "fixture-compact-session-id",
+        hOsT: "private.internal",
         "X-Trace": "safe",
       },
       acceptedContentTypes: ["text/plain"],
@@ -280,6 +281,7 @@ test("manual redirects keep same-origin headers but strip credentials after a cr
     for (const request of requests) {
       assert.equal(request.redirect, "manual");
       assert.equal(request.headers.get("X-Trace"), "safe");
+      assert.equal(request.headers.get("Host"), null, "caller must not override validated URL authority");
     }
     for (const request of requests.slice(0, 2)) {
       assert.equal(request.headers.get("Authorization"), "fixture-auth");

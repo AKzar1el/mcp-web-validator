@@ -177,13 +177,13 @@ test("screenshot cleanup reports browser close failure but still closes proxy af
   await assertProxyListenerClosed(proxyUrl);
 });
 
-test("screenshot rejects main-document HTTP errors without creating captures", async (t) => {
+test("screenshot rejects no-content and failed main-document HTTP statuses without creating captures", async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-web-validator-http-error-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const targetPath = path.join(directory, "fixture.html");
   await fs.writeFile(targetPath, "<!doctype html><title>Fixture</title>");
 
-  for (const status of [404, 503]) {
+  for (const status of [204, 205, 404, 503]) {
     let proxyUrl;
     let screenshotCalls = 0;
     let closeCalls = 0;

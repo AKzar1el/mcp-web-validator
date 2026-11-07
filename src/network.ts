@@ -201,6 +201,23 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
   }
 }
 
+async function withAbortSignal<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) throw signal.reason;
+  let onAbort: (() => void) | undefined;
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<T>((_, reject) => {
+        onAbort = () => reject(signal.reason);
+        signal.addEventListener("abort", onAbort, { once: true });
+        if (signal.aborted) onAbort();
+      }),
+    ]);
+  } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
+}
+
 /**
  * Parses an HTTP(S) URL and rejects hostnames that resolve to local, private,
  * documentation, multicast, or otherwise non-public address space.
@@ -567,7 +584,7 @@ export async function fetchPublicHttp(
 
   // One deadline covers the entire manual redirect chain, not each hop separately.
   const requestSignal = AbortSignal.timeout(timeoutMs);
-  let currentTarget = await resolvePublicHttpUrl(input);
+  let currentTarget = await withAbortSignal(() => resolvePublicHttpUrl(input), requestSignal);
   // The validated URL, not caller-supplied headers, must control HTTP authority.
   // A spoofed Host header can select another virtual host on the pinned IP.
   let requestHeaders = options.headers && Object.fromEntries(
@@ -613,7 +630,7 @@ export async function fetchPublicHttp(
     } catch {
       throw new PublicUrlError("Redirect target is not a valid URL");
     }
-    const nextTarget = await resolvePublicHttpUrl(redirectUrl);
+    const nextTarget = await withAbortSignal(() => resolvePublicHttpUrl(redirectUrl), requestSignal);
     if (nextTarget.url.origin !== currentTarget.url.origin && requestHeaders) {
       // Manual redirect handling does not apply Fetch's cross-origin
       // credential-header stripping automatically. Never forward them onward.

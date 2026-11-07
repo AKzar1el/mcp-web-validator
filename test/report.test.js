@@ -423,6 +423,26 @@ test("report withholds scores for HTTP 426 protocol upgrade requirements", () =>
   assert.match(result.report, /0 confirmed HTTP failures/);
 });
 
+test("report withholds link and overall scores for negotiation, precondition and lock refusals", () => {
+  const result = createValidationReport({
+    htmlFilePath: "conditional-access.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [406, 412, 423, 500].map((status) => ({
+      url: `https://example.test/${status}`, status, ok: false,
+    })),
+  });
+  assert.equal(result.summary.brokenLinks, 1);
+  assert.equal(result.summary.unverifiedLinks, 3);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /1 confirmed HTTP failures, 3 unverified/i);
+  assert.match(result.report, /Incomplete link verification/);
+});
+
 test("report withholds link score for temporary HTTP gateway/service outages while retaining confirmed failures", () => {
   const result = createValidationReport({
     htmlFilePath: "temporary-outages.html",

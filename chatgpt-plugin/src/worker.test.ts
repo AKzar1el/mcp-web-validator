@@ -549,6 +549,28 @@ describe("polished tool responses", () => {
     expect(result.content[0]?.text).not.toContain("returned status 429");
   });
 
+  it("checks GET after HEAD 500 before counting an otherwise healthy link as unreachable", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: RequestInfo | URL, options?: RequestInit) => {
+      requests.push(options?.method ?? "");
+      return new Response(null, { status: options?.method === "HEAD" ? 500 : 200 });
+    }));
+
+    const result = await callTool("check_broken_links", {
+      html: '<a href="https://example.com/error">Error</a>',
+      max_links: 1,
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      links_checked: 1,
+      healthy_links: 1,
+      unreachable_links: 0,
+      unverified_links: 0,
+      overview: { status: "passed" },
+    });
+    expect(requests).toEqual(["HEAD", "GET"]);
+  });
+
   it("treats 401 and 403 as access-restricted checks, not confirmed broken links", async () => {
     const methods: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL, options?: RequestInit) => {

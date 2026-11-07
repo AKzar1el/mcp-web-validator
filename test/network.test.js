@@ -1067,7 +1067,7 @@ test("link checker classifies HTTP response classes without following redirects"
           : status >= 300 && status < 400 ? "Redirect not followed" : undefined);
     }
     assert.deepEqual(requested.map((request) => request.method), cases.flatMap(([status]) =>
-      [401, 403, 404, 410].includes(status) ? ["HEAD", "GET"] : ["HEAD"]));
+      [401, 403, 404, 410, 500].includes(status) ? ["HEAD", "GET"] : ["HEAD"]));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1830,12 +1830,12 @@ test("link checker preserves failure handling when the 501 GET fallback fails", 
   }
 });
 
-test("link checker does not retry a 500 HEAD response", async () => {
+test("link checker confirms a HEAD 500 with bounded GET before declaring the link broken", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];
   globalThis.fetch = async (input, init) => {
-    requested.push({ url: String(input), method: init?.method });
-    return new Response(null, { status: 500 });
+    requested.push({ url: String(input), method: init?.method, range: init?.headers?.Range });
+    return new Response(null, { status: init?.method === "HEAD" ? 500 : 200 });
   };
 
   try {
@@ -1843,12 +1843,15 @@ test("link checker does not retry a 500 HEAD response", async () => {
     assert.deepEqual(links, [
       {
         url: "https://1.1.1.1/head-500",
-        status: 500,
-        ok: false,
+        status: 200,
+        ok: true,
         message: undefined,
       },
     ]);
-    assert.deepEqual(requested.map((request) => request.method), ["HEAD"]);
+    assert.deepEqual(requested.map(({ method, range }) => ({ method, range })), [
+      { method: "HEAD", range: undefined },
+      { method: "GET", range: "bytes=0-0" },
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }

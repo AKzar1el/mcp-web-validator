@@ -356,6 +356,27 @@ test("CSS validator requests and preserves Jigsaw warnings without reclassifying
   }
 });
 
+test("CSS validator supplies readable fallback text for blank upstream diagnostics", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    cssvalidation: {
+      validity: false,
+      errors: [{ line: 3, type: "property", message: " \n\t " }],
+      warnings: [{ line: 4, message: " \t " }],
+    },
+  });
+
+  try {
+    const messages = await validateCssContent("p { color: invalid; }");
+    assert.deepEqual(messages.map(({ line, type, message }) => ({ line, type, message })), [
+      { line: 3, type: "error", message: "Unknown CSS validation error" },
+      { line: 4, type: "warning", message: "Unknown CSS validation warning" },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("CSS validator marks Jigsaw's known @container parser gap without hiding the upstream diagnostic", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(

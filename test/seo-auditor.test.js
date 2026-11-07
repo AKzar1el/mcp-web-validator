@@ -579,6 +579,9 @@ test("generic elements with semantic image roles require a non-empty accessible 
   for (const html of [
     '<div role="img"></div>',
     '<span role="image"></span>',
+    '<section role="img"></section>',
+    '<p role="img"></p>',
+    '<i role="image"></i>',
   ]) {
     assert.equal(
       auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.missing")?.severity,
@@ -590,6 +593,10 @@ test("generic elements with semantic image roles require a non-empty accessible 
     '<div role="img" aria-label="Company logo"></div>',
     '<span id="chart-label">Revenue chart</span><div role="image" aria-labelledby="chart-label"></div>',
     '<span role="img" title="Status icon"></span>',
+    '<section role="img" aria-label="Network diagram"></section>',
+    '<p id="name">Regional sales</p><i role="img" aria-labelledby="name"></i>',
+    '<article role="img" hidden></article>',
+    '<section role="img" aria-hidden="true"></section>',
     '<div role="img" aria-hidden="true"></div>',
     '<div aria-hidden="true"><span role="image"></span></div>',
     '<template><div role="img"></div></template>',

@@ -703,8 +703,11 @@ export function auditSeoMetadataDetailed(htmlContent: string, xRobotsTag?: strin
     }
   });
 
-  $("div[role], span[role]").filter((_, element) =>
-    hasExplicitSemanticImageRole(element)
+  $("[role]").filter((_, element) =>
+    element.namespace === "http://www.w3.org/1999/xhtml"
+    // Native images, image inputs and image-map areas have separate naming rules below.
+    && !["img", "input", "area"].includes(element.name.toLowerCase())
+    && hasExplicitSemanticImageRole(element)
     && !isInTemplateContents(element)
     && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {

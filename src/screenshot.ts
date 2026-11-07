@@ -383,8 +383,13 @@ export async function captureScreenshots(
           waitUntil: "domcontentloaded",
           timeout: NAVIGATION_TIMEOUT_MS,
         });
-        if (navigationResponse && navigationResponse.status() >= 400) {
-          throw new Error(`HTTP ${navigationResponse.status()} from main document`);
+        if (navigationResponse) {
+          const status = navigationResponse.status();
+          // 204/205 do not deliver a document, so a screenshot could capture
+          // the previous page or an empty viewport while reporting success.
+          if (status === 204 || status === 205 || status >= 400) {
+            throw new Error(`HTTP ${status} from main document`);
+          }
         }
       } catch (error: unknown) {
         if (blockedRequestMessage) {

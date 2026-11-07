@@ -69,6 +69,11 @@ function isKnownCssValidatorLimitation(type: string | undefined, message: string
   return normalized === "unrecognized at-rule @container";
 }
 
+function normalizeCssDiagnosticMessage(value: unknown, fallback: string): string {
+  const message = typeof value === "string" ? value.trim() : "";
+  return message || fallback;
+}
+
 function assertContentSize(content: string, maxBytes: number, label: string): void {
   const size = Buffer.byteLength(content, "utf8");
   if (size > maxBytes) {
@@ -241,7 +246,7 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
       throw new Error("W3C CSS validator reported invalid CSS without error diagnostics");
     }
     const normalizedErrors = errors.map((err) => {
-      const message = err.message ? err.message.trim() : "Unknown CSS validation error";
+      const message = normalizeCssDiagnosticMessage(err.message, "Unknown CSS validation error");
       return {
         line: err.line || 0,
         type: "error",
@@ -255,7 +260,7 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
     const normalizedWarnings = warnings.map((warning) => ({
       line: warning.line || 0,
       type: "warning",
-      message: warning.message ? warning.message.trim() : "Unknown CSS validation warning",
+      message: normalizeCssDiagnosticMessage(warning.message, "Unknown CSS validation warning"),
       context: warning.context || undefined,
     }));
     const normalized = [...normalizedErrors, ...normalizedWarnings];

@@ -160,7 +160,7 @@ test("report keeps redirects visible without counting them as broken links", () 
   assert.match(result.report, /3 confirmed HTTP failures, 2 unverified, 4 redirects to review of 11 checked/);
   assert.match(result.report, /Link integrity \| Incomplete \| N\/A/);
   assert.match(result.report, /\| https:\/\/example\.test\/blocked \| blocked \| Unverified \|/);
-  assert.match(result.report, /\| https:\/\/example\.test\/301 \| 301 \| Yes \| Redirect not followed \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/301 \| 301 \| Redirect \| Redirect not followed \|/);
 
   const redirectsOnly = createValidationReport({
     htmlFilePath: "redirects.html",
@@ -173,7 +173,36 @@ test("report keeps redirects visible without counting them as broken links", () 
   });
   assert.equal(redirectsOnly.summary.brokenLinks, 0);
   assert.equal(redirectsOnly.summary.unverifiedLinks, 0);
-  assert.equal(redirectsOnly.summary.linkScore, 100);
+  assert.equal(redirectsOnly.summary.linkScore, null);
+  assert.equal(redirectsOnly.summary.overallScore, null);
+  assert.match(redirectsOnly.report, /Link integrity \| Incomplete \| N\/A/);
+  assert.match(redirectsOnly.report, /Unfollowed redirect destinations/);
+  assert.match(redirectsOnly.report, /destination was not checked/);
+});
+
+test("redirect targets keep mixed successful-link scores incomplete without counting as broken", () => {
+  const result = createValidationReport({
+    htmlFilePath: "mixed-redirects.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [
+      { url: "https://example.test/ok", status: 200, ok: true },
+      { url: "https://example.test/moved", status: 302, ok: true },
+      { url: "https://example.test/permanent", status: 308, ok: true },
+    ],
+  });
+
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 0);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /2 redirects to review of 3 checked/);
+  assert.match(result.report, /\| https:\/\/example\.test\/ok \| 200 \| Yes \| Accessible \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/moved \| 302 \| Redirect \| Redirect not followed \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/permanent \| 308 \| Redirect \| Redirect not followed \|/);
 });
 
 test("report link details never default to Accessible for failures or unverified checks", () => {
@@ -197,7 +226,7 @@ test("report link details never default to Accessible for failures or unverified
   });
 
   assert.match(result.report, /\| https:\/\/example\.test\/ok \| 200 \| Yes \| Accessible \|/);
-  assert.match(result.report, /\| https:\/\/example\.test\/redirect \| 301 \| Yes \| Redirect not followed \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/redirect \| 301 \| Redirect \| Redirect not followed \|/);
   assert.match(result.report, /\| https:\/\/example\.test\/missing \| 404 \| No \| HTTP response indicated failure \|/);
   assert.match(result.report, /\| https:\/\/example\.test\/error \| 500 \| No \| HTTP response indicated failure \|/);
   assert.match(result.report, /\| https:\/\/example\.test\/limited \| 429 \| Unverified \| Destination availability not verified \|/);

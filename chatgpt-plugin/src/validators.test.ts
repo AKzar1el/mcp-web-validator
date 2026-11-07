@@ -940,6 +940,18 @@ describe("bounded audits", () => {
 });
 
 describe("link checks", () => {
+  it("confirms a HEAD 500 failure with GET before marking a public link broken", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 500 }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks('<a href="https://example.com/error">Error</a>', undefined, 1)).resolves.toEqual([
+      { url: "https://example.com/error", status: 200, ok: true, message: undefined },
+    ]);
+    expect(fetchMock.mock.calls.map(([, options]) => options?.method)).toEqual(["HEAD", "GET"]);
+  });
+
   it.each([404, 410])("confirms a HEAD %i with GET before declaring a public link broken", async (headStatus) => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: headStatus }))

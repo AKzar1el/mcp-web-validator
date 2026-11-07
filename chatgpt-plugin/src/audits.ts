@@ -957,7 +957,7 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
       usedGet = true;
     }
     // Some origins return a false negative to HEAD while a normal GET works.
-    if (!usedGet && [401, 403, 404, 405, 410, 501].includes(response.status)) {
+    if (!usedGet && [401, 403, 404, 405, 410, 500, 501].includes(response.status)) {
       response = await execute("GET");
     }
     return {

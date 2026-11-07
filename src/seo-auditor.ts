@@ -1051,7 +1051,7 @@ export async function checkBrokenLinks(
 
       // Some sites reject HEAD, time out, or return a false 404/410 for an
       // otherwise available resource. Confirm inconclusive HEAD results with a bounded GET.
-      if ([304, 401, 403, 404, 405, 408, 409, 410, 415, 416, 417, 422, 424, 501].includes(headStatus)) {
+      if ([304, 401, 403, 404, 405, 408, 409, 410, 415, 416, 417, 422, 424, 500, 501].includes(headStatus)) {
         let getResult = await fetchPublicHttp(url, {
           method: "GET",
           headers: {

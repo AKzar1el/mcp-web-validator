@@ -44,6 +44,25 @@ test("finding and failure narration escapes hostile Markdown and inline HTML", (
   assertProseIsEscaped(failure);
 });
 
+test("narration strips terminal control characters from untrusted diagnostics and URLs", () => {
+  const hostile = "Issue \u001b[31mred\u001b[0m \u0007bell \u0008backspace \u009bCSI";
+  const outputs = [
+    htmlValidationContent([{ type: "error", message: hostile, lastLine: 2 }]),
+    linkCheckContent([{
+      url: "https://example.test/path\u001b[2J",
+      status: "failed",
+      ok: false,
+      message: hostile,
+    }]),
+    failureContent("HTML validation", hostile, "Retry with safe input."),
+  ];
+  for (const output of outputs) {
+    assert.doesNotMatch(output, /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/u);
+    assert.match(output, /backspace/);
+    assert.match(output, /red/);
+  }
+});
+
 test("all action-based narrations use the shared escaping boundary", () => {
   const html = htmlValidationContent([{ type: "error", message: hostileProse, lastLine: 3 }]);
   const seo = seoAuditContent(

@@ -323,6 +323,25 @@ test("visible aria-labelledby targets exclude hidden descendant-only text", () =
     assert.equal(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.image_alt.missing"), false, html);
   }
 });
+test("aria-labelledby does not use text from non-rendered descendants", () => {
+  for (const [control, code] of [
+    ['<img src="chart.png" aria-labelledby="ref">', "accessibility.image_alt.missing"],
+    ['<iframe src="/account" aria-labelledby="ref"></iframe>', "accessibility.iframe_name.missing_or_empty"],
+    ['<input type="image" src="submit.png" aria-labelledby="ref">', "accessibility.input_image_alt.missing_or_empty"],
+    ['<span role="img" aria-labelledby="ref"></span>', "accessibility.image_alt.missing"],
+  ]) {
+    for (const descendant of [
+      '<script>Invisible label</script>',
+      '<style>Invisible label</style>',
+      '<template>Invisible label</template>',
+    ]) {
+      const html = `<span id="ref">${descendant}</span>${control}`;
+      assert.equal(auditSeoMetadata(html).some((issue) => issue.code === code), true, html);
+      const mixed = `<span id="ref">${descendant}<b>Visible label</b></span>${control}`;
+      assert.equal(auditSeoMetadata(mixed).some((issue) => issue.code === code), false, mixed);
+    }
+  }
+});
 test("visible aria-labelledby targets exclude inert descendant-only text", () => {
   for (const [control, code] of [
     ['<img src="chart.png" aria-labelledby="ref">', "accessibility.image_alt.missing"],

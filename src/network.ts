@@ -565,6 +565,8 @@ export async function fetchPublicHttp(
     throw new Error("maxRedirects must be an integer between 0 and 10");
   }
 
+  // One deadline covers the entire manual redirect chain, not each hop separately.
+  const requestSignal = AbortSignal.timeout(timeoutMs);
   let currentTarget = await resolvePublicHttpUrl(input);
   // The validated URL, not caller-supplied headers, must control HTTP authority.
   // A spoofed Host header can select another virtual host on the pinned IP.
@@ -579,7 +581,7 @@ export async function fetchPublicHttp(
         method: options.method ?? "GET",
         headers: requestHeaders,
         redirect: "manual",
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: requestSignal,
         dispatcher,
       } as RequestInit & { dispatcher: Agent });
     } catch (error) {

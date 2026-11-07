@@ -346,6 +346,68 @@ test("redirect hops share one request timeout instead of resetting the budget", 
   }
 });
 
+test("public fetch deadline includes initial DNS validation", async () => {
+  const originalLookup = dns.promises.lookup;
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+
+  dns.promises.lookup = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    return [{ address: "1.1.1.1", family: 4 }];
+  };
+  syncBuiltinESMExports();
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    return new Response("ok", { status: 200 });
+  };
+
+  try {
+    const started = Date.now();
+    await assert.rejects(
+      fetchPublicText("https://slow-dns.example.org/", { timeoutMs: 60 }),
+      { name: "TimeoutError" },
+    );
+    assert.ok(Date.now() - started < 450, "DNS resolution must not exceed the request deadline");
+    assert.equal(fetchCalls, 0, "a timed-out DNS result must not start HTTP transport");
+  } finally {
+    globalThis.fetch = originalFetch;
+    dns.promises.lookup = originalLookup;
+    syncBuiltinESMExports();
+  }
+});
+
+test("public fetch deadline includes redirect-target DNS validation", async () => {
+  const originalLookup = dns.promises.lookup;
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+
+  dns.promises.lookup = async (hostname) => {
+    if (hostname === "slow-redirect.example.org") {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    }
+    return [{ address: "1.1.1.1", family: 4 }];
+  };
+  syncBuiltinESMExports();
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    return new Response(null, { status: 302, headers: { location: "https://slow-redirect.example.org/" } });
+  };
+
+  try {
+    const started = Date.now();
+    await assert.rejects(
+      fetchPublicText("https://fast-dns.example.org/", { timeoutMs: 60 }),
+      { name: "TimeoutError" },
+    );
+    assert.ok(Date.now() - started < 450, "redirect DNS resolution must share the request deadline");
+    assert.equal(fetchCalls, 1, "a timed-out redirect target must not start a second HTTP request");
+  } finally {
+    globalThis.fetch = originalFetch;
+    dns.promises.lookup = originalLookup;
+    syncBuiltinESMExports();
+  }
+});
+
 test("bounded response reader rejects a body beyond the configured cap", async () => {
   await assert.rejects(
     readResponseText(new Response("123456", { headers: { "content-length": "6" } }), 5),

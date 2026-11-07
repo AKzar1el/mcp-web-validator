@@ -48,6 +48,7 @@ const DEFAULT_VIEWPORTS: ViewportConfig[] = [
 const MAX_VIEWPORTS = 10;
 const MIN_VIEWPORT_DIMENSION = 100;
 const MAX_VIEWPORT_DIMENSION = 7_680;
+const MAX_TOTAL_VIEWPORT_PIXELS = 64_000_000;
 const SAFE_VIEWPORT_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 const NAVIGATION_TIMEOUT_MS = 30_000;
 
@@ -163,6 +164,7 @@ function validateViewports(viewports: ViewportConfig[]): ViewportConfig[] {
   }
 
   const outputNames = new Set<string>();
+  let totalPixels = 0;
   return viewports.map((viewport, index) => {
     if (!viewport || typeof viewport !== "object") {
       throw new Error(`Viewport #${index + 1} must be an object`);
@@ -182,6 +184,13 @@ function validateViewports(viewports: ViewportConfig[]): ViewportConfig[] {
           `Viewport #${index + 1} ${label} must be an integer between ${MIN_VIEWPORT_DIMENSION} and ${MAX_VIEWPORT_DIMENSION}`,
         );
       }
+    }
+
+    totalPixels += viewport.width * viewport.height;
+    if (totalPixels > MAX_TOTAL_VIEWPORT_PIXELS) {
+      throw new Error(
+        `Screenshot viewports exceed aggregate viewport pixel budget of ${MAX_TOTAL_VIEWPORT_PIXELS.toLocaleString("en-US")} CSS pixels`,
+      );
     }
 
     const outputName = `${viewport.name}_${viewport.width}x${viewport.height}.png`.toLowerCase();

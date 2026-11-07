@@ -50,6 +50,37 @@ test("explicitly empty screenshot viewports fail instead of silently taking defa
   assert.equal(browserLaunched, false);
 });
 
+test("screenshot capture rejects excessive aggregate viewport pixels before file or browser work", async () => {
+  let browserLaunched = false;
+  const runtime = {
+    async launch() {
+      browserLaunched = true;
+      throw new Error("Browser must not launch during viewport validation");
+    },
+  };
+  const oversized = Array.from({ length: 8 }, (_, index) => ({
+    name: `huge-${index}`,
+    width: 7680,
+    height: 7680,
+  }));
+  await assert.rejects(
+    captureScreenshots("missing-aggregate-viewport-fixture.html", ".mcp-validator/screenshots", oversized, runtime),
+    /aggregate viewport pixel budget.*64,000,000/i,
+  );
+  assert.equal(browserLaunched, false);
+
+  const atLimit = Array.from({ length: 8 }, (_, index) => ({
+    name: `within-${index}`,
+    width: 4000,
+    height: 2000,
+  }));
+  await assert.rejects(
+    captureScreenshots("missing-aggregate-viewport-fixture.html", ".mcp-validator/screenshots", atLimit, runtime),
+    /ENOENT/,
+  );
+  assert.equal(browserLaunched, false);
+});
+
 test("first screenshot browser resolution can install the pinned headless shell lazily", async (t) => {
   const platform = detectBrowserPlatform();
   if (!platform) {

@@ -1529,6 +1529,37 @@ test("link checker confirms a HEAD 401 with a bounded GET before reporting avail
   }
 });
 
+test("link checker confirms a HEAD 400 with GET before marking a live target broken", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    requests.push({ url, method: init?.method, range: init?.headers?.Range });
+    if (init?.method === "HEAD") return new Response(null, { status: 400 });
+    return new Response(null, { status: url.endsWith("/live") ? 200 : 400 });
+  };
+  try {
+    const links = await checkBrokenLinks(
+      '<a href="https://1.1.1.1/live">Live</a><a href="https://1.1.1.1/broken">Broken</a>',
+      undefined,
+      2,
+    );
+    assert.deepEqual(links.map(({ status, ok }) => ({ status, ok })), [
+      { status: 200, ok: true },
+      { status: 400, ok: false },
+    ]);
+    for (const path of ["live", "broken"]) {
+      const url = `https://1.1.1.1/${path}`;
+      assert.deepEqual(requests.filter((request) => request.url === url), [
+        { url, method: "HEAD", range: undefined },
+        { url, method: "GET", range: "bytes=0-0" },
+      ]);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker reports blocked targets and network failures as unreachable", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => {

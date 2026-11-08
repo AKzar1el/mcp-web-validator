@@ -58,8 +58,8 @@ test("screenshot proxy retains ordinary response metadata when Connection is abs
   });
 });
 
-test("screenshot proxy tears down partial responses on upstream stream error or abort", () => {
-  for (const event of ["error", "aborted"]) {
+test("screenshot proxy tears down partial responses on upstream stream error, abort, or incomplete close", () => {
+  for (const event of ["error", "aborted", "close"]) {
     const upstream = new PassThrough();
     upstream.statusCode = 200;
     upstream.headers = { connection: "close", "content-type": "text/plain" };
@@ -77,6 +77,20 @@ test("screenshot proxy tears down partial responses on upstream stream error or 
     upstream.emit(event, new Error("connection interrupted"));
     assert.equal(downstream.destroyed, true, `${event} must stop truncated success`);
   }
+});
+
+test("screenshot proxy preserves completed upstream response on close", () => {
+  const upstream = new PassThrough();
+  upstream.statusCode = 200;
+  upstream.headers = { "content-type": "text/plain" };
+  upstream.complete = true;
+  const downstream = new PassThrough();
+  downstream.writeHead = () => {};
+  pipeScreenshotUpstreamResponse(upstream, downstream);
+  upstream.emit("close");
+  assert.equal(downstream.destroyed, false);
+  upstream.destroy();
+  downstream.destroy();
 });
 
 test("screenshot proxy cancels an unfinished upstream when downstream closes", () => {

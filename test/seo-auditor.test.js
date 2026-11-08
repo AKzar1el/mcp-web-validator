@@ -12,6 +12,20 @@ function lengthIssue(html, prefix) {
   return auditSeoMetadata(html).find((issue) => issue.message.startsWith(prefix));
 }
 
+test("SEO editorial length diagnostics count visible graphemes instead of UTF-16 units", () => {
+  const symbol = String.fromCodePoint(0x1f680);
+  const shortPage = `<title>${symbol.repeat(20)}</title><meta name="description" content="${symbol.repeat(75)}">`;
+  assert.match(lengthIssue(shortPage, "Title is")?.message ?? "", /^Title is 20 characters\. This is shorter/);
+  assert.match(lengthIssue(shortPage, "Meta description is")?.message ?? "", /^Meta description is 75 characters\. This is shorter/);
+
+  const ordinaryPage = `<title>${symbol.repeat(40)}</title><meta name="description" content="${symbol.repeat(140)}">`;
+  assert.equal(lengthIssue(ordinaryPage, "Title is"), undefined);
+  assert.equal(lengthIssue(ordinaryPage, "Meta description is"), undefined);
+
+  const combiningMarkPage = `<title>${"e\u0301".repeat(20)}</title>`;
+  assert.match(lengthIssue(combiningMarkPage, "Title is")?.message ?? "", /^Title is 20 characters\. This is shorter/);
+});
+
 test("SEO audit reports the full total while bounding returned findings", () => {
   const images = Array.from(
     { length: MAX_AUDIT_ISSUES + 5 },

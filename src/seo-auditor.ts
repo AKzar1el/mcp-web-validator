@@ -381,6 +381,14 @@ function canParseCanonicalHref(href: string): boolean {
   }
 }
 
+const editorialGraphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function countEditorialCharacters(text: string): number {
+  let count = 0;
+  for (const _ of editorialGraphemes.segment(text)) count += 1;
+  return count;
+}
+
 /**
  * Audits technical SEO and accessibility basics on HTML content using Cheerio
  */
@@ -408,27 +416,28 @@ export function auditSeoMetadataDetailed(htmlContent: string, xRobotsTag?: strin
       });
     }
     const titleText = titleTag.first().text().trim();
-    if (titleText.length === 0) {
+    const titleLength = countEditorialCharacters(titleText);
+    if (titleLength === 0) {
       add({
         code: "seo.title.missing_or_empty",
         severity: "error",
         category: "SEO",
         message: "The <title> tag is empty.",
       });
-    } else if (titleText.length < 30) {
+    } else if (titleLength < 30) {
       add({
         code: "seo.title.length",
         severity: "info",
         category: "SEO",
-        message: `Title is ${titleText.length} characters. This is shorter than the audit's common editorial range; review whether it describes the page clearly.`,
+        message: `Title is ${titleLength} characters. This is shorter than the audit's common editorial range; review whether it describes the page clearly.`,
         element: `<title>${titleText}</title>`,
       });
-    } else if (titleText.length > 60) {
+    } else if (titleLength > 60) {
       add({
         code: "seo.title.length",
         severity: "info",
         category: "SEO",
-        message: `Title is ${titleText.length} characters. This is longer than the audit's common editorial range; Google title links may be shortened or rewritten depending on context and device.`,
+        message: `Title is ${titleLength} characters. This is longer than the audit's common editorial range; Google title links may be shortened or rewritten depending on context and device.`,
         element: `<title>${titleText}</title>`,
       });
     }
@@ -453,27 +462,28 @@ export function auditSeoMetadataDetailed(htmlContent: string, xRobotsTag?: strin
       });
     }
     const descText = metaDescription.first().attr("content")?.trim() || "";
-    if (descText.length === 0) {
+    const descriptionLength = countEditorialCharacters(descText);
+    if (descriptionLength === 0) {
       add({
         code: "seo.meta_description.missing_or_empty",
         severity: "error",
         category: "SEO",
         message: "Meta description content attribute is empty.",
       });
-    } else if (descText.length < 120) {
+    } else if (descriptionLength < 120) {
       add({
         code: "seo.meta_description.length",
         severity: "info",
         category: "SEO",
-        message: `Meta description is ${descText.length} characters. This is shorter than the audit's common editorial range; review whether it provides a useful page summary.`,
+        message: `Meta description is ${descriptionLength} characters. This is shorter than the audit's common editorial range; review whether it provides a useful page summary.`,
         element: `<meta name="description" content="${descText}">`,
       });
-    } else if (descText.length > 160) {
+    } else if (descriptionLength > 160) {
       add({
         code: "seo.meta_description.length",
         severity: "info",
         category: "SEO",
-        message: `Meta description is ${descText.length} characters. This is longer than the audit's common editorial range; displayed snippets may be shortened depending on the query and device.`,
+        message: `Meta description is ${descriptionLength} characters. This is longer than the audit's common editorial range; displayed snippets may be shortened depending on the query and device.`,
         element: `<meta name="description" content="${descText}">`,
       });
     }

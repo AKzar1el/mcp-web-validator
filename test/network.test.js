@@ -461,6 +461,43 @@ test("bounded public text fetch rejects HTTP 206 partial HTML and sitemap respon
   }
 });
 
+test("bounded public text fetch rejects HTTP 204/205 responses without a document", async () => {
+  const originalFetch = globalThis.fetch;
+  let status = 204;
+  globalThis.fetch = async () => new Response(null, {
+    status,
+    headers: { "content-type": "text/html" },
+  });
+
+  try {
+    for (status of [204, 205]) {
+      await assert.rejects(
+        fetchPublicText("https://1.1.1.1/page", { acceptedContentTypes: ["text/html"] }),
+        new RegExp(`HTTP status ${status}`),
+      );
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("bounded public text fetch rejects blank HTML instead of reporting a valid page", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(" \n\t ", {
+    status: 200,
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
+
+  try {
+    await assert.rejects(
+      fetchPublicText("https://1.1.1.1/page", { acceptedContentTypes: ["text/html"] }),
+      /empty HTML document/i,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("bounded public text fetch accepts configured HTML media types with parameters", async () => {
   const originalFetch = globalThis.fetch;
   const responses = [

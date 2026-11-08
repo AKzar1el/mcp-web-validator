@@ -62,6 +62,7 @@ export const MAX_CSS_VALIDATION_BYTES = 128_000;
 const MAX_VALIDATOR_RESPONSE_BYTES = 5_000_000;
 const USER_AGENT = `mcp-web-validator/${PACKAGE_VERSION} (+https://digestseo.com/validator-mcp/)`;
 export const MAX_VALIDATION_MESSAGES = 200;
+const MAX_HTML_EXTRACT_CHARS = 500;
 
 function isKnownCssValidatorLimitation(type: string | undefined, message: string): boolean {
   if (type?.trim().toLowerCase() !== "at-rule") return false;
@@ -107,7 +108,9 @@ function normalizeW3CMessage(message: unknown): W3CMessage {
   }
 
   if (typeof candidate.extract === "string") {
-    normalized.extract = candidate.extract;
+    normalized.extract = candidate.extract.length > MAX_HTML_EXTRACT_CHARS
+      ? `${candidate.extract.slice(0, MAX_HTML_EXTRACT_CHARS - 3)}...`
+      : candidate.extract;
   }
 
   if (typeof candidate.subType === "string") {

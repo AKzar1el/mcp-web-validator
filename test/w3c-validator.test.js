@@ -166,6 +166,26 @@ test("HTML validator bounds oversized source extracts without losing diagnostic 
   }
 });
 
+test("HTML validator bounds oversized diagnostic messages without losing severity counts", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    messages: [{ type: ` error${" ".repeat(12_000)}`, subType: "S".repeat(12_000), message: "M".repeat(12_000) }],
+  });
+
+  try {
+    const { validateHtmlContentDetailed } = await import("../dist/w3c-validator.js");
+    const result = await validateHtmlContentDetailed("<!doctype html><title>Test</title>");
+    assert.equal(result.messages[0].message.length, 1_000);
+    assert.equal(result.messages[0].message.endsWith("..."), true);
+    assert.equal(result.messages[0].type, "error");
+    assert.equal(result.messages[0].subType?.length, 100);
+    assert.equal(result.total, 1);
+    assert.deepEqual(result.counts, { error: 1, warning: 0, info: 0 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("HTML validator reports full totals when structured diagnostics are capped", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => Response.json({
@@ -336,6 +356,30 @@ test("CSS validator reports full totals when structured diagnostics are capped",
     assert.equal(result.total, 205);
     assert.equal(result.truncated, true);
     assert.deepEqual(result.counts, { error: 205, warning: 0, compatibilityLimitation: 0 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("CSS validator bounds untrusted diagnostic messages and source contexts", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    cssvalidation: {
+      validity: false,
+      errors: [{ line: 1, message: "E".repeat(12_000), context: "C".repeat(12_000) }],
+      warnings: [{ line: 2, message: "W".repeat(12_000), context: "D".repeat(12_000) }],
+    },
+  });
+
+  try {
+    const { validateCssContentDetailed } = await import("../dist/w3c-validator.js");
+    const result = await validateCssContentDetailed("p { color: invalid; }");
+    assert.deepEqual(result.messages.map((entry) => [entry.message.length, entry.context?.length]), [
+      [1_000, 500],
+      [1_000, 500],
+    ]);
+    assert.equal(result.messages.every((entry) => entry.message.endsWith("...") && entry.context?.endsWith("...")), true);
+    assert.deepEqual(result.counts, { error: 1, warning: 1, compatibilityLimitation: 0 });
   } finally {
     globalThis.fetch = originalFetch;
   }

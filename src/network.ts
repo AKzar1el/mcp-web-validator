@@ -633,10 +633,12 @@ export async function fetchPublicHttp(
     const nextTarget = await withAbortSignal(() => resolvePublicHttpUrl(redirectUrl), requestSignal);
     if (nextTarget.url.origin !== currentTarget.url.origin && requestHeaders) {
       // Manual redirect handling does not apply Fetch's cross-origin
-      // credential-header stripping automatically. Never forward them onward.
+      // credential-header stripping automatically. Explicit Referer values can
+      // also contain private paths or query tokens; never forward them onward.
       requestHeaders = Object.fromEntries(
         Object.entries(requestHeaders).filter(
-          ([name]) => !crossOriginCredentialHeader.test(name) && !compactCredentialHeader.test(name),
+          ([name]) => !["referer", "referrer"].includes(name.toLowerCase())
+            && !crossOriginCredentialHeader.test(name) && !compactCredentialHeader.test(name),
         ),
       );
     }

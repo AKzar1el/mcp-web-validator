@@ -10,6 +10,7 @@ import { getPrimaryLanguageSubtag, isKnownPrimaryLanguageSubtag } from "./langua
 import { PACKAGE_VERSION } from "./version.js";
 
 export const MAX_AUDIT_ISSUES = 200;
+const MAX_AUDIT_ELEMENT_CHARS = 500;
 export const MAX_LINKS_TO_CHECK = 25;
 const LINK_CHECK_CONCURRENCY = 5;
 const LINK_CHECK_TIMEOUT_MS = 5_000;
@@ -56,7 +57,11 @@ export interface AuditDetails {
 
 function addIssue(issues: SEOIssue[], issue: SEOIssue): void {
   if (issues.length < MAX_AUDIT_ISSUES) {
-    issues.push(issue);
+    // A single enormous title or meta attribute must not evade the issue-count
+    // cap and dominate an MCP response with an unbounded source snippet.
+    issues.push(issue.element && issue.element.length > MAX_AUDIT_ELEMENT_CHARS
+      ? { ...issue, element: `${issue.element.slice(0, MAX_AUDIT_ELEMENT_CHARS - 3)}...` }
+      : issue);
   }
 }
 

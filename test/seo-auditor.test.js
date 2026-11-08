@@ -44,6 +44,21 @@ test("SEO audit reports the full total while bounding returned findings", () => 
   assert.equal(auditSeoMetadata(html).length, MAX_AUDIT_ISSUES);
 });
 
+test("SEO audit bounds diagnostic element snippets from oversized page metadata", () => {
+  const oversized = "A".repeat(10_000);
+  const html = `<html><head><title>${oversized}</title><meta name="description" content="${oversized}"></head></html>`;
+  const detailed = auditSeoMetadataDetailed(html);
+  const titleIssue = detailed.issues.find((issue) => issue.code === "seo.title.length");
+  const descriptionIssue = detailed.issues.find((issue) => issue.code === "seo.meta_description.length");
+
+  assert.ok(titleIssue?.element && titleIssue.element.length <= 500);
+  assert.ok(descriptionIssue?.element && descriptionIssue.element.length <= 500);
+  assert.ok(titleIssue.element.endsWith("..."));
+  assert.ok(descriptionIssue.element.endsWith("..."));
+  assert.match(titleIssue.message, /Title is 10000 characters/);
+  assert.match(descriptionIssue.message, /Meta description is 10000 characters/);
+});
+
 test("JSON-LD audit reports the full total while bounding returned findings", () => {
   const blockCount = MAX_AUDIT_ISSUES + 5;
   const html = Array.from(

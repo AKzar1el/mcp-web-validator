@@ -245,18 +245,13 @@ function explicitSemanticRole(element: unknown): string | undefined {
     .find((token) => VALID_NON_ABSTRACT_ARIA_ROLES.has(token));
 }
 
-function isDecorativeIframe(element: unknown): boolean {
-  const role = explicitSemanticRole(element);
-  return role === "none" || role === "presentation";
-}
-
-function isUnambiguouslyPresentationalImage(element: unknown): boolean {
+function isUnambiguouslyPresentationalElement(element: unknown): boolean {
   type ElementNode = { attribs?: Record<string, string> };
   const attribs = (element as ElementNode | null)?.attribs ?? {};
   const role = explicitSemanticRole(element);
   if (role !== "none" && role !== "presentation") return false;
 
-  // Presentational roles are ignored when an element can take focus. Treat any
+  // Presentational roles are ignored when an image or iframe can take focus. Treat any
   // explicit tabindex as a potential conflict instead of guessing whether the
   // authored value will be focusable in a particular user agent.
   if (attribs.tabindex !== undefined) return false;
@@ -666,7 +661,7 @@ export function auditSeoMetadataDetailed(htmlContent: string, xRobotsTag?: strin
   $("img").filter((_, element) =>
     !isInTemplateContents(element)
     && !isHiddenFromAccessibilityTree(element)
-    && !isUnambiguouslyPresentationalImage(element)
+    && !isUnambiguouslyPresentationalElement(element)
   ).each((_, element) => {
     const img = $(element);
     const src = img.attr("src") || "unknown-source";
@@ -777,7 +772,7 @@ export function auditSeoMetadataDetailed(htmlContent: string, xRobotsTag?: strin
   $("iframe").filter((_, element) =>
     !isInTemplateContents(element)
     && !isHiddenFromAccessibilityTree(element)
-    && !isDecorativeIframe(element)
+    && !isUnambiguouslyPresentationalElement(element)
   ).each((_, element) => {
     const iframe = $(element);
     const labelledByIds = (iframe.attr("aria-labelledby") ?? "")

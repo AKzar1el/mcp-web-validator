@@ -2046,6 +2046,26 @@ test("local screenshot rendering permits only contained files and public network
   assert.equal(state.requests[11].resolution.aborted, 1, "unsupported scheme is blocked");
 });
 
+test("local screenshot rendering permits contained paths starting with two dots", async (t) => {
+  const fixture = await createScreenshotFixture(t);
+  const assetDirectory = path.join(fixture.localDirectory, "..assets");
+  const containedAsset = path.join(assetDirectory, "icon.png");
+  await fs.mkdir(assetDirectory);
+  await fs.writeFile(containedAsset, "image");
+
+  const { state } = await withMockedScreenshotBrowser(
+    [pathToFileURL(containedAsset).href],
+    undefined,
+    async (browserState, browserRuntime) => {
+      await captureScreenshots(fixture.selectedFile, fixture.outputDirectory, screenshotViewport, browserRuntime);
+      return { state: browserState };
+    },
+  );
+
+  assert.equal(state.requests[1].resolution.continued, 1);
+  assertResolvedOnce(state.requests[1]);
+});
+
 test("local screenshot rendering blocks symlinked files outside the selected directory", async (t) => {
   const fixture = await createScreenshotFixture(t);
   const escapedSymlink = path.join(fixture.localDirectory, "escaped.txt");

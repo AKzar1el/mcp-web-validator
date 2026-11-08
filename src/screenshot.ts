@@ -213,7 +213,11 @@ function resolveContainedOutputPath(outputDirectory: string, fileName: string): 
 
 function isPathWithinDirectory(directory: string, filePath: string): boolean {
   const relativePath = path.relative(directory, filePath);
-  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+  // Only an actual parent segment escapes the boundary; names such as
+  // "..assets" are legal descendants and must not be rejected.
+  return relativePath !== ".."
+    && !relativePath.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relativePath);
 }
 
 async function assertLocalScreenshotRequestAllowed(requestUrl: URL, localDirectory: string): Promise<void> {

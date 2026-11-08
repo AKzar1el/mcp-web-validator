@@ -1146,6 +1146,10 @@ describe("auditPublicSite", () => {
       expectedDiscoveryFingerprint: result.discovery_fingerprint,
     });
     expect(continuation.pages[0]?.url).toBe("https://example.com/allowed");
+    await expect(auditPublicSite({
+      siteUrl: "https://example.com/", maxPages: 1, pageOffset: 99,
+      expectedDiscoveryFingerprint: result.discovery_fingerprint,
+    })).rejects.toThrow("Invalid site audit continuation");
     sitemapChanged = true;
     await expect(auditPublicSite({
       siteUrl: "https://example.com/", maxPages: 1, pageOffset: 1,

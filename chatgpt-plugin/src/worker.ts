@@ -722,6 +722,10 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
       ? "Provide public same-origin sitemap and page URLs without query parameters, then rerun discovery; skipped URLs were not audited."
     : result.discovery_error
       ? "Check robots.txt and sitemap availability, then retry discovery before treating this as a complete site audit."
+    : result.pages_skipped_robots > 0
+      ? "Review robots.txt exclusions with the site owner; excluded pages were not audited and must not be crawled unless the rules change."
+    : result.truncated
+      ? "Discovery or page selection reached a coverage limit; review the sitemap and continue permitted batches before claiming a site-wide audit."
     : totals.errors > 0 || totals.warnings > 0
       ? "Fix the highest-impact grouped findings, then rerun the bounded site audit."
       : result.pages_partial > 0 || result.pages_failed > 0
@@ -740,6 +744,7 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
       metric("pages_audited", "Pages audited", result.pages_audited, "success"),
       metric("pages_partial", "Pages partial", result.pages_partial, "warning"),
       metric("pages_failed", "Pages failed", result.pages_failed, "error"),
+      metric("pages_skipped_robots", "Pages excluded by robots", result.pages_skipped_robots, "warning"),
       metric("errors", "Errors", totals.errors, "error"),
       metric("warnings", "Warnings", totals.warnings, "warning"),
       ...(result.audit_health_score === undefined

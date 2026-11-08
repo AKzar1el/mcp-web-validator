@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { auditSeoMetadata, checkBrokenLinks, toPublicHttpUrl, validateSchemaMarkup } from "./audits";
+import { auditSeoMetadata, checkBrokenLinks, isUnverifiedLinkStatus, toPublicHttpUrl, validateSchemaMarkup } from "./audits";
 import { validateHtml, validateHtmlDetailed } from "./validators";
 
 afterEach(() => {
@@ -975,6 +975,24 @@ describe("link checks", () => {
       { url: "https://example.com/missing", status: 404, ok: false, message: undefined },
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    [300, "Multiple choices without a selected destination; availability not verified."],
+    [304, "Not modified without a conditional request; destination availability not verified."],
+  ])("does not report an unselected HEAD %i as a healthy link", async (status, message) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks('<a href="https://example.com/page">Page</a>', undefined, 1)).resolves.toEqual([
+      { url: "https://example.com/page", status, ok: false, message },
+    ]);
+    expect(isUnverifiedLinkStatus(status)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([406, 407, 408, 451, 502, 503, 504])("classifies inconclusive HTTP %i as unverified", (status) => {
+    expect(isUnverifiedLinkStatus(status)).toBe(true);
   });
 
   it("falls back from a rejected HEAD request to a bounded GET request", async () => {

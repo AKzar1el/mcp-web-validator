@@ -26,7 +26,8 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
 }
 
 export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
-  return typeof status !== "number" || [401, 403, 429].includes(status);
+  return typeof status !== "number"
+    || [300, 304, 401, 403, 406, 407, 408, 409, 412, 415, 416, 417, 421, 422, 423, 424, 425, 426, 428, 429, 431, 451, 502, 503, 504, 511, 520, 521, 522, 523, 524].includes(status);
 }
 
 export interface AuditResult {
@@ -963,8 +964,12 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
     return {
       url: url.toString(),
       status: response.status,
-      ok: response.status >= 200 && response.status < 400,
-      message: response.status === 401 || response.status === 403
+      ok: response.status >= 200 && response.status < 400 && !isUnverifiedLinkStatus(response.status),
+      message: response.status === 300
+        ? "Multiple choices without a selected destination; availability not verified."
+        : response.status === 304
+        ? "Not modified without a conditional request; destination availability not verified."
+        : response.status === 401 || response.status === 403
         ? "Access restricted; destination availability not verified."
         : response.status === 429
           ? "Rate limited; destination availability not verified."

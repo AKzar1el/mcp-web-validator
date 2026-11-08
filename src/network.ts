@@ -659,8 +659,8 @@ export async function fetchPublicText(
     maxRedirects: options.maxRedirects,
   });
 
-  // A partial body cannot be treated as a complete HTML document or sitemap.
-  if (!response.ok || response.status === 206) {
+  // No-content and partial responses are not complete validation documents.
+  if (!response.ok || response.status === 204 || response.status === 205 || response.status === 206) {
     const status = response.status;
     await cancelResponseBody(response);
     throw new Error(`URL returned HTTP status ${status}`);
@@ -687,16 +687,20 @@ export async function fetchPublicText(
   const shouldPreferHtmlBom = contentType === "text/html"
     && declaredEncoding !== undefined
     && isSupportedCharacterEncoding(declaredEncoding);
+  const text = await readResponseText(
+    response,
+    maxBytes,
+    shouldSniffHtmlEncoding || shouldSniffXmlEncoding ? undefined : declaredEncoding,
+    shouldSniffHtmlEncoding,
+    shouldSniffXmlEncoding,
+    shouldPreferXmlBom,
+    shouldPreferHtmlBom,
+  );
+  if ((contentType === "text/html" || contentType === "application/xhtml+xml") && !text.trim()) {
+    throw new Error("URL returned an empty HTML document");
+  }
   return {
-    text: await readResponseText(
-      response,
-      maxBytes,
-      shouldSniffHtmlEncoding || shouldSniffXmlEncoding ? undefined : declaredEncoding,
-      shouldSniffHtmlEncoding,
-      shouldSniffXmlEncoding,
-      shouldPreferXmlBom,
-      shouldPreferHtmlBom,
-    ),
+    text,
     url: url.href,
     status: response.status,
     contentType: contentTypeHeader,

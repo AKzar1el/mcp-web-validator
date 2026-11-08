@@ -512,11 +512,14 @@ describe("polished tool responses", () => {
 
     expect(result.structuredContent).toMatchObject({
       links_checked: 3,
+      eligible_links: 3,
+      links_truncated: false,
       healthy_links: 1,
       redirects: 1,
       unreachable_links: 1,
       overview: {
         status: "needs_attention",
+        truncated: false,
         counts: [
           { key: "checked", label: "Checked", value: 3, tone: "info" },
           { key: "healthy", label: "Healthy", value: 1, tone: "success" },
@@ -526,6 +529,25 @@ describe("polished tool responses", () => {
       },
     });
     expect(result.content[0]?.text).toContain("1 healthy link, 1 redirect, and 1 unreachable link");
+  });
+
+  it("marks link checks partial when the maximum hides distinct eligible links", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callTool("check_broken_links", {
+      html: '<a href="https://example.com/first">First</a><a href="https://example.com/first">Duplicate</a><a href="https://example.com/second">Second</a>',
+      max_links: 1,
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      links_checked: 1,
+      eligible_links: 2,
+      links_truncated: true,
+      overview: { status: "partial", total: 2, shown: 1, truncated: true },
+    });
+    expect(result.content[0]?.text).toContain("1 of 2 eligible links");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("reports a rate-limited link as unverified, not unreachable or healthy", async () => {
@@ -634,6 +656,29 @@ describe("polished tool responses", () => {
       overview: { status: "partial" },
     });
     expect(result.content[0]?.text).toContain("remains unverified");
+  });
+
+  it("makes an otherwise clear combined report partial when link coverage is capped", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      if (String(target).startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      return new Response(null, { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callTool("generate_validation_report", {
+      html: '<!doctype html><html lang="en"><head><title>Example</title></head><body><h1>Example</h1><a href="https://example.com/a">A</a><a href="https://example.com/b">B</a></body></html>',
+      check_links: true,
+      max_links: 1,
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      links_checked: 1,
+      eligible_links: 2,
+      links_truncated: true,
+      overview: { status: "partial" },
+    });
+    expect(result.structuredContent.overview.detail).toContain("1 of 2 eligible links");
+    expect(fetchMock.mock.calls.filter(([target]) => !String(target).startsWith("https://html5.validator.nu/"))).toHaveLength(1);
   });
 
   it("checks fragment-only links pointing to a different HTML base document", async () => {

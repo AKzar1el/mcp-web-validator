@@ -1010,11 +1010,11 @@ async function mapWithConcurrency<T, R>(
  * Checks a capped set of public HTTP(S) links. It does not follow redirects,
  * request custom ports, or return response bodies.
  */
-export async function checkBrokenLinks(
+export async function checkBrokenLinksDetailed(
   html: string,
   baseUrl: string | undefined,
   maxLinks: number,
-): Promise<LinkStatus[]> {
+): Promise<{ links: LinkStatus[]; eligibleLinks: number; truncated: boolean }> {
   const fallbackBaseUrl = baseUrl ? toPublicHttpUrl(baseUrl)?.toString() : undefined;
   if (baseUrl && !fallbackBaseUrl) {
     throw new Error("base_url must be a public HTTP(S) URL on port 80 or 443.");
@@ -1046,15 +1046,28 @@ export async function checkBrokenLinks(
   );
   const limit = Math.min(Math.max(maxLinks, 1), HOSTED_MAX_LINKS);
 
+  // Count eligible unique links beyond the request cap without fetching them.
   $("a[href], area[href]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
-    if (urls.length >= limit) return;
     const href = $(element).attr("href")?.trim();
     if (!href || (href.startsWith("#") && !checkCrossDocumentFragments) || /^(mailto:|tel:|javascript:|data:)/i.test(href)) return;
     const url = toPublicHttpUrl(href, effectiveBaseUrl);
     if (!url || seen.has(url.toString())) return;
     seen.add(url.toString());
-    urls.push(url);
+    if (urls.length < limit) urls.push(url);
   });
 
-  return mapWithConcurrency(urls, 5, fetchStatus);
+  return {
+    links: await mapWithConcurrency(urls, 5, fetchStatus),
+    eligibleLinks: seen.size,
+    truncated: seen.size > urls.length,
+  };
+}
+
+/** Compatibility helper for callers that only need checked link statuses. */
+export async function checkBrokenLinks(
+  html: string,
+  baseUrl: string | undefined,
+  maxLinks: number,
+): Promise<LinkStatus[]> {
+  return (await checkBrokenLinksDetailed(html, baseUrl, maxLinks)).links;
 }

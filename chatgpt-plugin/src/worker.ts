@@ -6,7 +6,7 @@ import {
 } from "@modelcontextprotocol/ext-apps/server";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { auditSeoMetadata, checkBrokenLinks, isHttpRedirectStatus, isUnverifiedLinkStatus, validateSchemaMarkup } from "./audits";
+import { auditSeoMetadata, checkBrokenLinksDetailed, isHttpRedirectStatus, isUnverifiedLinkStatus, validateSchemaMarkup } from "./audits";
 import {
   CSS_MAX_LENGTH,
   HOSTED_MAX_LINKS,
@@ -138,6 +138,8 @@ const reportOutputSchema = {
   seo_issues: z.number().int().nonnegative(),
   schema_issues: z.number().int().nonnegative(),
   links_checked: z.number().int().nonnegative(),
+  eligible_links: z.number().int().nonnegative(),
+  links_truncated: z.boolean(),
   broken_links: z.number().int().nonnegative(),
   unverified_links: z.number().int().nonnegative(),
   html_warnings: z.number().int().nonnegative(),
@@ -451,7 +453,8 @@ async function runValidationReport({
   const [htmlResult, cssResult, linksResult] = await Promise.allSettled([
     validateHtmlDetailed(html, htmlMediaType),
     cssChecked ? Promise.resolve().then(() => validateCss(css)) : Promise.resolve([]),
-    checkLinks ? checkBrokenLinks(html, baseUrl, maxLinks) : Promise.resolve([]),
+    checkLinks ? checkBrokenLinksDetailed(html, baseUrl, maxLinks)
+      : Promise.resolve({ links: [], eligibleLinks: 0, truncated: false }),
   ]);
   const seoResult = auditSeoMetadata(html, { xRobotsTag });
   const schemaResult = validateSchemaMarkup(html);
@@ -480,7 +483,9 @@ async function runValidationReport({
     : { messages: [], total: 0, truncated: false, counts: { error: 0, warning: 0, info: 0 } };
   const htmlMessages = htmlValidation.messages;
   const cssMessages = cssResult.status === "fulfilled" ? cssResult.value : [];
-  const links = linksResult.status === "fulfilled" ? linksResult.value : [];
+  const links = linksResult.status === "fulfilled" ? linksResult.value.links : [];
+  const eligibleLinks = linksResult.status === "fulfilled" ? linksResult.value.eligibleLinks : 0;
+  const linksTruncated = linksResult.status === "fulfilled" && linksResult.value.truncated;
   const htmlCounts = {
     errors: htmlValidation.counts.error,
     warnings: htmlValidation.counts.warning,
@@ -523,28 +528,32 @@ async function runValidationReport({
     + linkSummary.redirects
     + linkSummary.unreachable
     + linkSummary.unverified;
-  const truncated = htmlValidation.truncated || seoResult.truncated || schemaResult.truncated;
+  const truncated = htmlValidation.truncated || seoResult.truncated || schemaResult.truncated || linksTruncated;
   const hasFailures = failedChecks.length > 0;
   const needsAttention = reportCounts.errors > 0 || reportCounts.warnings > 0;
   const linksDetail = checkLinks
     ? failedChecks.includes("links")
       ? "Link checking did not complete."
-      : `${plural(linkSummary.checked, "link")} checked${linkSummary.unverified > 0 ? `; ${plural(linkSummary.unverified, "check")} unverified` : ""}.`
+      : `${linksTruncated ? `${linkSummary.checked} of ${eligibleLinks} eligible links` : plural(linkSummary.checked, "link")} checked${linkSummary.unverified > 0 ? `; ${plural(linkSummary.unverified, "check")} unverified` : ""}${linksTruncated ? "; unchecked links are not covered" : ""}.`
     : "Links were not requested.";
   const cssDetail = cssChecked ? "CSS was checked." : "Linked and external CSS were not checked.";
   const nextAction = hasFailures
     ? "Review the completed findings, then retry the unavailable checks."
     : linkSummary.unverified > 0
       ? "Review confirmed failures and redirects; retry rate-limited or failed link checks later."
+    : linksTruncated
+      ? "Check the remaining links separately; this report covers only the first bounded set."
     : reportNextAction(reportCounts.errors, reportCounts.warnings, `run ${title.toLowerCase()} again`);
   const overview: ResultOverview = {
     kind: "report",
-    status: hasFailures || linkSummary.unverified > 0 ? "partial" : needsAttention ? "needs_attention" : "passed",
+    status: hasFailures || linkSummary.unverified > 0 || linksTruncated ? "partial" : needsAttention ? "needs_attention" : "passed",
     title,
     headline: hasFailures
       ? `${title} is partial: ${plural(failedChecks.length, "check")} could not complete.`
       : linkSummary.unverified > 0
         ? `${title} is partial: ${plural(linkSummary.unverified, "link check")} ${linkSummary.unverified === 1 ? "remains" : "remain"} unverified.`
+      : linksTruncated
+        ? `${title} is partial: ${linkSummary.checked} of ${eligibleLinks} eligible links checked.`
       : needsAttention
         ? `${title} is ready: ${summarizeSeverities({ ...reportCounts, info: 0 })} need attention.`
         : `${title} is clear: no errors or warnings were found.`,
@@ -595,6 +604,8 @@ async function runValidationReport({
     seo_issues: seoResult.total,
     schema_issues: schemaResult.total,
     links_checked: linkSummary.checked,
+    eligible_links: eligibleLinks,
+    links_truncated: linksTruncated,
     broken_links: linkSummary.unreachable,
     unverified_links: linkSummary.unverified,
     html_warnings: htmlCounts.warnings,
@@ -639,6 +650,8 @@ function failedPublicPageAudit(error: string, linksRequested: boolean) {
       seo_issues: 0,
       schema_issues: 0,
       links_checked: 0,
+      eligible_links: 0,
+      links_truncated: false,
       broken_links: 0,
       unverified_links: 0,
       html_warnings: 0,
@@ -1132,6 +1145,8 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
       outputSchema: {
         links: z.array(linkStatusSchema),
         links_checked: z.number().int().nonnegative(),
+        eligible_links: z.number().int().nonnegative(),
+        links_truncated: z.boolean(),
         healthy_links: z.number().int().nonnegative(),
         redirects: z.number().int().nonnegative(),
         unreachable_links: z.number().int().nonnegative(),
@@ -1144,7 +1159,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
     },
     async ({ html, base_url, max_links }) => {
       try {
-        const links = await checkBrokenLinks(html, base_url, max_links);
+        const { links, eligibleLinks, truncated } = await checkBrokenLinksDetailed(html, base_url, max_links);
         const counts = linkCounts(links);
         const needsAttention = counts.redirects > 0 || counts.unreachable > 0;
         const headline = counts.checked === 0
@@ -1152,15 +1167,15 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           : `Checked ${plural(counts.checked, "link")}: ${plural(counts.healthy, "healthy link")}, ${plural(counts.redirects, "redirect")}, and ${plural(counts.unreachable, "unreachable link")}${counts.unverified > 0 ? `; ${plural(counts.unverified, "check")} unverified` : ""}.`;
         const overview: ResultOverview = {
           kind: "links",
-          status: counts.checked === 0 ? "not_applicable" : counts.unverified > 0 ? "partial" : needsAttention ? "needs_attention" : "passed",
+          status: counts.checked === 0 ? "not_applicable" : counts.unverified > 0 || truncated ? "partial" : needsAttention ? "needs_attention" : "passed",
           title: "Public link check",
           headline,
           detail: counts.checked === 0
             ? "Only eligible public HTTP(S) links are checked; fragments and non-web links are skipped."
-            : "Redirects are reported but not followed, and response bodies are not downloaded.",
-          total: counts.checked,
+            : `${truncated ? `${counts.checked} of ${eligibleLinks} eligible links checked; remaining links were not checked. ` : ""}Redirects are reported but not followed, and response bodies are not downloaded.`,
+          total: eligibleLinks,
           shown: links.length,
-          truncated: false,
+          truncated,
           counts: [
             metric("checked", "Checked", counts.checked, "info"),
             metric("healthy", "Healthy", counts.healthy, "success"),
@@ -1168,11 +1183,13 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
             metric("unreachable", "Unreachable", counts.unreachable, "error"),
             ...(counts.unverified > 0 ? [metric("unverified", "Unverified", counts.unverified, "warning")] : []),
           ],
-          ...(needsAttention || counts.unverified > 0
+          ...(needsAttention || counts.unverified > 0 || truncated
             ? { next_action: counts.unreachable > 0
               ? "Fix unreachable links first, then confirm that each redirect is intentional."
               : counts.unverified > 0
                 ? "Review access restrictions and retry rate-limited or failed checks later; unverified does not prove a broken destination."
+                : truncated
+                  ? "Check the remaining links separately; the current result covers only the first bounded set."
                 : "Confirm that each redirect is intentional and points to the preferred destination." }
             : {}),
         };
@@ -1197,6 +1214,8 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           structuredContent: {
             links,
             links_checked: counts.checked,
+            eligible_links: eligibleLinks,
+            links_truncated: truncated,
             healthy_links: counts.healthy,
             redirects: counts.redirects,
             unreachable_links: counts.unreachable,
@@ -1212,6 +1231,8 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           structuredContent: {
             links: [],
             links_checked: 0,
+            eligible_links: 0,
+            links_truncated: false,
             healthy_links: 0,
             redirects: 0,
             unreachable_links: 0,

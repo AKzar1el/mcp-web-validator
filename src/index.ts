@@ -56,7 +56,10 @@ function localHtmlValidationMediaType(filePath: string): HtmlValidationMediaType
 }
 
 const filePathSchema = z.string().trim().min(1).max(PATH_MAX_LENGTH);
-const htmlContentSchema = z.string().min(1).max(HTML_MAX_BYTES);
+const htmlContentSchema = z.string().min(1).max(HTML_MAX_BYTES).refine(
+  (value) => new TextEncoder().encode(value).byteLength <= HTML_MAX_BYTES,
+  `HTML input must not exceed ${HTML_MAX_BYTES.toLocaleString("en-US")} UTF-8 bytes.`,
+);
 const publicUrlSchema = z
   .string()
   .url()

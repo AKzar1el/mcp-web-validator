@@ -264,6 +264,10 @@ test("manual redirects keep same-origin headers but strip credentials after a cr
         XAuthToken: "fixture-compact-auth-token",
         XClientSecret: "fixture-compact-client-secret",
         XSessionId: "fixture-compact-session-id",
+        "Signature": "fixture-http-message-signature",
+        "Signature-Input": "fixture-signature-metadata",
+        "X-Hub-Signature-256": "fixture-webhook-hmac",
+        XWebhookSignature: "fixture-compact-webhook-signature",
         hOsT: "private.internal",
         "X-Trace": "safe",
       },
@@ -292,6 +296,8 @@ test("manual redirects keep same-origin headers but strip credentials after a cr
       assert.equal(request.headers.get("XAuthToken"), "fixture-compact-auth-token");
       assert.equal(request.headers.get("XClientSecret"), "fixture-compact-client-secret");
       assert.equal(request.headers.get("XSessionId"), "fixture-compact-session-id");
+      assert.equal(request.headers.get("Signature"), "fixture-http-message-signature");
+      assert.equal(request.headers.get("XWebhookSignature"), "fixture-compact-webhook-signature");
     }
     for (const request of requests.slice(2)) {
       for (const name of [
@@ -299,6 +305,7 @@ test("manual redirects keep same-origin headers but strip credentials after a cr
         "X-API-Key", "Api-Key", "X-Auth-Token", "X-Access-Token",
         "X-Amz-Security-Token", "X-Client-Secret", "X-Session-ID",
         "XApiKey", "XAuthToken", "XClientSecret", "XSessionId",
+        "Signature", "Signature-Input", "X-Hub-Signature-256", "XWebhookSignature",
       ]) {
         assert.equal(request.headers.get(name), null, name);
       }

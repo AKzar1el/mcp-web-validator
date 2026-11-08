@@ -1064,7 +1064,9 @@ export async function checkBrokenLinks(
           timeoutMs: LINK_CHECK_TIMEOUT_MS,
           maxRedirects: 0,
         });
-        if (getResult.response.status === 416) {
+        // Some origins reject an otherwise valid GET solely because of Range;
+        // confirm with an ordinary GET before declaring the link broken.
+        if (getResult.response.status === 400 || getResult.response.status === 416) {
           await cancelResponseBody(getResult.response);
           getResult = await fetchPublicHttp(url, {
             method: "GET",

@@ -259,6 +259,8 @@ test("iframes exposed to accessibility require a non-empty accessible name", () 
     '<iframe src="/account" name="Account settings"></iframe>',
     '<iframe src="/account" title="   "></iframe>',
     '<iframe src="/account" aria-label="   "></iframe>',
+    '<iframe src="/account" tabindex="-1"></iframe>',
+    '<iframe src="/account" tabindex="-2"></iframe>',
     '<span id="blank-frame-label">   </span><iframe src="/account" aria-labelledby="blank-frame-label"></iframe>',
   ]) {
     assert.deepEqual(
@@ -274,11 +276,11 @@ test("iframes exposed to accessibility require a non-empty accessible name", () 
 
   for (const html of [
     '<iframe src="/account" title="Account settings"></iframe>',
+    '<iframe src="/account" tabindex="-1" title="Account settings"></iframe>',
     '<iframe src="/account" aria-label="Account settings"></iframe>',
     '<span id="frame-label">Account settings</span><iframe src="/account" aria-labelledby="frame-label"></iframe>',
     '<iframe src="/account" aria-hidden="true"></iframe>',
     '<div aria-hidden="true"><iframe src="/account"></iframe></div>',
-    '<iframe src="/account" tabindex="-1"></iframe>',
     '<iframe src="/account" role="none"></iframe>',
     '<iframe src="/account" role="presentation"></iframe>',
     '<template><iframe src="/account"></iframe></template>',

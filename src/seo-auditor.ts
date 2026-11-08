@@ -245,13 +245,6 @@ function explicitSemanticRole(element: unknown): string | undefined {
     .find((token) => VALID_NON_ABSTRACT_ARIA_ROLES.has(token));
 }
 
-function hasNegativeTabIndex(element: unknown): boolean {
-  type ElementNode = { attribs?: Record<string, string> };
-  const value = (element as ElementNode | null)?.attribs?.tabindex?.trim();
-  if (!value || !/^[+-]?\d+$/.test(value)) return false;
-  return Number(value) < 0;
-}
-
 function isDecorativeIframe(element: unknown): boolean {
   const role = explicitSemanticRole(element);
   return role === "none" || role === "presentation";
@@ -784,7 +777,6 @@ export function auditSeoMetadataDetailed(htmlContent: string, xRobotsTag?: strin
   $("iframe").filter((_, element) =>
     !isInTemplateContents(element)
     && !isHiddenFromAccessibilityTree(element)
-    && !hasNegativeTabIndex(element)
     && !isDecorativeIframe(element)
   ).each((_, element) => {
     const iframe = $(element);

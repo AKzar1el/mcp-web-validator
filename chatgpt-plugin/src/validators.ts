@@ -94,13 +94,18 @@ async function validateHtmlDetailedWithSignal(
       lastLine?: unknown;
       lastColumn?: unknown;
     };
-    if (typeof item.type === "string" && item.type.trim().toLowerCase() === "non-document-error") {
+    const normalizedType = typeof item.type === "string" ? item.type.trim().toLowerCase() : "";
+    if (normalizedType === "non-document-error") {
       throw new Error("The Nu HTML Checker could not complete validation (non-document-error).");
     }
+    if (!["error", "warning", "info"].includes(normalizedType)
+      || typeof item.message !== "string" || !item.message.trim()) {
+      throw new Error("The Nu HTML Checker returned a malformed validation message.");
+    }
     const type: ValidationMessage["type"] =
-      item.type === "error"
+      normalizedType === "error"
         ? "error"
-        : item.type === "warning" || item.subType === "warning"
+        : normalizedType === "warning" || (normalizedType === "info" && item.subType === "warning")
           ? "warning"
           : "info";
     counts[type] += 1;
@@ -108,9 +113,7 @@ async function validateHtmlDetailedWithSignal(
 
     messages.push({
       type,
-      message: typeof item.message === "string" && item.message.trim()
-        ? item.message
-        : "Validator returned an unspecified message.",
+      message: item.message,
       line: typeof item.lastLine === "number" && Number.isFinite(item.lastLine)
         ? item.lastLine
         : undefined,

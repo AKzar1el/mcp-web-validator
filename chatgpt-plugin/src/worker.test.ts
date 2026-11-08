@@ -667,7 +667,7 @@ describe("polished tool responses", () => {
     expect(privateBase.structuredContent).toMatchObject({ links_checked: 0 });
     expect(fetchMock.mock.calls).toHaveLength(2);
   });
-  it("does not classify HTTP 304 as a redirect", async () => {
+  it("does not classify an unconditional HTTP 304 as a healthy link or redirect", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(null, { status: 304 })));
 
     const result = await callTool("check_broken_links", {
@@ -677,14 +677,15 @@ describe("polished tool responses", () => {
 
     expect(result.structuredContent).toMatchObject({
       links_checked: 1,
-      healthy_links: 1,
+      healthy_links: 0,
       redirects: 0,
       unreachable_links: 0,
+      unverified_links: 1,
       overview: {
-        status: "passed",
+        status: "partial",
       },
     });
-    expect(result.content[0]?.text).toContain("1 healthy link, 0 redirects, and 0 unreachable links");
+    expect(result.content[0]?.text).toContain("unverified");
     expect(result.content[0]?.text).not.toContain("redirect status 304");
   });
 

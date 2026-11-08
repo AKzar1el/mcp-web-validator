@@ -1017,6 +1017,44 @@ describe("public site audit", () => {
     expect(result.structuredContent.overview.detail).toContain("not site-wide coverage");
   });
 
+  it("explains a robots-excluded coverage gap even when the eligible page audit finishes", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") {
+        return new Response("<!doctype html><html lang='en'><head><title>Example</title></head><body><h1>Example</h1></body></html>", {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nDisallow: /private\nSitemap: /sitemap.xml\n", {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response("<urlset><url><loc>https://example.com/</loc></url><url><loc>https://example.com/private</loc></url></urlset>", {
+          headers: { "content-type": "application/xml" },
+        });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    }));
+
+    const result = await callTool("audit_public_site", { site_url: "https://example.com/", max_pages: 2 });
+
+    expect(result.structuredContent).toMatchObject({
+      pages_selected: 1,
+      pages_audited: 1,
+      pages_skipped_robots: 1,
+      overview: { status: "partial" },
+    });
+    expect(result.structuredContent.overview.next_action).toContain("robots.txt");
+    expect(result.structuredContent.overview.counts).toContainEqual(expect.objectContaining({
+      key: "pages_skipped_robots",
+      value: 1,
+    }));
+    expect(JSON.stringify(result)).not.toContain("https://example.com/private</loc>");
+  });
+
   it("returns compact same-origin sitemap summaries without exposing fetched HTML", async () => {
     const privateMarker = "private-site-marker-that-must-not-be-returned";
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {

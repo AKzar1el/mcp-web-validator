@@ -20,6 +20,23 @@ test("report scoring does not penalize informational SEO findings", () => {
   assert.match(result.report, /site\\\|name\.html/);
 });
 
+test("report neutralizes terminal control characters in untrusted Markdown cells", () => {
+  const result = createValidationReport({
+    htmlFilePath: "page\u001b[2J.html",
+    cssAudited: false,
+    htmlMessages: [{ type: "error", message: "Bad\u001b[31m HTML", extract: "<x>\u009b0m" }],
+    cssMessages: [],
+    seoIssues: [{ severity: "warning", category: "SEO", message: "Bad\u0000 metadata" }],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/bad", status: 404, ok: false, message: "Failed\u007f lookup" }],
+  });
+
+  assert.doesNotMatch(result.report, /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/);
+  assert.match(result.report, /Bad .* HTML/);
+  assert.match(result.report, /Bad\s+metadata/);
+  assert.match(result.report, /&lt;x&gt;/);
+});
+
 test("report scoring does not penalize title and meta-description editorial length guidance", () => {
   const seoIssues = auditSeoMetadata([
     '<html lang="en"><head>',

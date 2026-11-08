@@ -70,6 +70,16 @@ describe("validateHtml", () => {
 
     await expect(validateHtmlDetailed("<html></html>")).rejects.toThrow("invalid messages payload");
   });
+
+  it.each([
+    { type: "validation-aborted", message: "Checker could not finish" },
+    { type: "info", message: " \t " },
+    { type: "error" },
+  ])("rejects malformed Nu diagnostics instead of inventing a result: %#", async (diagnostic) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ messages: [diagnostic] })));
+
+    await expect(validateHtmlDetailed("<html></html>")).rejects.toThrow("malformed validation message");
+  });
 });
 
 describe("Nu checker failures", () => {

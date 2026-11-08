@@ -142,6 +142,30 @@ test("HTML validator normalizes upstream messages to the advertised contract", a
   }
 });
 
+test("HTML validator bounds oversized source extracts without losing diagnostic counts", async () => {
+  const originalFetch = globalThis.fetch;
+  const longExtract = `<main>${"x".repeat(10_000)}</main>`;
+  globalThis.fetch = async () => Response.json({
+    messages: [
+      { type: "error", message: "Missing required attribute", extract: longExtract },
+      { type: "warning", message: "Review this element", extract: "<img>" },
+    ],
+  });
+
+  try {
+    const { validateHtmlContentDetailed } = await import("../dist/w3c-validator.js");
+    const result = await validateHtmlContentDetailed("<!doctype html><title>Test</title>");
+    assert.equal(result.messages[0].extract?.length, 500);
+    assert.equal(result.messages[0].extract?.endsWith("..."), true);
+    assert.equal(result.messages[1].extract, "<img>");
+    assert.equal(result.messages[0].message, "Missing required attribute");
+    assert.equal(result.total, 2);
+    assert.deepEqual(result.counts, { error: 1, warning: 1, info: 0 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("HTML validator reports full totals when structured diagnostics are capped", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => Response.json({

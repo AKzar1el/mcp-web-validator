@@ -161,6 +161,10 @@ export function pipeScreenshotUpstreamResponse(
   };
   upstreamResponse.once("error", interrupt);
   upstreamResponse.once("aborted", interrupt);
+  // A socket can close with an incomplete HTTP body without emitting an error.
+  upstreamResponse.once("close", () => {
+    if (!upstreamResponse.complete) interrupt();
+  });
   response.once("close", () => {
     if (!upstreamResponse.complete) upstreamResponse.destroy();
   });

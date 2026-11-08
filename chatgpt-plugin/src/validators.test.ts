@@ -209,6 +209,15 @@ describe("bounded audits", () => {
     expect(auditSeoMetadata(html).issues.some((issue) => issue.code === "accessibility.page_language.missing_or_empty")).toBe(true);
   });
 
+  it("uses a non-empty XHTML xml:lang when the HTML lang attribute is blank", () => {
+    for (const lang of ["", "   "]) {
+      const xhtml = `<html xmlns="http://www.w3.org/1999/xhtml" lang="${lang}" xml:lang="fr"><head><title>Exemple</title></head></html>`;
+      const issues = auditSeoMetadata(xhtml).issues;
+      expect(issues.find((issue) => issue.code === "accessibility.page_language.missing_or_empty")).toBeUndefined();
+      expect(issues.find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag")).toBeUndefined();
+    }
+  });
+
   it("requires an explicitly authored page language to have a known primary subtag", () => {
     for (const [lang, primary] of [
       ["em-US", "em"],

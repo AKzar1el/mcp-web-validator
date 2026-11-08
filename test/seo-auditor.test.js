@@ -198,6 +198,15 @@ test("XHTML namespace permits xml:lang without requiring HTML lang", () => {
   assert.ok(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.page_language.missing_or_empty"));
 });
 
+test("XHTML namespace uses xml:lang when HTML lang is blank", () => {
+  for (const lang of ["", "   "]) {
+    const xhtml = `<html xmlns="http://www.w3.org/1999/xhtml" lang="${lang}" xml:lang="fr"><head><title>Exemple</title></head></html>`;
+    const issues = auditSeoMetadata(xhtml);
+    assert.equal(issues.find((issue) => issue.code === "accessibility.page_language.missing_or_empty"), undefined);
+    assert.equal(issues.find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), undefined);
+  }
+});
+
 test("explicit HTML documents require a known primary language subtag", () => {
   for (const [lang, primary] of [
     ["em-US", "em"],

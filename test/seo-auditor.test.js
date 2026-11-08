@@ -306,6 +306,28 @@ test("iframes exposed to accessibility require a non-empty accessible name", () 
   }
 });
 
+test("presentational iframe roles do not suppress naming when they conflict with focus or global ARIA", () => {
+  for (const html of [
+    '<iframe src="/account" role="none" tabindex="0"></iframe>',
+    '<iframe src="/account" role="presentation" tabindex="-1"></iframe>',
+    '<iframe src="/account" role="none" contenteditable="true"></iframe>',
+    '<iframe src="/account" role="presentation" aria-describedby="context"></iframe>',
+    '<iframe src="/account" role="none" aria-label="   "></iframe>',
+  ]) {
+    const issue = auditSeoMetadata(html).find((entry) => entry.code === "accessibility.iframe_name.missing_or_empty");
+    assert.equal(issue?.severity, "error", html);
+  }
+
+  for (const html of [
+    '<iframe src="/account" role="none" contenteditable="false"></iframe>',
+    '<iframe src="/account" role="presentation" tabindex="0" title="Account settings"></iframe>',
+    '<iframe src="/account" role="presentation" aria-describedby="context" aria-label="Account settings"></iframe>',
+  ]) {
+    const issue = auditSeoMetadata(html).find((entry) => entry.code === "accessibility.iframe_name.missing_or_empty");
+    assert.equal(issue, undefined, html);
+  }
+});
+
 test("aria-labelledby accepts a directly referenced aria-label as the accessible name", () => {
   for (const [html, code] of [
     ['<span id="label" aria-label="Search"></span><input type="image" src="search.png" aria-labelledby="label">', "accessibility.input_image_alt.missing_or_empty"],

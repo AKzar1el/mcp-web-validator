@@ -849,7 +849,8 @@ export function auditSeoMetadataDetailed(htmlContent: string, xRobotsTag?: strin
   const htmlNode = htmlElement.get(0) as { sourceCodeLocation?: unknown } | undefined;
   if (htmlNode?.sourceCodeLocation) {
     const isXhtml = htmlElement.attr("xmlns") === "http://www.w3.org/1999/xhtml";
-    const pageLanguage = (htmlElement.attr("lang") ?? (isXhtml ? htmlElement.attr("xml:lang") : undefined))?.trim();
+    const pageLanguage = htmlElement.attr("lang")?.trim()
+      || (isXhtml ? htmlElement.attr("xml:lang")?.trim() : undefined);
     if (!pageLanguage) {
       add({
         code: "accessibility.page_language.missing_or_empty",

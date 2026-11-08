@@ -85,12 +85,12 @@ function scoreIndicator(score: number | null): string {
 
 function markdownCell(value: unknown): string {
   return String(value ?? "")
+    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/\\/g, "\\\\")
     .replace(/([`*_[\]|~])/g, "\\$1")
-    .replace(/[\r\n]+/g, " ")
     .trim();
 }
 

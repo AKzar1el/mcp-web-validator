@@ -126,6 +126,17 @@ export function createValidationReport(input: ValidationReportInput): Validation
   const seoTruncated = input.seoTruncated ?? seoTotalIssues > input.seoIssues.length;
   const schemaTotalIssues = input.schemaTotalIssues ?? input.schemaIssues.length;
   const schemaTruncated = input.schemaTruncated ?? schemaTotalIssues > input.schemaIssues.length;
+  // A capped diagnostic list cannot establish the severity distribution of omitted records.
+  const htmlCountsIncomplete = htmlTruncated && input.htmlCounts === undefined;
+  const cssCountsIncomplete = input.cssAudited && cssTruncated && input.cssCounts === undefined;
+  const seoCountsIncomplete = seoTruncated && input.seoCounts === undefined;
+  const schemaCountsIncomplete = schemaTruncated && input.schemaCounts === undefined;
+  const incompleteCountChecks = [
+    ...(htmlCountsIncomplete ? ["HTML"] : []),
+    ...(cssCountsIncomplete ? ["CSS"] : []),
+    ...(seoCountsIncomplete ? ["SEO"] : []),
+    ...(schemaCountsIncomplete ? ["JSON-LD"] : []),
+  ];
   const seoErrors = input.seoCounts?.error ?? input.seoIssues.filter((issue) => issue.severity === "error").length;
   const seoWarnings = input.seoCounts?.warning ?? input.seoIssues.filter((issue) => issue.severity === "warning").length;
   const schemaErrors = input.schemaCounts?.error ?? input.schemaIssues.filter((issue) => issue.severity === "error").length;
@@ -134,11 +145,11 @@ export function createValidationReport(input: ValidationReportInput): Validation
   const redirectLinks = input.links.filter(isRedirect).length;
   const incompleteLinkTargets = unverifiedLinks > 0 || redirectLinks > 0;
 
-  const htmlScore = checkFailed("html") ? null : clampScore(100 - htmlErrors * 15 - htmlWarnings * 2);
-  const cssScore = checkFailed("css") || !input.cssAudited || cssCompatibilityLimitations > 0
+  const htmlScore = checkFailed("html") || htmlCountsIncomplete ? null : clampScore(100 - htmlErrors * 15 - htmlWarnings * 2);
+  const cssScore = checkFailed("css") || !input.cssAudited || cssCompatibilityLimitations > 0 || cssCountsIncomplete
     ? null
     : clampScore(100 - cssErrors * 20);
-  const seoScore = checkFailed("seo") || checkFailed("schema")
+  const seoScore = checkFailed("seo") || checkFailed("schema") || seoCountsIncomplete || schemaCountsIncomplete
     ? null
     : clampScore(100 - seoErrors * 15 - seoWarnings * 4 - schemaErrors * 15);
   const linkScore = checkFailed("links") || input.links.length === 0 || incompleteLinkTargets
@@ -147,7 +158,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
   const auditedScores = [htmlScore, seoScore, cssScore, linkScore].filter(
     (score): score is number => score !== null,
   );
-  const overallScore = failedChecks.length > 0 || cssCompatibilityLimitations > 0 || incompleteLinkTargets || auditedScores.length === 0
+  const overallScore = failedChecks.length > 0 || cssCompatibilityLimitations > 0 || incompleteLinkTargets || incompleteCountChecks.length > 0 || auditedScores.length === 0
     ? null
     : Math.round(auditedScores.reduce((total, score) => total + score, 0) / auditedScores.length);
 
@@ -179,16 +190,16 @@ export function createValidationReport(input: ValidationReportInput): Validation
     "| Audit | Status | Score |",
     "| :--- | :---: | :---: |",
     `| W3C HTML validation | ${htmlScore === null ? "Unavailable" : scoreIndicator(htmlScore)} | ${htmlScore === null ? "N/A" : `**${htmlScore}** / 100`} |`,
-    `| CSS validation | ${cssScore === null ? (checkFailed("css") ? "Unavailable" : cssCompatibilityLimitations > 0 ? "Compatibility-limited" : "Not audited") : scoreIndicator(cssScore)} | ${cssScore === null ? "N/A" : `**${cssScore}** / 100`} |`,
+    `| CSS validation | ${cssScore === null ? (checkFailed("css") || cssCountsIncomplete ? "Unavailable" : cssCompatibilityLimitations > 0 ? "Compatibility-limited" : "Not audited") : scoreIndicator(cssScore)} | ${cssScore === null ? "N/A" : `**${cssScore}** / 100`} |`,
     `| SEO and accessibility | ${seoScore === null ? "Unavailable" : scoreIndicator(seoScore)} | ${seoScore === null ? "N/A" : `**${seoScore}** / 100`} |`,
     `| Link integrity | ${linkScore === null ? (checkFailed("links") ? "Unavailable" : incompleteLinkTargets ? "Incomplete" : "No links checked") : scoreIndicator(linkScore)} | ${linkScore === null ? "N/A" : `**${linkScore}** / 100`} |`,
     "",
     "## Summary",
     "",
-    `- HTML: ${htmlErrors} error(s), ${htmlWarnings} warning(s)` ,
-    `- CSS: ${input.cssAudited ? `${cssErrors} error(s), ${cssWarnings} warning(s)${cssCompatibilityLimitations > 0 ? `, ${cssCompatibilityLimitations} known validator limitation(s)` : ""}` : "not audited"}`,
-    `- SEO and accessibility: ${seoErrors} error(s), ${seoWarnings} warning(s)`,
-    `- JSON-LD syntax: ${schemaErrors} error(s)`,
+    `- HTML: ${htmlErrors} error(s), ${htmlWarnings} warning(s)${htmlCountsIncomplete ? " (shown diagnostics only)" : ""}` ,
+    `- CSS: ${input.cssAudited ? `${cssErrors} error(s), ${cssWarnings} warning(s)${cssCompatibilityLimitations > 0 ? `, ${cssCompatibilityLimitations} known validator limitation(s)` : ""}${cssCountsIncomplete ? " (shown diagnostics only)" : ""}` : "not audited"}`,
+    `- SEO and accessibility: ${seoErrors} error(s), ${seoWarnings} warning(s)${seoCountsIncomplete ? " (shown findings only)" : ""}`,
+    `- JSON-LD syntax: ${schemaErrors} error(s)${schemaCountsIncomplete ? " (shown findings only)" : ""}`,
     `- Links: ${brokenLinks} confirmed HTTP failures, ${unverifiedLinks} unverified, ${redirectLinks} redirect${redirectLinks === 1 ? "" : "s"} to review of ${input.links.length} checked`,
     "",
     `## HTML diagnostics (${htmlTruncated ? `${input.htmlMessages.length} shown of ${htmlTotalMessages}` : htmlTotalMessages})`,
@@ -196,6 +207,9 @@ export function createValidationReport(input: ValidationReportInput): Validation
 
   if (failedChecks.length > 0) {
     report.splice(2, 0, "", "## Partial validation report", "The following checks were unavailable: " + failedChecks.join(", ") + ". Remaining checks completed.");
+  }
+  if (incompleteCountChecks.length > 0) {
+    report.splice(2, 0, "", "## Incomplete diagnostic counts", `${incompleteCountChecks.join(", ")} diagnostics were truncated without complete severity counts. Full severity counts are unavailable; summary counts reflect only shown findings, and affected audit and overall scores are withheld.`);
   }
   if (unverifiedLinks > 0) {
     report.splice(2, 0, "", "## Incomplete link verification", `${unverifiedLinks} link check(s) could not be verified because of a network or policy failure. Link and overall scores are withheld; an unverified check is not proof of a broken destination.`);
@@ -208,7 +222,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
     report.push("No HTML validation diagnostics were returned.");
   } else {
     if (htmlTruncated) {
-      report.push(`The structured HTML diagnostics are capped; showing the first ${input.htmlMessages.length} of ${htmlTotalMessages}. Summary counts and scoring use all returned Nu diagnostics.`);
+      report.push(`The structured HTML diagnostics are capped; showing the first ${input.htmlMessages.length} of ${htmlTotalMessages}. ${htmlCountsIncomplete ? "Full severity counts are unavailable, so the HTML score is withheld." : "Summary counts and scoring use all returned Nu diagnostics."}`);
     }
     report.push("", "| Line | Column | Severity | Message | Extract |", "| :---: | :---: | :--- | :--- | :--- |");
     for (const message of input.htmlMessages) {
@@ -224,7 +238,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
       report.push("No CSS validation errors or warnings were returned.");
     } else {
       if (cssTruncated) {
-        report.push(`The structured CSS diagnostics are capped; showing the first ${input.cssMessages.length} of ${cssTotalMessages}. Summary counts and scoring use all returned Jigsaw diagnostics.`);
+        report.push(`The structured CSS diagnostics are capped; showing the first ${input.cssMessages.length} of ${cssTotalMessages}. ${cssCountsIncomplete ? "Full severity counts are unavailable, so the CSS score is withheld." : "Summary counts and scoring use all returned Jigsaw diagnostics."}`);
       }
       report.push("", "| Line | Severity | Context | Message |", "| :---: | :--- | :--- | :--- |");
       for (const message of input.cssMessages) {
@@ -252,10 +266,10 @@ export function createValidationReport(input: ValidationReportInput): Validation
     report.push("No SEO, accessibility, or JSON-LD syntax findings were returned.");
   } else {
     if (seoTruncated) {
-      report.push(`The structured SEO/accessibility findings are capped; showing the first ${input.seoIssues.length} of ${seoTotalIssues}. Summary counts and scoring use all findings.`);
+      report.push(`The structured SEO/accessibility findings are capped; showing the first ${input.seoIssues.length} of ${seoTotalIssues}. ${seoCountsIncomplete ? "Full severity counts are unavailable, so the SEO score is withheld." : "Summary counts and scoring use all findings."}`);
     }
     if (schemaTruncated) {
-      report.push(`The structured JSON-LD findings are capped; showing the first ${input.schemaIssues.length} of ${schemaTotalIssues}. Summary counts and scoring use all findings.`);
+      report.push(`The structured JSON-LD findings are capped; showing the first ${input.schemaIssues.length} of ${schemaTotalIssues}. ${schemaCountsIncomplete ? "Full severity counts are unavailable, so the SEO score is withheld." : "Summary counts and scoring use all findings."}`);
     }
     report.push("", "| Category | Severity | Message | Element |", "| :--- | :--- | :--- | :--- |");
     for (const issue of combinedIssues) {

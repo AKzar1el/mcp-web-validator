@@ -3,6 +3,59 @@ import test from "node:test";
 import { createValidationReport } from "../dist/report.js";
 import { auditSeoMetadata } from "../dist/seo-auditor.js";
 
+test("truncated report inputs without full severity counts cannot earn complete scores", () => {
+  const common = {
+    htmlFilePath: "index.html",
+    cssAudited: true,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [],
+  };
+  const cases = [
+    {
+      label: "HTML",
+      input: { htmlMessages: [{ type: "info", message: "Shown HTML note" }], htmlTotalMessages: 4, htmlTruncated: true },
+      score: "htmlScore",
+    },
+    {
+      label: "CSS",
+      input: { cssMessages: [{ type: "warning", line: 1, message: "Shown CSS warning" }], cssTotalMessages: 4, cssTruncated: true },
+      score: "cssScore",
+    },
+    {
+      label: "SEO",
+      input: { seoIssues: [{ severity: "info", category: "SEO", message: "Shown SEO note" }], seoTotalIssues: 4, seoTruncated: true },
+      score: "seoScore",
+    },
+    {
+      label: "JSON-LD",
+      input: { schemaIssues: [{ severity: "info", category: "Schema", message: "Shown schema note" }], schemaTotalIssues: 4, schemaTruncated: true },
+      score: "seoScore",
+    },
+  ];
+
+  for (const { label, input, score } of cases) {
+    const result = createValidationReport({ ...common, ...input });
+    assert.equal(result.summary[score], null, `${label} score must not rely on visible-only counts`);
+    assert.equal(result.summary.overallScore, null, `${label} must not produce a complete overall score`);
+    assert.match(result.report, /full severity counts.*unavailable/i);
+    assert.doesNotMatch(result.report, /Summary counts and scoring use all returned/i);
+  }
+
+  const completeCounts = createValidationReport({
+    ...common,
+    htmlMessages: [{ type: "info", message: "Shown HTML note" }],
+    htmlTotalMessages: 4,
+    htmlTruncated: true,
+    htmlCounts: { error: 0, warning: 0, info: 4 },
+  });
+  assert.equal(completeCounts.summary.htmlScore, 100);
+  assert.equal(completeCounts.summary.overallScore, 100);
+  assert.doesNotMatch(completeCounts.report, /Incomplete diagnostic counts/);
+});
+
 test("report scoring does not penalize informational SEO findings", () => {
   const result = createValidationReport({
     htmlFilePath: "site|name.html",

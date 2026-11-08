@@ -1611,8 +1611,32 @@ test("link checker confirms a HEAD 400 with GET before marking a live target bro
       assert.deepEqual(requests.filter((request) => request.url === url), [
         { url, method: "HEAD", range: undefined },
         { url, method: "GET", range: "bytes=0-0" },
+        ...(path === "broken" ? [{ url, method: "GET", range: undefined }] : []),
       ]);
     }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker retries a plain GET when a server rejects the Range header with 400", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (_url, init) => {
+    const range = init?.headers?.Range;
+    requests.push({ method: init?.method, range });
+    return new Response(null, { status: init?.method === "HEAD" ? 405 : range ? 400 : 200 });
+  };
+
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/range-rejected">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 200);
+    assert.equal(links[0].ok, true);
+    assert.deepEqual(requests, [
+      { method: "HEAD", range: undefined },
+      { method: "GET", range: "bytes=0-0" },
+      { method: "GET", range: undefined },
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }

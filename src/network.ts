@@ -99,7 +99,7 @@ const blockedHostnameSuffixes = [
 const redirectStatuses = new Set([301, 302, 303, 307, 308]);
 // Custom API keys and session tokens are credentials too, even when they are
 // not sent in the standard Authorization or Cookie headers.
-const crossOriginCredentialHeader = /(?:^|[-_])(?:authorization|auth|cookie2?|api[-_]?key|token|secret|credential|password|session|signature|hmac)(?:$|[-_])/i;
+const crossOriginCredentialHeader = /(?:^|[-_])(?:authorization|auth|cookie2?|(?:api|access|client)[-_]?key|token|secret|credential|password|session|signature|hmac)(?:$|[-_])/i;
 // Header names such as XApiKey and XAuthToken can omit separators entirely.
 const compactCredentialHeader = /(?:api|auth|access|refresh|client|session|security)(?:key|token|secret)|sessionid|signature|hmac/i;
 

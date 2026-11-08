@@ -255,6 +255,8 @@ test("manual redirects keep same-origin headers but strip credentials after a cr
         Cookie2: "fixture-cookie2",
         "X-API-Key": "fixture-api-key",
         "Api-Key": "fixture-alternate-key",
+        "X-Access-Key": "fixture-access-key",
+        "X-Client-Key": "fixture-client-key",
         "X-Auth-Token": "fixture-auth-token",
         "X-Access-Token": "fixture-access-token",
         "X-Amz-Security-Token": "fixture-aws-token",
@@ -291,6 +293,8 @@ test("manual redirects keep same-origin headers but strip credentials after a cr
       assert.equal(request.headers.get("Authorization"), "fixture-auth");
       assert.equal(request.headers.get("Cookie"), "fixture-cookie");
       assert.equal(request.headers.get("X-API-Key"), "fixture-api-key");
+      assert.equal(request.headers.get("X-Access-Key"), "fixture-access-key");
+      assert.equal(request.headers.get("X-Client-Key"), "fixture-client-key");
       assert.equal(request.headers.get("X-Amz-Security-Token"), "fixture-aws-token");
       assert.equal(request.headers.get("XApiKey"), "fixture-compact-api-key");
       assert.equal(request.headers.get("XAuthToken"), "fixture-compact-auth-token");
@@ -302,7 +306,7 @@ test("manual redirects keep same-origin headers but strip credentials after a cr
     for (const request of requests.slice(2)) {
       for (const name of [
         "Authorization", "Cookie", "Proxy-Authorization", "Cookie2",
-        "X-API-Key", "Api-Key", "X-Auth-Token", "X-Access-Token",
+        "X-API-Key", "Api-Key", "X-Access-Key", "X-Client-Key", "X-Auth-Token", "X-Access-Token",
         "X-Amz-Security-Token", "X-Client-Secret", "X-Session-ID",
         "XApiKey", "XAuthToken", "XClientSecret", "XSessionId",
         "Signature", "Signature-Input", "X-Hub-Signature-256", "XWebhookSignature",

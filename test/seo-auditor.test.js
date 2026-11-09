@@ -256,6 +256,18 @@ test("explicit HTML documents require a known primary language subtag", () => {
   );
 });
 
+test("well-formed private-use BCP 47 page languages are advisory, not invalid", () => {
+  for (const lang of ["x-foo", "X-Foo-12345678"]) {
+    const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head><body></body></html>`);
+    assert.equal(issues.some((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), false);
+    assert.equal(issues.find((issue) => issue.code === "accessibility.page_language.private_use")?.severity, "info");
+  }
+  for (const lang of ["x", "x-", "x-foo--bar", "x-123456789"]) {
+    const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head><body></body></html>`);
+    assert.ok(issues.some((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), lang);
+  }
+});
+
 test("image submit buttons require a non-empty accessible name", () => {
   for (const html of [
     '<input type="image" src="search.png">',

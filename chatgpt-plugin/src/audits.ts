@@ -1,7 +1,7 @@
 import * as cheerio from "cheerio";
 import ipaddr from "ipaddr.js";
 import { HOSTED_MAX_LINKS, SERVICE_USER_AGENT } from "./constants";
-import { getPrimaryLanguageSubtag, isKnownPrimaryLanguageSubtag } from "./language-subtags";
+import { getPrimaryLanguageSubtag, isKnownPrimaryLanguageSubtag, isWellFormedPrivateUseLanguageTag } from "./language-subtags";
 
 export type AuditSeverity = "error" | "warning" | "info";
 
@@ -803,7 +803,14 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
       });
     } else {
       const primaryLanguageSubtag = getPrimaryLanguageSubtag(pageLanguage);
-      if (!isKnownPrimaryLanguageSubtag(primaryLanguageSubtag)) {
+      if (isWellFormedPrivateUseLanguageTag(pageLanguage)) {
+        collector.add({
+          code: "accessibility.page_language.private_use",
+          severity: "info",
+          category: "Accessibility",
+          message: "This is a valid private-use BCP 47 language tag, but assistive technologies may not recognize it. Prefer a registered language tag when one applies.",
+        });
+      } else if (!isKnownPrimaryLanguageSubtag(primaryLanguageSubtag)) {
         collector.add({
           code: "accessibility.page_language.invalid_primary_subtag",
           severity: "error",

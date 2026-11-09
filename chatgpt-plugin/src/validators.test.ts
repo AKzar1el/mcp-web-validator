@@ -256,6 +256,18 @@ describe("bounded audits", () => {
       .toBeUndefined();
   });
 
+  it("treats syntactically valid BCP 47 private-use language tags as advisory", () => {
+    for (const lang of ["x-foo", "X-Foo-12345678"]) {
+      const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`).issues;
+      expect(issues.find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag")).toBeUndefined();
+      expect(issues.find((issue) => issue.code === "accessibility.page_language.private_use")?.severity).toBe("info");
+    }
+    for (const lang of ["x", "x-", "x-foo--bar", "x-123456789"]) {
+      const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`).issues;
+      expect(issues.some((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag")).toBe(true);
+    }
+  });
+
   it("image submit buttons require a non-empty accessible name", () => {
     for (const html of [
       '<input type="image" src="search.png">',

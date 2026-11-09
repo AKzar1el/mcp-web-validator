@@ -573,6 +573,23 @@ describe("bounded audits", () => {
     }
   });
 
+  it("warns when canonical URLs contain embedded credentials", () => {
+    for (const href of ["https://user:password@example.com/page", "https://user@example.com/page"]) {
+      const issues = auditSeoMetadata(`<link rel="canonical" href="${href}">`).issues;
+      expect(issues.find((issue) => issue.code === "seo.canonical.embedded_credentials")).toEqual({
+        code: "seo.canonical.embedded_credentials",
+        severity: "warning",
+        category: "SEO",
+        message: "Canonical URL embeds user credentials. Remove the username and password to avoid exposing secrets or relying on authenticated canonical targets.",
+      });
+    }
+
+    for (const href of ["https://example.com/page", "/page", "https://example.com/page#section"]) {
+      expect(auditSeoMetadata(`<link rel="canonical" href="${href}">`).issues
+        .find((issue) => issue.code === "seo.canonical.embedded_credentials")).toBeUndefined();
+    }
+  });
+
   it("reports ambiguous and Google-ignored canonical declarations", () => {
     const multiple = auditSeoMetadata([
       "<html><head>",

@@ -85,7 +85,8 @@ function scoreIndicator(score: number | null): string {
 
 function markdownCell(value: unknown): string {
   return String(value ?? "")
-    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
+    // Invisible bidi controls can visually spoof report cells and file labels.
+    .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u206f]+/g, " ")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")

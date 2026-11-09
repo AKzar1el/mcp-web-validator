@@ -90,6 +90,24 @@ test("report neutralizes terminal control characters in untrusted Markdown cells
   assert.match(result.report, /&lt;x&gt;/);
 });
 
+test("report neutralizes Unicode bidi controls in untrusted Markdown cells", () => {
+  const hostile = "visible \u202ereversed\u202c \u2066isolated\u2069";
+  const result = createValidationReport({
+    htmlFilePath: `page-${hostile}.html`,
+    cssAudited: true,
+    htmlMessages: [{ type: "error", message: hostile, extract: hostile }],
+    cssMessages: [{ type: "warning", line: 1, context: hostile, message: hostile }],
+    seoIssues: [{ severity: "warning", category: "SEO", message: hostile, element: hostile }],
+    schemaIssues: [],
+    links: [{ url: `https://example.com/${hostile}`, status: 404, ok: false, message: hostile }],
+  });
+
+  assert.doesNotMatch(result.report, /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u);
+  assert.match(result.report, /visible/);
+  assert.match(result.report, /reversed/);
+  assert.match(result.report, /isolated/);
+});
+
 test("report scoring does not penalize title and meta-description editorial length guidance", () => {
   const seoIssues = auditSeoMetadata([
     '<html lang="en"><head>',

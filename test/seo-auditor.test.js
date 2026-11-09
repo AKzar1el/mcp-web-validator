@@ -995,6 +995,10 @@ test("robots audit uses supplied X-Robots-Tag headers without assuming a network
     "FOLLOW, NONE",
     "googlebot: noindex, follow",
     "bingbot: noindex\ngooglebot: noindex",
+    "max-snippet: 120, noindex",
+    "max-image-preview: large, noindex",
+    "max-video-preview: 30, noindex",
+    "unavailable_after: 25 Jun 2027 15:00:00 GMT, noindex",
   ]) {
     assert.deepEqual(auditSeoMetadata(html, header).find((issue) => issue.code === "seo.robots.noindex"), expected);
   }
@@ -1003,6 +1007,7 @@ test("robots audit uses supplied X-Robots-Tag headers without assuming a network
     "index, follow",
     "bingbot: noindex",
     "bingbot: noindex, follow",
+    "bingbot: max-snippet: 20, noindex",
     "googlebot-image: noindex",
     "noindex-something",
   ]) {

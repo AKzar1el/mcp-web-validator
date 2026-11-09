@@ -132,7 +132,9 @@ function hasGoogleNoindexHeader(value: string | undefined): boolean {
     for (const part of line.split(",")) {
       const directive = part.trim().toLowerCase();
       const scoped = /^([a-z][a-z0-9_-]*):\s*(.+)$/.exec(directive);
-      if (scoped) {
+      // Colon-valued robots directives do not change the crawler scope of
+      // subsequent comma-separated directives in the same header field.
+      if (scoped && !["max-snippet", "max-image-preview", "max-video-preview", "unavailable_after"].includes(scoped[1])) {
         appliesToGoogle = scoped[1] === "googlebot";
       }
       const action = scoped ? scoped[2].trim() : directive;

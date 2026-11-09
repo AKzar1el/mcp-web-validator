@@ -248,6 +248,12 @@ export function seoAuditContent(
 function countJsonLdBlocks(htmlContent: string): number {
   const $ = cheerio.load(htmlContent);
   return $("script[type]").filter((_, element) => {
+    // Match the schema parser: scripts in inert template contents are not executed.
+    let ancestor: { name?: string; parent?: unknown } | null = element;
+    while (ancestor) {
+      if (ancestor.name?.toLowerCase() === "template") return false;
+      ancestor = (ancestor.parent ?? null) as typeof ancestor;
+    }
     const type = $(element).attr("type");
     return type?.split(";", 1)[0].trim().toLowerCase() === "application/ld+json";
   }).length;

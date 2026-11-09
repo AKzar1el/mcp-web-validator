@@ -401,3 +401,18 @@ test("JSON-LD narration counts parameterized media types that the schema parser 
   assert.match(output, /1 JSON-LD block parsed without syntax errors/);
   assert.doesNotMatch(output, /No JSON-LD script blocks were found/);
 });
+
+test("JSON-LD narration excludes inert template scripts from parsed block counts", () => {
+  const inertScript = '<template><script type="application/ld+json">{invalid</script></template>';
+  const activeScript = '<script type="application/ld+json">{"@context":"https://schema.org"}</script>';
+
+  const inertOnly = schemaValidationContent([], 0, false, inertScript);
+  assert.match(inertOnly, /^### JSON-LD syntax: not present/m);
+  assert.match(inertOnly, /No JSON-LD script blocks were found/);
+  assert.doesNotMatch(inertOnly, /parsed without syntax errors/);
+
+  const mixed = schemaValidationContent([], 0, false, inertScript + activeScript);
+  assert.match(mixed, /^### JSON-LD syntax: clean/m);
+  assert.match(mixed, /1 JSON-LD block parsed without syntax errors/);
+  assert.doesNotMatch(mixed, /2 JSON-LD blocks/);
+});

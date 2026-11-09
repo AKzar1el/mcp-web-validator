@@ -423,6 +423,7 @@ test("referenced label text honors winning inline CSS declarations and visibilit
   for (const label of [
     '<b style="display: none; display: block">Visible label</b>',
     '<b style="display: block !important; display: none">Visible label</b>',
+    '<b style="display: block ! important; display: none">Visible label</b>',
     '<b style="visibility: hidden; visibility: visible">Visible label</b>',
     '<b style="visibility: visible !important; visibility: hidden">Visible label</b>',
     '<b style="content-visibility: hidden; content-visibility: visible">Visible label</b>',
@@ -434,6 +435,7 @@ test("referenced label text honors winning inline CSS declarations and visibilit
   for (const label of [
     '<b style="display: block; display: none">Hidden label</b>',
     '<b style="display: none !important; display: block">Hidden label</b>',
+    '<b style="display: none ! important; display: block">Hidden label</b>',
     '<b style="visibility: visible; visibility: hidden">Hidden label</b>',
     '<b style="visibility: hidden !important; visibility: visible">Hidden label</b>',
     '<b style="content-visibility: visible; content-visibility: hidden">Hidden label</b>',
@@ -450,6 +452,7 @@ test("inline CSS-hidden elements and subtrees do not produce accessibility namin
     ['<div style="content-visibility: hidden"><iframe src="/private"></iframe></div>', "accessibility.iframe_name.missing_or_empty"],
     ['<input type="image" src="hidden.png" style="content-visibility: hidden">', "accessibility.input_image_alt.missing_or_empty"],
     ['<img src="hidden.png" style="visibility: hidden !important; visibility: visible">', "accessibility.image_alt.missing"],
+    ['<img src="hidden.png" style="visibility: hidden ! important; visibility: visible">', "accessibility.image_alt.missing"],
     ['<div style="content-visibility: hidden"><img src="hidden.png" style="content-visibility: visible"></div>', "accessibility.image_alt.missing"],
     ['<img src="hidden.png" style="visibility: visible; visibility: hidden">', "accessibility.image_alt.missing"],
   ]) {

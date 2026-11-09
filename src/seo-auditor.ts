@@ -143,8 +143,8 @@ function inlineStyleValue(style: string, property: string): string | undefined {
     const separator = declaration.indexOf(":");
     if (separator < 0 || declaration.slice(0, separator).trim().toLowerCase() !== property) continue;
     const raw = declaration.slice(separator + 1).trim().toLowerCase();
-    const important = /\s*!important\s*$/.test(raw);
-    const value = raw.replace(/\s*!important\s*$/, "").trim();
+    const important = /\s*!\s*important\s*$/.test(raw);
+    const value = raw.replace(/\s*!\s*important\s*$/, "").trim();
     if (value && (!selectedImportant || important)) {
       selected = value;
       selectedImportant = important;

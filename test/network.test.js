@@ -436,6 +436,31 @@ test("bounded response reader rejects a body beyond the configured cap", async (
   );
 });
 
+test("bounded response reader rejects incomplete and oversized identity Content-Length bodies", async () => {
+  for (const [body, declaredLength] of [["ok", "10"], ["too long", "2"]]) {
+    await assert.rejects(
+      readResponseText(new Response(body, { headers: { "content-length": declaredLength } }), 1024),
+      /does not match Content-Length/i,
+    );
+  }
+});
+
+test("bounded response reader does not compare decoded compressed or chunked bytes to Content-Length", async () => {
+  assert.equal(
+    await readResponseText(new Response("decoded", {
+      headers: { "content-length": "55", "content-encoding": "gzip" },
+    }), 1024),
+    "decoded",
+  );
+  assert.equal(
+    await readResponseText(new Response("chunked", {
+      headers: { "content-length": "25", "transfer-encoding": "chunked" },
+    }), 1024),
+    "chunked",
+  );
+  assert.equal(await readResponseText(new Response("ok", { headers: { "content-length": "2" } }), 1024), "ok");
+});
+
 test("bounded public text fetch rejects disallowed response content types", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response('{"ok":true}', {

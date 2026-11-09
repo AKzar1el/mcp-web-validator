@@ -433,11 +433,20 @@ export async function readResponseText(
 ): Promise<string> {
   assertPositiveInteger(maxBytes, "maxBytes");
 
-  const declaredLength = Number(response.headers.get("content-length"));
+  const declaredLengthHeader = response.headers.get("content-length");
+  const declaredLength = Number(declaredLengthHeader);
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
     await cancelResponseBody(response);
     throw new Error(`Response exceeds the ${maxBytes}-byte limit`);
   }
+  // Fetch may transparently decompress a response while retaining the wire
+  // Content-Length. Only compare lengths when the stream is an identity body.
+  const contentEncoding = response.headers.get("content-encoding")?.trim().toLowerCase();
+  const checkExactLength = declaredLengthHeader !== null
+    && /^\d+$/.test(declaredLengthHeader.trim())
+    && Number.isSafeInteger(declaredLength)
+    && (!contentEncoding || contentEncoding === "identity")
+    && !response.headers.has("transfer-encoding");
 
   if (!response.body) {
     return "";
@@ -527,6 +536,9 @@ export async function readResponseText(
     await startDecoder();
     if (!decoder) {
       throw new Error("Response decoder was not initialized");
+    }
+    if (checkExactLength && totalBytes !== declaredLength) {
+      throw new Error(`Response body length (${totalBytes} bytes) does not match Content-Length (${declaredLength} bytes)`);
     }
     text += decoder.decode();
     return text;

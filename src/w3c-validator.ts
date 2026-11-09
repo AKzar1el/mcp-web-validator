@@ -113,7 +113,7 @@ function normalizeW3CMessage(message: unknown): W3CMessage {
   };
 
   for (const field of ["lastLine", "lastColumn", "firstLine", "firstColumn"] as const) {
-    if (typeof candidate[field] === "number" && Number.isInteger(candidate[field])) {
+    if (typeof candidate[field] === "number" && Number.isSafeInteger(candidate[field]) && candidate[field] >= 0) {
       normalized[field] = candidate[field];
     }
   }

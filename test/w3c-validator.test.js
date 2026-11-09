@@ -142,6 +142,47 @@ test("HTML validator normalizes upstream messages to the advertised contract", a
   }
 });
 
+test("HTML validator omits malformed upstream diagnostic coordinates", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    messages: [
+      {
+        type: "error",
+        message: "Invalid positions",
+        firstLine: "7",
+        firstColumn: -2,
+        lastLine: 4.5,
+        lastColumn: Number.MAX_SAFE_INTEGER + 1,
+      },
+      {
+        type: "warning",
+        message: "Valid positions",
+        firstLine: 1,
+        firstColumn: 0,
+        lastLine: 7,
+        lastColumn: 12,
+      },
+    ],
+  });
+
+  try {
+    const messages = await validateHtmlContent("<!doctype html><html><title>Example</title></html>");
+    assert.deepEqual(messages, [
+      { type: "error", message: "Invalid positions" },
+      {
+        type: "warning",
+        message: "Valid positions",
+        firstLine: 1,
+        firstColumn: 0,
+        lastLine: 7,
+        lastColumn: 12,
+      },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("HTML validator bounds oversized source extracts without losing diagnostic counts", async () => {
   const originalFetch = globalThis.fetch;
   const longExtract = `<main>${"x".repeat(10_000)}</main>`;

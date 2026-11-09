@@ -155,6 +155,29 @@ test("HTML validator normalizes upstream messages to the advertised contract", a
   }
 });
 
+test("HTML validator omits unsafe and negative upstream source locations", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    messages: [
+      {
+        type: "error",
+        message: "Invalid heading",
+        firstLine: -2,
+        firstColumn: 3,
+        lastLine: Number.MAX_SAFE_INTEGER + 1,
+        lastColumn: -1,
+      },
+    ],
+  });
+
+  try {
+    const messages = await validateHtmlContent("<!doctype html><title>Test</title>");
+    assert.deepEqual(messages, [{ type: "error", message: "Invalid heading", firstColumn: 3 }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("HTML validator bounds oversized source extracts without losing diagnostic counts", async () => {
   const originalFetch = globalThis.fetch;
   const longExtract = `<main>${"x".repeat(10_000)}</main>`;

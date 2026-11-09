@@ -903,6 +903,18 @@ test("canonical audit reports non-empty href values that cannot be parsed as URL
   }
 });
 
+test("canonical audit warns about credentials embedded in HTTP URLs", () => {
+  for (const href of ["https://user:pass@example.com/page", "https://user@example.com/page"]) {
+    const issues = auditSeoMetadata(`<link rel="canonical" href="${href}">`);
+    assert.deepEqual(issues.find((issue) => issue.code === "seo.canonical.embedded_credentials"), {
+      code: "seo.canonical.embedded_credentials",
+      severity: "warning",
+      category: "SEO",
+      message: "Canonical URL embeds user credentials. Remove the username and password to avoid exposing secrets or relying on authenticated canonical targets.",
+    });
+  }
+});
+
 test("canonical audit reports ambiguous and Google-ignored canonical declarations", () => {
   const multiple = auditSeoMetadata([
     "<html><head>",

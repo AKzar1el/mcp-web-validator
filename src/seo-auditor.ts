@@ -37,9 +37,15 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
   return typeof status === "number" && HTTP_REDIRECT_STATUSES.has(status);
 }
 
+function isUnverifiedServerError(status: number): boolean {
+  // Other 5xx server failures do not establish a missing target. Preserve the
+  // existing bounded GET-confirmation semantics for 500/501 and origin-TLS failures.
+  return status >= 502 && status <= 599 && status !== 525 && status !== 526;
+}
+
 /** Ambiguous responses, access restrictions and network errors cannot establish destination health. */
 export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
-  return typeof status !== "number" || [300, 304, 401, 403, 406, 407, 408, 409, 411, 412, 415, 416, 417, 421, 422, 423, 424, 425, 426, 428, 429, 431, 451, 502, 503, 504, 511, 520, 521, 522, 523, 524].includes(status);
+  return typeof status !== "number" || isUnverifiedServerError(status) || [300, 304, 401, 403, 406, 407, 408, 409, 411, 412, 415, 416, 417, 421, 422, 423, 424, 425, 426, 428, 429, 431, 451].includes(status);
 }
 
 export interface AuditCounts {
@@ -1137,6 +1143,8 @@ export async function checkBrokenLinks(
               ? "Cloudflare TLS handshake with origin failed; destination unavailable"
               : status === 526
               ? "Cloudflare could not validate origin TLS certificate; destination unavailable"
+              : isUnverifiedServerError(status)
+              ? "Server error; destination availability not verified"
               : isHttpRedirectStatus(status)
                 ? "Redirect not followed"
                 : finalUrl !== url
@@ -1202,6 +1210,8 @@ export async function checkBrokenLinks(
             ? "Cloudflare TLS handshake with origin failed; destination unavailable"
             : headStatus === 526
             ? "Cloudflare could not validate origin TLS certificate; destination unavailable"
+            : isUnverifiedServerError(headStatus)
+            ? "Server error; destination availability not verified"
             : isHttpRedirectStatus(headStatus)
               ? "Redirect not followed"
               : headFinalUrl !== url

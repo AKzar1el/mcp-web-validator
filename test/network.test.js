@@ -1265,6 +1265,28 @@ test("link checker does not mark temporary HTTP 502/503/504 outages as broken or
   }
 });
 
+test("link checker leaves other server-side 5xx failures unverified without retrying", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: Number(new URL(String(input)).pathname.slice(1)) });
+  };
+  try {
+    for (const status of [507, 508, 509, 510, 530]) {
+      methods.length = 0;
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/${status}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, status);
+      assert.equal(links[0].ok, false);
+      assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+      assert.match(links[0].message, /availability not verified/i);
+      assert.deepEqual(methods, ["HEAD"]);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker leaves HTTP 407 proxy challenges and 421 misdirected requests unverified without retrying", async () => {
   const originalFetch = globalThis.fetch;
   const methods = [];

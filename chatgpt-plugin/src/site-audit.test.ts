@@ -398,6 +398,40 @@ describe("auditPublicSite", () => {
     expect(fetchMock.mock.calls.some(([target]) => String(target).startsWith("http://127.0.0.1"))).toBe(false);
   });
 
+  it("reports the valid sitemap source when an earlier robots sitemap is malformed", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/robots.txt") {
+        return new Response(
+          "User-agent: *\nSitemap: https://example.com/bad.xml\nSitemap: https://example.com/good.xml\n",
+          { headers: { "content-type": "text/plain" } },
+        );
+      }
+      if (url === "https://example.com/bad.xml") {
+        return new Response("<other/>", { headers: { "content-type": "application/xml" } });
+      }
+      if (url === "https://example.com/good.xml") {
+        return new Response("<urlset><url><loc>https://example.com/valid-page</loc></url></urlset>", {
+          headers: { "content-type": "application/xml" },
+        });
+      }
+      if (url === "https://example.com/valid-page") return htmlResponse();
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 2, pageOffset: 0 });
+    expect(result).toMatchObject({
+      discovery: "partial",
+      discovery_error: "sitemap_invalid",
+      sitemap_url: "https://example.com/good.xml",
+      pages_discovered: 2,
+      pages_audited: 2,
+    });
+  });
+
   it("fails closed on gzip sitemap expansion over the existing one-megabyte limit", async () => {
     const oversizedXml = "<urlset>" + " ".repeat(1024 * 1024 + 16) + "</urlset>";
     const compressed = await new Response(

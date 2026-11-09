@@ -803,6 +803,65 @@ test("local XHTML file decoding honors its XML encoding declaration", async (t) 
   );
 });
 
+test("public CSS without an HTTP charset honors its leading @charset declaration", async () => {
+  const originalFetch = globalThis.fetch;
+  const body = Buffer.concat([
+    Buffer.from('@charset "windows-1252"; .label::before { content: "Caf', "ascii"),
+    Buffer.from([0xe9]),
+    Buffer.from('"; }', "ascii"),
+  ]);
+  globalThis.fetch = async () => new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/css" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/legacy.css", {
+      acceptedContentTypes: ["text/css"],
+    });
+    assert.equal(result.text, '@charset "windows-1252"; .label::before { content: "Caf\u00e9"; }');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("public CSS HTTP charset overrides conflicting @charset without a BOM", async () => {
+  const originalFetch = globalThis.fetch;
+  const css = '@charset "windows-1252"; .label::before { content: "Caf\u00e9"; }';
+  globalThis.fetch = async () => new Response(Buffer.from(css, "utf8"), {
+    status: 200,
+    headers: { "content-type": "text/css; charset=utf-8" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/http-charset.css", {
+      acceptedContentTypes: ["text/css"],
+    });
+    assert.equal(result.text, css);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("public CSS BOM overrides a conflicting HTTP charset", async () => {
+  const originalFetch = globalThis.fetch;
+  const css = '.label::before { content: "Caf\u00e9"; }';
+  const body = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(css, "utf16le")]);
+  globalThis.fetch = async () => new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/css; charset=windows-1252" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/bom.css", {
+      acceptedContentTypes: ["text/css"],
+    });
+    assert.equal(result.text, css);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("local CSS file decoding honors an exact leading @charset declaration", async (t) => {
   const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-local-css-encoding-"));
   t.after(() => fs.rm(temporaryDirectory, { recursive: true, force: true }));

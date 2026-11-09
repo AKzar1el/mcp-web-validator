@@ -428,6 +428,8 @@ export async function readResponseText(
   sniffXmlEncoding = false,
   preferXmlBom = false,
   preferHtmlBom = false,
+  sniffCssEncoding = false,
+  preferCssBom = false,
 ): Promise<string> {
   assertPositiveInteger(maxBytes, "maxBytes");
 
@@ -460,7 +462,8 @@ export async function readResponseText(
   const startDecoder = async (): Promise<void> => {
     if (decoder) return;
     let encodingLabel = encoding ?? "utf-8";
-    if ((encoding === undefined && (sniffHtmlEncoding || sniffXmlEncoding)) || preferXmlBom || preferHtmlBom) {
+    if ((encoding === undefined && (sniffHtmlEncoding || sniffXmlEncoding || sniffCssEncoding))
+      || preferXmlBom || preferHtmlBom || preferCssBom) {
       const sniffLength = Math.min(pendingBytes, HTML_ENCODING_SNIFF_BYTES);
       const sniffBytes = new Uint8Array(sniffLength);
       let copied = 0;
@@ -472,8 +475,10 @@ export async function readResponseText(
       }
       if (preferXmlBom) {
         encodingLabel = getXmlBomCharacterEncoding(sniffBytes) ?? encodingLabel;
-      } else if (preferHtmlBom) {
+      } else if (preferHtmlBom || preferCssBom) {
         encodingLabel = getHtmlBomCharacterEncoding(sniffBytes) ?? encodingLabel;
+      } else if (sniffCssEncoding) {
+        encodingLabel = getCssCharacterEncoding(sniffBytes);
       } else {
         encodingLabel = sniffXmlEncoding
           ? getXmlCharacterEncoding(sniffBytes)
@@ -491,7 +496,8 @@ export async function readResponseText(
     pendingBytes = 0;
   };
 
-  if (!preferXmlBom && !preferHtmlBom && (encoding !== undefined || (!sniffHtmlEncoding && !sniffXmlEncoding))) {
+  if (!preferXmlBom && !preferHtmlBom && !preferCssBom
+    && (encoding !== undefined || (!sniffHtmlEncoding && !sniffXmlEncoding && !sniffCssEncoding))) {
     await startDecoder();
   }
 
@@ -689,6 +695,8 @@ export async function fetchPublicText(
   const shouldPreferHtmlBom = contentType === "text/html"
     && declaredEncoding !== undefined
     && isSupportedCharacterEncoding(declaredEncoding);
+  const shouldSniffCssEncoding = contentType === "text/css" && declaredEncoding === undefined;
+  const shouldPreferCssBom = contentType === "text/css" && declaredEncoding !== undefined;
   const text = await readResponseText(
     response,
     maxBytes,
@@ -697,6 +705,8 @@ export async function fetchPublicText(
     shouldSniffXmlEncoding,
     shouldPreferXmlBom,
     shouldPreferHtmlBom,
+    shouldSniffCssEncoding,
+    shouldPreferCssBom,
   );
   if ((contentType === "text/html" || contentType === "application/xhtml+xml") && !text.trim()) {
     throw new Error("URL returned an empty HTML document");

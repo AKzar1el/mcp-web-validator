@@ -45,6 +45,19 @@ test("missing HTML validator messages fail instead of producing a clean result",
   }
 });
 
+test("partial Nu responses cannot certify HTML validation as clean", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ messages: [] }, { status: 206 });
+  try {
+    await assert.rejects(
+      validateHtmlContent("<!doctype html><html><title>Example</title></html>"),
+      /HTML validation failed: W3C HTML validator returned HTTP status 206/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("malformed HTML validator messages fail instead of being silently dropped", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(
@@ -239,6 +252,22 @@ test("empty CSS validator responses fail instead of producing a clean result", a
     await assert.rejects(
       validateCssContent("body { color: black; }"),
       /CSS validation failed: W3C CSS validator returned an empty response/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("partial Jigsaw responses cannot certify CSS validation as clean", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json(
+    { cssvalidation: { validity: true, errors: [], warnings: [] } },
+    { status: 206 },
+  );
+  try {
+    await assert.rejects(
+      validateCssContent("body { color: black; }"),
+      /CSS validation failed: W3C CSS validator returned HTTP status 206/,
     );
   } finally {
     globalThis.fetch = originalFetch;

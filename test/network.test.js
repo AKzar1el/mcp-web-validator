@@ -1495,7 +1495,7 @@ for (const [status, diagnostic] of [
       assert.equal(links[0].ok, false);
       assert.equal(isUnverifiedLinkStatus(links[0].status), true);
       assert.match(links[0].message, diagnostic);
-      assert.deepEqual(methods, ["HEAD"]);
+      assert.deepEqual(methods, status === 423 ? ["HEAD"] : ["HEAD", "GET"]);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -1902,7 +1902,7 @@ for (const scenario of [
   });
 }
 
-for (const headStatus of [409, 411, 415, 417, 422, 424]) {
+for (const headStatus of [406, 409, 411, 412, 415, 417, 422, 424]) {
   test(`link checker confirms HEAD ${headStatus} request refusal with bounded GET`, async () => {
     const originalFetch = globalThis.fetch;
     const requests = [];

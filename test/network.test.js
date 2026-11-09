@@ -436,6 +436,18 @@ test("bounded response reader rejects a body beyond the configured cap", async (
   );
 });
 
+test("bounded response reader measures decoded content instead of compressed Content-Length", async () => {
+  for (const encoding of ["gzip", "br"]) {
+    const headers = { "content-encoding": encoding, "content-length": "9999" };
+    assert.equal(await readResponseText(new Response("hello", { headers }), 5), "hello");
+    await assert.rejects(
+      readResponseText(new Response("123456", { headers }), 5),
+      /exceeds the 5-byte limit/,
+      "decoded bodies must still obey the byte cap",
+    );
+  }
+});
+
 test("bounded public text fetch rejects disallowed response content types", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response('{"ok":true}', {

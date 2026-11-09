@@ -432,7 +432,10 @@ export async function readResponseText(
   assertPositiveInteger(maxBytes, "maxBytes");
 
   const declaredLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+  const contentEncoding = response.headers.get("content-encoding")?.trim().toLowerCase();
+  // Fetch decodes compressed responses but retains the wire Content-Length.
+  // The streaming byte limit below applies to the decoded body instead.
+  if ((!contentEncoding || contentEncoding === "identity") && Number.isFinite(declaredLength) && declaredLength > maxBytes) {
     await cancelResponseBody(response);
     throw new Error(`Response exceeds the ${maxBytes}-byte limit`);
   }

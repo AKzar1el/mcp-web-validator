@@ -1052,9 +1052,9 @@ export async function checkBrokenLinks(
       const headFinalUrl = headResult.url.href;
       await cancelResponseBody(headResult.response);
 
-      // Some sites reject HEAD with 400/405, time out, or return a false
-      // 404/410 for an available resource. Confirm these with a bounded GET.
-      if ([304, 400, 401, 403, 404, 405, 408, 409, 410, 415, 416, 417, 422, 424, 500, 501].includes(headStatus)) {
+      // Some sites reject HEAD during negotiation or precondition handling,
+      // or return a false 404/410 for an available resource. Confirm with GET.
+      if ([304, 400, 401, 403, 404, 405, 406, 408, 409, 410, 412, 415, 416, 417, 422, 424, 500, 501].includes(headStatus)) {
         let getResult = await fetchPublicHttp(url, {
           method: "GET",
           headers: {

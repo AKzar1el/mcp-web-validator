@@ -70,7 +70,26 @@ test("report scoring does not penalize informational SEO findings", () => {
   assert.equal(result.summary.seoScore, 100);
   assert.equal(result.summary.cssScore, null);
   assert.equal(result.summary.linkScore, null);
-  assert.match(result.report, /site\\\|name\.html/);
+  assert.match(result.report, /`site\|name\.html`/);
+});
+
+test("report filename code spans stay intact around embedded backtick runs", () => {
+  const common = {
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [],
+  };
+  for (const [filename, expected] of [
+    ["page`**warning**.html", "``page`**warning**.html``"],
+    ["`page`.html", "`` `page`.html ``"],
+    ["page``hidden.html", "```page``hidden.html```"],
+  ]) {
+    const result = createValidationReport({ ...common, htmlFilePath: filename });
+    assert.ok(result.report.includes(`*Generated for: ${expected}*`), filename);
+  }
 });
 
 test("report neutralizes terminal control characters in untrusted Markdown cells", () => {

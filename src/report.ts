@@ -94,6 +94,17 @@ function markdownCell(value: unknown): string {
     .trim();
 }
 
+function markdownCodeSpan(value: string): string {
+  const safe = value.replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").trim();
+  let delimiterLength = 1;
+  for (const match of safe.matchAll(/`+/g)) {
+    delimiterLength = Math.max(delimiterLength, match[0].length + 1);
+  }
+  const delimiter = "`".repeat(delimiterLength);
+  const content = safe.startsWith("`") || safe.endsWith("`") ? ` ${safe} ` : safe;
+  return `${delimiter}${content}${delimiter}`;
+}
+
 function isRedirect(link: LinkStatus): boolean {
   return isHttpRedirectStatus(link.status);
 }
@@ -183,7 +194,7 @@ export function createValidationReport(input: ValidationReportInput): Validation
 
   const report: string[] = [
     `# Web Validation & SEO Audit Report — ${overallScore === null ? "Partial" : `${scoreIndicator(overallScore)} **${overallScore}**/100`}`,
-    `*Generated for: \`${markdownCell(path.basename(input.htmlFilePath))}\`*`,
+    `*Generated for: ${markdownCodeSpan(path.basename(input.htmlFilePath))}*`,
     "",
     "## Page health scores",
     "",

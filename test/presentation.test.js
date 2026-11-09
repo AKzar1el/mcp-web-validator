@@ -258,6 +258,46 @@ test("link and report narration distinguish unverified checks from HTTP failures
   assert.doesNotMatch(reportOutput, /null\/100/);
 });
 
+test("report narration with unfollowed redirects withholds scores without calling checked links absent", () => {
+  const reportData = createValidationReport({
+    htmlFilePath: "index.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/moved", status: 301, ok: true }],
+  });
+  assert.equal(reportData.summary.overallScore, null);
+  assert.equal(reportData.summary.linkScore, null);
+
+  const output = reportContent(reportData);
+  assert.match(output, /^### Validation report: partial/m);
+  assert.match(output, /overall heuristic score is withheld.*redirect/i);
+  assert.match(output, /1 redirect to review of 1 link/i);
+  assert.doesNotMatch(output, /null\/100|no eligible links checked/i);
+});
+
+test("report narration never interpolates null scores when diagnostic counts are incomplete", () => {
+  const reportData = createValidationReport({
+    htmlFilePath: "index.html",
+    cssAudited: false,
+    htmlMessages: [{ type: "error", message: "Invalid markup" }],
+    htmlTotalMessages: 2,
+    htmlTruncated: true,
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [],
+  });
+  assert.equal(reportData.summary.overallScore, null);
+
+  const output = reportContent(reportData);
+  assert.match(output, /^### Validation report: partial/m);
+  assert.match(output, /overall heuristic score is unavailable.*incomplete/i);
+  assert.doesNotMatch(output, /null\/100/i);
+});
+
 test("link narration treats HTTP 304 as unverified, not a redirect or broken link", () => {
   const output = linkCheckContent([
     { url: "https://example.test/not-modified", status: 304, ok: false },

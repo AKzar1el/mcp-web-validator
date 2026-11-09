@@ -90,6 +90,21 @@ test("report neutralizes terminal control characters in untrusted Markdown cells
   assert.match(result.report, /&lt;x&gt;/);
 });
 
+test("Markdown report strips bidi formatting controls while preserving RTL letters", () => {
+  const rtl = "\u0645\u0631\u062d\u0628\u0627";
+  const result = createValidationReport({
+    htmlFilePath: `page\u202e.html`,
+    cssAudited: false,
+    htmlMessages: [{ type: "error", message: `Invalid \u2066markup\u2069 ${rtl}` }],
+    cssMessages: [],
+    seoIssues: [{ severity: "warning", category: "SEO", message: `Spoof\u202b hidden\u202c ${rtl}` }],
+    schemaIssues: [],
+    links: [{ url: `https://example.test/\u200frtl`, status: 404, ok: false }],
+  });
+  assert.doesNotMatch(result.report, /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u);
+  assert.ok(result.report.includes(rtl), "natural RTL letters must remain visible");
+});
+
 test("report scoring does not penalize title and meta-description editorial length guidance", () => {
   const seoIssues = auditSeoMetadata([
     '<html lang="en"><head>',

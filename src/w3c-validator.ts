@@ -63,6 +63,13 @@ const MAX_VALIDATOR_RESPONSE_BYTES = 5_000_000;
 const USER_AGENT = `mcp-web-validator/${PACKAGE_VERSION} (+https://digestseo.com/validator-mcp/)`;
 export const MAX_VALIDATION_MESSAGES = 200;
 const MAX_HTML_EXTRACT_CHARS = 500;
+const MAX_DIAGNOSTIC_MESSAGE_CHARS = 1_000;
+const MAX_CSS_CONTEXT_CHARS = 500;
+const MAX_DIAGNOSTIC_SUBTYPE_CHARS = 64;
+
+function boundDiagnosticText(text: string, maxChars: number): string {
+  return text.length > maxChars ? `${text.slice(0, maxChars - 3)}...` : text;
+}
 
 function isKnownCssValidatorLimitation(type: string | undefined, message: string): boolean {
   if (type?.trim().toLowerCase() !== "at-rule") return false;
@@ -72,7 +79,7 @@ function isKnownCssValidatorLimitation(type: string | undefined, message: string
 
 function normalizeCssDiagnosticMessage(value: unknown, fallback: string): string {
   const message = typeof value === "string" ? value.trim() : "";
-  return message || fallback;
+  return boundDiagnosticText(message || fallback, MAX_DIAGNOSTIC_MESSAGE_CHARS);
 }
 
 function assertContentSize(content: string, maxBytes: number, label: string): void {
@@ -97,8 +104,8 @@ function normalizeW3CMessage(message: unknown): W3CMessage {
   }
 
   const normalized: W3CMessage = {
-    type: candidate.type,
-    message: candidate.message,
+    type,
+    message: boundDiagnosticText(candidate.message, MAX_DIAGNOSTIC_MESSAGE_CHARS),
   };
 
   for (const field of ["lastLine", "lastColumn", "firstLine", "firstColumn"] as const) {
@@ -108,13 +115,11 @@ function normalizeW3CMessage(message: unknown): W3CMessage {
   }
 
   if (typeof candidate.extract === "string") {
-    normalized.extract = candidate.extract.length > MAX_HTML_EXTRACT_CHARS
-      ? `${candidate.extract.slice(0, MAX_HTML_EXTRACT_CHARS - 3)}...`
-      : candidate.extract;
+    normalized.extract = boundDiagnosticText(candidate.extract, MAX_HTML_EXTRACT_CHARS);
   }
 
   if (typeof candidate.subType === "string") {
-    normalized.subType = candidate.subType;
+    normalized.subType = boundDiagnosticText(candidate.subType.trim(), MAX_DIAGNOSTIC_SUBTYPE_CHARS);
   }
 
   return normalized;
@@ -254,7 +259,8 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
         line: err.line || 0,
         type: "error",
         message,
-        context: err.context || undefined,
+        context: typeof err.context === "string" && err.context
+          ? boundDiagnosticText(err.context, MAX_CSS_CONTEXT_CHARS) : undefined,
         ...(isKnownCssValidatorLimitation(err.type, message)
           ? { compatibility: "known-validator-limitation" as const }
           : {}),
@@ -264,7 +270,8 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
       line: warning.line || 0,
       type: "warning",
       message: normalizeCssDiagnosticMessage(warning.message, "Unknown CSS validation warning"),
-      context: warning.context || undefined,
+      context: typeof warning.context === "string" && warning.context
+        ? boundDiagnosticText(warning.context, MAX_CSS_CONTEXT_CHARS) : undefined,
     }));
     const normalized = [...normalizedErrors, ...normalizedWarnings];
     const compatibilityLimitation = normalizedErrors.filter(

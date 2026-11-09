@@ -712,7 +712,6 @@ async function discoverFromSitemaps(
         maxBytes: SITE_AUDIT_MAX_SITEMAP_BYTES,
         allowGzipSitemap: true,
       });
-      sitemapUrl ??= fetched.finalUrl;
       const representationType = new URL(fetched.finalUrl).pathname.toLowerCase().endsWith(".txt.gz")
         ? "text/plain" : fetched.contentType;
       const parsed = parseSitemapRepresentation(fetched.text, representationType, fetched.finalUrl, origin);
@@ -720,6 +719,7 @@ async function discoverFromSitemaps(
         discoveryError ??= "sitemap_invalid";
         continue;
       }
+      sitemapUrl ??= fetched.finalUrl;
       if (parsed.queryUnsupported) discoveryError ??= "sitemap_query_unsupported";
 
       for (const pageUrl of parsed.pageUrls) {

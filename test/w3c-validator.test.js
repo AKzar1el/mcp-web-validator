@@ -450,6 +450,36 @@ test("CSS validator supplies readable fallback text for blank upstream diagnosti
   }
 });
 
+test("CSS validator normalizes untrusted diagnostic line numbers for errors and warnings", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    cssvalidation: {
+      validity: false,
+      errors: [
+        { line: -7, message: "Negative" },
+        { line: "9", message: "String" },
+        { line: 2.5, message: "Fractional" },
+        { line: Number.MAX_SAFE_INTEGER + 1, message: "Unsafe" },
+        { line: 12, message: "Valid" },
+      ],
+      warnings: [
+        { line: -1, message: "Negative warning" },
+        { line: "4", message: "String warning" },
+        { line: null, message: "Null warning" },
+        { line: 5, message: "Valid warning" },
+      ],
+    },
+  });
+
+  try {
+    const diagnostics = await validateCssContent("p { invalid: yes; }");
+    assert.deepEqual(diagnostics.map(({ line }) => line), [0, 0, 0, 0, 12, 0, 0, 0, 5]);
+    assert.equal(diagnostics.every(({ line }) => Number.isSafeInteger(line) && line >= 0), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("CSS validator marks Jigsaw's known @container parser gap without hiding the upstream diagnostic", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(

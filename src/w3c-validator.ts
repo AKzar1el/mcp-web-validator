@@ -82,6 +82,10 @@ function normalizeCssDiagnosticMessage(value: unknown, fallback: string): string
   return boundDiagnosticText(message || fallback, MAX_DIAGNOSTIC_MESSAGE_CHARS);
 }
 
+function normalizeCssDiagnosticLine(value: unknown): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
 function assertContentSize(content: string, maxBytes: number, label: string): void {
   const size = Buffer.byteLength(content, "utf8");
   if (size > maxBytes) {
@@ -223,13 +227,13 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
       cssvalidation?: {
         validity?: boolean;
         errors?: Array<{
-          line: number;
+          line?: unknown;
           message: string;
           context?: string;
           type?: string;
         }>;
         warnings?: Array<{
-          line: number;
+          line?: unknown;
           message: string;
           context?: string;
           type?: string;
@@ -256,7 +260,7 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
     const normalizedErrors = errors.map((err) => {
       const message = normalizeCssDiagnosticMessage(err.message, "Unknown CSS validation error");
       return {
-        line: err.line || 0,
+        line: normalizeCssDiagnosticLine(err.line),
         type: "error",
         message,
         context: typeof err.context === "string" && err.context
@@ -267,7 +271,7 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
       };
     });
     const normalizedWarnings = warnings.map((warning) => ({
-      line: warning.line || 0,
+      line: normalizeCssDiagnosticLine(warning.line),
       type: "warning",
       message: normalizeCssDiagnosticMessage(warning.message, "Unknown CSS validation warning"),
       context: typeof warning.context === "string" && warning.context

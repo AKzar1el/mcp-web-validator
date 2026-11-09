@@ -1030,6 +1030,29 @@ test("robots audit uses supplied X-Robots-Tag headers without assuming a network
   assert.equal(both.issues.filter((issue) => issue.code === "seo.robots.noindex").length, 1);
 });
 
+test("folded X-Robots-Tag scopes are reported as ambiguous without inventing Google noindex", () => {
+  const folded = new Headers();
+  folded.append("X-Robots-Tag", "bingbot: noindex");
+  folded.append("X-Robots-Tag", "noindex");
+  assert.equal(folded.get("X-Robots-Tag"), "bingbot: noindex, noindex");
+
+  const expected = {
+    code: "seo.robots.x_robots_tag.scope_ambiguous",
+    severity: "info",
+    category: "SEO",
+    message: "X-Robots-Tag contains a potentially ambiguous noindex after a non-Googlebot scope. Combined HTTP header fields may hide a separate global directive; inspect the origin response headers.",
+  };
+  for (const header of [folded.get("X-Robots-Tag"), "bingbot: nofollow, none", "bingbot: none, none"]) {
+    const issues = auditSeoMetadata("<title>Page</title>", header);
+    assert.equal(issues.find((issue) => issue.code === "seo.robots.noindex"), undefined);
+    assert.deepEqual(issues.find((issue) => issue.code === expected.code), expected);
+  }
+  for (const header of ["bingbot: noindex, follow", "bingbot: noindex\nnoindex", "googlebot: noindex, follow", "noindex", "max-image-preview:none, follow"]) {
+    assert.equal(auditSeoMetadata("<title>Page</title>", header)
+      .find((issue) => issue.code === expected.code), undefined);
+  }
+});
+
 test("SEO and JSON-LD audits ignore inert template contents", () => {
   const html = [
     "<html><head></head><body>",

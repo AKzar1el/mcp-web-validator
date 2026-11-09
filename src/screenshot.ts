@@ -389,9 +389,9 @@ export async function captureScreenshots(
         });
         if (navigationResponse) {
           const status = navigationResponse.status();
-          // 204/205 do not deliver a document, so a screenshot could capture
-          // the previous page or an empty viewport while reporting success.
-          if (status === 204 || status === 205 || status >= 400) {
+          // 204/205 contain no document; 206 may contain only part of one.
+          // Neither can produce a trustworthy full-page screenshot.
+          if (status === 204 || status === 205 || status === 206 || status >= 400) {
             throw new Error(`HTTP ${status} from main document`);
           }
         }

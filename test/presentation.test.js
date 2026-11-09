@@ -63,6 +63,20 @@ test("narration strips terminal control characters from untrusted diagnostics an
   }
 });
 
+test("narration strips bidirectional formatting controls without removing RTL text", () => {
+  const rtl = "\u0645\u0631\u062d\u0628\u0627";
+  const hostile = `Issue \u202ereversed\u202c \u2066isolated\u2069 \u200e${rtl}\u061c`;
+  const outputs = [
+    htmlValidationContent([{ type: "error", message: hostile }]),
+    linkCheckContent([{ url: `https://example.test/\u202espoof`, status: "failed", ok: false, message: hostile }]),
+    failureContent("HTML validation", hostile, "Retry after checking the input."),
+  ];
+  for (const output of outputs) {
+    assert.doesNotMatch(output, /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u);
+    assert.ok(output.includes(rtl), "natural RTL letters must remain visible");
+  }
+});
+
 test("all action-based narrations use the shared escaping boundary", () => {
   const html = htmlValidationContent([{ type: "error", message: hostileProse, lastLine: 3 }]);
   const seo = seoAuditContent(

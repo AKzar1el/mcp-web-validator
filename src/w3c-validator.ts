@@ -149,7 +149,8 @@ export async function validateHtmlContentDetailed(
       signal: AbortSignal.timeout(VALIDATOR_TIMEOUT_MS),
     });
 
-    if (!response.ok) {
+    // A partial JSON payload can look clean while omitting validator diagnostics.
+    if (!response.ok || response.status === 206) {
       await cancelResponseBody(response);
       throw new Error(`W3C HTML validator returned HTTP status ${response.status}`);
     }
@@ -211,7 +212,8 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
       signal: AbortSignal.timeout(VALIDATOR_TIMEOUT_MS),
     });
 
-    if (!response.ok) {
+    // Incomplete upstream diagnostics cannot establish a valid CSS verdict.
+    if (!response.ok || response.status === 206) {
       await cancelResponseBody(response);
       throw new Error(`W3C CSS validator returned HTTP status ${response.status}`);
     }

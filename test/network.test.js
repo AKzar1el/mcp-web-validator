@@ -1880,7 +1880,7 @@ for (const scenario of [
   });
 }
 
-for (const headStatus of [409, 415, 417, 422, 424]) {
+for (const headStatus of [409, 411, 415, 417, 422, 424]) {
   test(`link checker confirms HEAD ${headStatus} request refusal with bounded GET`, async () => {
     const originalFetch = globalThis.fetch;
     const requests = [];

@@ -39,7 +39,7 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
 
 /** Ambiguous responses, access restrictions and network errors cannot establish destination health. */
 export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
-  return typeof status !== "number" || [300, 304, 401, 403, 406, 407, 408, 409, 412, 415, 416, 417, 421, 422, 423, 424, 425, 426, 428, 429, 431, 451, 502, 503, 504, 511, 520, 521, 522, 523, 524].includes(status);
+  return typeof status !== "number" || [300, 304, 401, 403, 406, 407, 408, 409, 411, 412, 415, 416, 417, 421, 422, 423, 424, 425, 426, 428, 429, 431, 451, 502, 503, 504, 511, 520, 521, 522, 523, 524].includes(status);
 }
 
 export interface AuditCounts {
@@ -1054,7 +1054,7 @@ export async function checkBrokenLinks(
 
       // Some sites reject HEAD with 400/405, time out, or return a false
       // 404/410 for an available resource. Confirm these with a bounded GET.
-      if ([304, 400, 401, 403, 404, 405, 408, 409, 410, 415, 416, 417, 422, 424, 500, 501].includes(headStatus)) {
+      if ([304, 400, 401, 403, 404, 405, 408, 409, 410, 411, 415, 416, 417, 422, 424, 500, 501].includes(headStatus)) {
         let getResult = await fetchPublicHttp(url, {
           method: "GET",
           headers: {
@@ -1099,6 +1099,8 @@ export async function checkBrokenLinks(
               ? "Request timed out; destination availability not verified"
               : status === 409
               ? "Request conflict; destination availability not verified"
+              : status === 411
+              ? "Content length required; destination availability not verified"
               : status === 412
               ? "Precondition failed; destination availability not verified"
               : status === 415
@@ -1162,6 +1164,8 @@ export async function checkBrokenLinks(
             ? "Request timed out; destination availability not verified"
             : headStatus === 409
             ? "Request conflict; destination availability not verified"
+            : headStatus === 411
+            ? "Content length required; destination availability not verified"
             : headStatus === 412
             ? "Precondition failed; destination availability not verified"
             : headStatus === 415

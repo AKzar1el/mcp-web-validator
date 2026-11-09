@@ -50,7 +50,8 @@ const PATH_MAX_LENGTH = 4_096;
 const MAX_VIEWPORTS = 8;
 
 function localHtmlValidationMediaType(filePath: string): HtmlValidationMediaType {
-  return path.extname(filePath).toLowerCase() === ".xhtml"
+  const extension = path.extname(filePath).toLowerCase();
+  return extension === ".xhtml" || extension === ".xht"
     ? "application/xhtml+xml"
     : "text/html";
 }

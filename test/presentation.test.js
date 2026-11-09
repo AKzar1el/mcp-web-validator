@@ -63,6 +63,20 @@ test("narration strips terminal control characters from untrusted diagnostics an
   }
 });
 
+test("narration neutralizes Unicode bidi controls in untrusted diagnostics and URLs", () => {
+  const hostile = "visible \u202ereversed\u202c \u2066isolated\u2069";
+  const outputs = [
+    htmlValidationContent([{ type: "error", message: hostile }]),
+    linkCheckContent([{ url: `https://example.test/${hostile}`, status: "failed", ok: false, message: hostile }]),
+    failureContent("HTML validation", hostile, "Retry with safe input."),
+  ];
+  for (const output of outputs) {
+    assert.doesNotMatch(output, /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u);
+    assert.match(output, /visible/);
+    assert.match(output, /reversed/);
+  }
+});
+
 test("all action-based narrations use the shared escaping boundary", () => {
   const html = htmlValidationContent([{ type: "error", message: hostileProse, lastLine: 3 }]);
   const seo = seoAuditContent(

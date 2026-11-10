@@ -118,6 +118,12 @@ describe("validateHtml", () => {
 });
 
 describe("Nu checker failures", () => {
+  it("rejects partial HTTP 206 checker responses instead of treating truncated diagnostics as clean", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ messages: [] }, { status: 206 })));
+
+    await expect(validateHtmlDetailed("<html></html>")).rejects.toThrow("HTTP 206");
+  });
+
   it("does not classify a Nu checker failure as invalid markup", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({
       messages: [

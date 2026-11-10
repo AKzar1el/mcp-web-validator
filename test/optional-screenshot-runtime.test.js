@@ -159,7 +159,11 @@ test("opt-in workspace root replaces screenshot output links without overwriting
             on() {},
             async setViewport() {},
             async goto() { return { status: () => 200 }; },
-            async screenshot({ path: screenshotPath }) { await fs.writeFile(screenshotPath, "new screenshot"); },
+            async screenshot(options) {
+              assert.equal(options.path, undefined, "scoped screenshots must not pass a writable path to the browser");
+              assert.equal(options.type, "png");
+              return Buffer.from("new screenshot");
+            },
           };
         },
         async close() {},
@@ -188,6 +192,51 @@ test("opt-in workspace root replaces screenshot output links without overwriting
       t.diagnostic("File symlinks unavailable; hard-link overwrite regression still exercised");
     }
     assert.deepEqual((await fs.readdir(outputDir)).filter((name) => name.endsWith(".tmp")), []);
+  } finally {
+    if (previousRoot === undefined) delete process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
+    else process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT = previousRoot;
+  }
+});
+
+test("scoped screenshot failures leave the existing PNG and no temporary output", async (t) => {
+  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-screenshot-failed-output-"));
+  t.after(() => fs.rm(scratch, { recursive: true, force: true }));
+  const workspace = path.join(scratch, "workspace");
+  const outputDir = path.join(workspace, "screenshots");
+  await fs.mkdir(outputDir, { recursive: true });
+  const htmlFile = path.join(workspace, "page.html");
+  await fs.writeFile(htmlFile, "<title>Fixture</title>");
+  const outputFile = path.join(outputDir, "test_375x812.png");
+  const previousRoot = process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
+  process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT = workspace;
+  try {
+    for (const screenshot of [
+      async () => { throw new Error("fixture screenshot failed"); },
+      async () => Buffer.alloc(0),
+    ]) {
+      await fs.writeFile(outputFile, "prior screenshot");
+      await assert.rejects(captureScreenshots(htmlFile, outputDir, [
+        { name: "test", width: 375, height: 812 },
+      ], {
+        async launch() {
+          return {
+            async newPage() {
+              return {
+                setDefaultNavigationTimeout() {},
+                async setRequestInterception() {},
+                on() {},
+                async setViewport() {},
+                async goto() { return { status: () => 200 }; },
+                screenshot,
+              };
+            },
+            async close() {},
+          };
+        },
+      }), /fixture screenshot failed|non-empty unique regular file/);
+      assert.equal(await fs.readFile(outputFile, "utf8"), "prior screenshot");
+      assert.deepEqual((await fs.readdir(outputDir)).filter((file) => file.endsWith(".tmp")), []);
+    }
   } finally {
     if (previousRoot === undefined) delete process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
     else process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT = previousRoot;

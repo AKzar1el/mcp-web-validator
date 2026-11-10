@@ -170,7 +170,8 @@ test("opt-in workspace root replaces screenshot output links without overwriting
   process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT = workspace;
   try {
     const captures = await captureScreenshots(htmlFile, outputDir, [{ name: "test", width: 375, height: 812 }], runtime);
-    assert.equal(captures[0].outputPath, outputFile);
+    // Windows may return the long path when the temp root used an 8.3 alias.
+    assert.equal(await fs.realpath(captures[0].outputPath), await fs.realpath(outputFile));
     assert.equal(await fs.readFile(outsideFile, "utf8"), "external sentinel");
     assert.equal(await fs.readFile(outputFile, "utf8"), "new screenshot");
     assert.equal((await fs.stat(outputFile)).nlink, 1);

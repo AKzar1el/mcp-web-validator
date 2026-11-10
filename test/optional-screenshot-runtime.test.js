@@ -647,3 +647,54 @@ test("screenshot keeps duplicate in-flight visual assets pending until each requ
   assert.equal(captures[0].incompleteAssetCount, 1);
   assert.equal(captures[1].incompleteAssetCount, undefined);
 });
+
+test("late visual request events cannot change a later viewport's asset completeness", async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-web-validator-late-assets-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const targetPath = path.join(directory, "fixture.html");
+  await fs.writeFile(targetPath, "<!doctype html><title>Fixture</title>");
+  const handlers = new Map();
+  const makeRequest = (url) => ({
+    resourceType: () => "image",
+    url: () => url,
+    isInterceptResolutionHandled: () => true,
+  });
+  const priorFinished = makeRequest("data:image/png;base64,YQ==");
+  const priorFailed = makeRequest("data:image/png;base64,Yg==");
+  let viewportIndex = 0;
+
+  const captures = await captureScreenshots(targetPath, directory, [
+    { name: "desktop", width: 1440, height: 900 },
+    { name: "tablet", width: 768, height: 1024 },
+    { name: "mobile", width: 375, height: 812 },
+  ], {
+    async launch() {
+      return {
+        async newPage() {
+          return {
+            setDefaultNavigationTimeout() {},
+            async setRequestInterception() {},
+            on(name, handler) { handlers.set(name, handler); },
+            async setViewport() { viewportIndex += 1; },
+            async goto() {
+              if (viewportIndex === 1) {
+                handlers.get("request")(priorFinished);
+                handlers.get("request")(priorFailed);
+              } else if (viewportIndex === 2) {
+                handlers.get("request")(makeRequest(priorFinished.url()));
+                handlers.get("requestfinished")(priorFinished);
+              } else {
+                handlers.get("requestfailed")(priorFailed);
+              }
+              return { status: () => 200 };
+            },
+            async screenshot({ path: outputPath }) { await fs.writeFile(outputPath, "fixture png"); },
+          };
+        },
+        async close() {},
+      };
+    },
+  });
+
+  assert.deepEqual(captures.map((capture) => capture.incompleteAssetCount), [2, 1, undefined]);
+});

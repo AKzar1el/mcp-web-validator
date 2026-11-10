@@ -94,6 +94,26 @@ describe("validateHtml", () => {
     expect(result.counts).toEqual({ error: 1, warning: 1, info: 0 });
   });
 
+  it.each([
+    { label: "negative", line: -1, column: 5, expectedLine: undefined, expectedColumn: 5 },
+    { label: "fractional", line: 3.5, column: 4, expectedLine: undefined, expectedColumn: 4 },
+    { label: "unsafe integer", line: 2 ** 53, column: 6, expectedLine: undefined, expectedColumn: 6 },
+    { label: "string", line: "8", column: "9", expectedLine: undefined, expectedColumn: undefined },
+    { label: "null", line: null, column: null, expectedLine: undefined, expectedColumn: undefined },
+    { label: "negative column", line: 7, column: -2, expectedLine: 7, expectedColumn: undefined },
+    { label: "fractional column", line: 7, column: 2.5, expectedLine: 7, expectedColumn: undefined },
+    { label: "zero", line: 0, column: 0, expectedLine: 0, expectedColumn: 0 },
+  ])("accepts only nonnegative safe integer Nu locations: $label", async ({ line, column, expectedLine, expectedColumn }) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      messages: [{ type: "error", message: "Missing alt", lastLine: line, lastColumn: column }],
+    })));
+
+    const result = await validateHtmlDetailed("<html></html>");
+    expect(result.messages[0]?.line).toBe(expectedLine);
+    expect(result.messages[0]?.column).toBe(expectedColumn);
+    expect(result.counts).toEqual({ error: 1, warning: 0, info: 0 });
+  });
+
   it("rejects a malformed Nu messages payload", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ messages: { type: "error" } })));
 

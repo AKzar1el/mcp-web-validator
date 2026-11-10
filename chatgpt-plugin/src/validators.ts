@@ -119,10 +119,10 @@ async function validateHtmlDetailedWithSignal(
       message: item.message.length > MAX_DIAGNOSTIC_MESSAGE_CHARS
         ? `${item.message.slice(0, MAX_DIAGNOSTIC_MESSAGE_CHARS - 3)}...`
         : item.message,
-      line: typeof item.lastLine === "number" && Number.isFinite(item.lastLine)
+      line: typeof item.lastLine === "number" && Number.isSafeInteger(item.lastLine) && item.lastLine >= 0
         ? item.lastLine
         : undefined,
-      column: typeof item.lastColumn === "number" && Number.isFinite(item.lastColumn)
+      column: typeof item.lastColumn === "number" && Number.isSafeInteger(item.lastColumn) && item.lastColumn >= 0
         ? item.lastColumn
         : undefined,
     });

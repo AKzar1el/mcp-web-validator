@@ -194,6 +194,14 @@ function getXmlCharacterEncoding(bytes: Uint8Array): string {
   return match?.[2].trim() || "utf-8";
 }
 
+/** HTTP Content-Length describes wire bytes, which Fetch may have decompressed already. */
+function hasNonIdentityContentEncoding(response: Response): boolean {
+  return response.headers.get("content-encoding")?.split(",").some((part) => {
+    const coding = part.trim().toLowerCase();
+    return coding !== "" && coding !== "identity";
+  }) ?? false;
+}
+
 /** Reads a response body without ever buffering more than the configured cap. */
 export async function readBoundedResponseText(
   response: Response,
@@ -206,7 +214,8 @@ export async function readBoundedResponseText(
   preferHtmlBom = false,
 ): Promise<string> {
   const declaredLength = response.headers.get("content-length");
-  if (declaredLength && /^\d+$/.test(declaredLength) && Number(declaredLength) > maxBytes) {
+  if (!hasNonIdentityContentEncoding(response) && declaredLength && /^\d+$/.test(declaredLength)
+    && Number(declaredLength) > maxBytes) {
     await cancelQuietly(response);
     throw new Error(tooLargeMessage);
   }
@@ -300,9 +309,9 @@ export async function readBoundedResponseText(
 }
 
 
-/** Gzip sitemap payloads enforce both transfer-byte and expanded-byte quotas.
- * Fetch implementations may transparently decode Content-Encoding:gzip bodies
- * while preserving response headers; sniff the actual bytes before gunzipping.
+/** Gzip sitemap payloads bound both the bytes exposed by Fetch and any gzip expansion.
+ * Fetch may transparently decode Content-Encoding:gzip while preserving wire
+ * headers; sniff the exposed bytes before attempting a second decompression.
  */
 async function readBoundedGzipResponseText(
   response: Response,
@@ -310,7 +319,8 @@ async function readBoundedGzipResponseText(
   tooLargeMessage: string,
 ): Promise<string> {
   const declaredLength = response.headers.get("content-length");
-  if (declaredLength && /^\d+$/.test(declaredLength) && Number(declaredLength) > maxBytes) {
+  if (!hasNonIdentityContentEncoding(response) && declaredLength && /^\d+$/.test(declaredLength)
+    && Number(declaredLength) > maxBytes) {
     await cancelQuietly(response);
     throw new Error(tooLargeMessage);
   }

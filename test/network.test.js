@@ -1690,6 +1690,44 @@ test("link checker verifies a successful GET after a transient HEAD HTTP 408", a
   }
 });
 
+test("link checker retries a transport-rejected HEAD with a bounded GET", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (_input, init) => {
+    requests.push({ method: init?.method, range: init?.headers?.Range });
+    if (init?.method === "HEAD") throw new TypeError("HEAD rejected by origin");
+    return new Response(null, { status: 200 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/head-transport-rejected">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 200);
+    assert.equal(links[0].ok, true);
+    assert.deepEqual(requests, [
+      { method: "HEAD", range: undefined },
+      { method: "GET", range: "bytes=0-0" },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker does not retry a non-transport HEAD failure", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (_input, init) => {
+    requests.push(init?.method);
+    throw new Error("Explicit HEAD failure");
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/head-error">Link</a>', undefined, 1);
+    assert.equal(links[0].status, "failed");
+    assert.match(links[0].message, /Explicit HEAD failure/);
+    assert.deepEqual(requests, ["HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker cannot verify an unconditional 304 and retries HEAD with a bounded GET", async () => {
   const originalFetch = globalThis.fetch;
   const methods = [];

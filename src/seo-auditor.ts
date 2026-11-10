@@ -1106,19 +1106,26 @@ export async function checkBrokenLinks(
 
   async function checkLink(url: string): Promise<LinkStatus> {
     try {
-      const headResult = await fetchPublicHttp(url, {
-        method: "HEAD",
-        headers: { "User-Agent": LINK_CHECK_USER_AGENT },
-        timeoutMs: LINK_CHECK_TIMEOUT_MS,
-        maxRedirects: 0,
-      });
-      const headStatus = headResult.response.status;
-      const headFinalUrl = headResult.url.href;
-      await cancelResponseBody(headResult.response);
+      let headResult: Awaited<ReturnType<typeof fetchPublicHttp>> | undefined;
+      try {
+        headResult = await fetchPublicHttp(url, {
+          method: "HEAD",
+          headers: { "User-Agent": LINK_CHECK_USER_AGENT },
+          timeoutMs: LINK_CHECK_TIMEOUT_MS,
+          maxRedirects: 0,
+        });
+      } catch (error: unknown) {
+        // An origin may reject HEAD at the transport layer while accepting GET.
+        // Never retry URL-policy failures or expired request deadlines.
+        if (!(error instanceof TypeError)) throw error;
+      }
+      const headStatus = headResult?.response.status;
+      const headFinalUrl = headResult?.url.href ?? url;
+      if (headResult) await cancelResponseBody(headResult.response);
 
-      // Some sites reject HEAD with 400/405, time out, or return a false
-      // 404/410 for an available resource. Confirm these with a bounded GET.
-      if ([304, 400, 401, 403, 404, 405, 406, 408, 409, 410, 411, 412, 415, 416, 417, 422, 424, 500, 501].includes(headStatus)) {
+      // Some sites reject HEAD with 400/405, fail its transport, or return a
+      // false 404/410 for an available resource. Confirm with a bounded GET.
+      if (headStatus === undefined || [304, 400, 401, 403, 404, 405, 406, 408, 409, 410, 411, 412, 415, 416, 417, 422, 424, 500, 501].includes(headStatus)) {
         let getResult = await fetchPublicHttp(url, {
           method: "GET",
           headers: {

@@ -220,6 +220,49 @@ function isPathWithinDirectory(directory: string, filePath: string): boolean {
     && !path.isAbsolute(relativePath);
 }
 
+async function prepareScreenshotOutputDirectory(outputDirectory: string): Promise<string> {
+  const resolvedDirectory = path.resolve(outputDirectory);
+  const configuredRoot = process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
+  if (configuredRoot === undefined) {
+    await fs.mkdir(resolvedDirectory, { recursive: true });
+    return resolvedDirectory;
+  }
+
+  if (!path.isAbsolute(configuredRoot)) {
+    throw new Error("MCP_WEB_VALIDATOR_WORKSPACE_ROOT must be an absolute directory path");
+  }
+  const root = await fs.realpath(configuredRoot);
+  if (!(await fs.stat(root)).isDirectory()) {
+    throw new Error("MCP_WEB_VALIDATOR_WORKSPACE_ROOT must refer to a directory");
+  }
+
+  // Resolve the nearest existing ancestor before mkdir, so a symlinked parent
+  // cannot redirect newly created screenshot directories outside the scope.
+  let ancestor = resolvedDirectory;
+  let canonicalAncestor: string;
+  for (;;) {
+    try {
+      canonicalAncestor = await fs.realpath(ancestor);
+      break;
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const parent = path.dirname(ancestor);
+      if (parent === ancestor) throw error;
+      ancestor = parent;
+    }
+  }
+  const plannedDirectory = path.resolve(canonicalAncestor, path.relative(ancestor, resolvedDirectory));
+  if (!isPathWithinDirectory(root, plannedDirectory)) {
+    throw new Error("Screenshot output directory is outside MCP_WEB_VALIDATOR_WORKSPACE_ROOT");
+  }
+  await fs.mkdir(resolvedDirectory, { recursive: true });
+  const canonicalDirectory = await fs.realpath(resolvedDirectory);
+  if (!isPathWithinDirectory(root, canonicalDirectory)) {
+    throw new Error("Screenshot output directory is outside MCP_WEB_VALIDATOR_WORKSPACE_ROOT");
+  }
+  return canonicalDirectory;
+}
+
 async function assertLocalScreenshotRequestAllowed(requestUrl: URL, localDirectory: string): Promise<void> {
   if (requestUrl.hostname) {
     throw new Error("Blocked local file request with a host name");
@@ -306,8 +349,6 @@ export async function captureScreenshots(
   }
 
   const viewports = validateViewports(customViewports ?? DEFAULT_VIEWPORTS);
-  const resolvedOutputDirectory = path.resolve(outputDirectory);
-
   // Resolve target to file:// URL if it is a local file path
   let targetUrl: string;
   let localDirectory: string | undefined;
@@ -324,8 +365,7 @@ export async function captureScreenshots(
     targetUrl = pathToFileURL(resolvedPath).href;
   }
 
-  // Ensure output directory exists
-  await fs.mkdir(resolvedOutputDirectory, { recursive: true });
+  const resolvedOutputDirectory = await prepareScreenshotOutputDirectory(outputDirectory);
 
   const results: ScreenshotResult[] = [];
   let blockedRequestMessage: string | undefined;

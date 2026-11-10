@@ -59,6 +59,25 @@ describe("validateHtml", () => {
     expect(result.counts).toEqual({ error: 205, warning: 0, info: 0 });
   });
 
+  it("bounds untrusted Nu diagnostic text without changing counts or short messages", async () => {
+    const longMessage = "X".repeat(12_000);
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      messages: [
+        { type: "error", message: longMessage, lastLine: 7 },
+        { type: "info", subType: "warning", message: "Short warning" },
+      ],
+    })));
+
+    const result = await validateHtmlDetailed("<html></html>");
+    expect(result.messages[0]?.message.length).toBeLessThanOrEqual(1_000);
+    expect(result.messages[0]?.message.endsWith("...")).toBe(true);
+    expect(result.messages[0]?.line).toBe(7);
+    expect(result.messages[1]?.message).toBe("Short warning");
+    expect(result.total).toBe(2);
+    expect(result.truncated).toBe(false);
+    expect(result.counts).toEqual({ error: 1, warning: 1, info: 0 });
+  });
+
   it("rejects a malformed Nu messages payload", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ messages: { type: "error" } })));
 

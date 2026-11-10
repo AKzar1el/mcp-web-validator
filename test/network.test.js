@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import dns from "node:dns";
 import { syncBuiltinESMExports } from "node:module";
 import * as fs from "node:fs/promises";
+import fsPromisesDefault from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as net from "node:net";
@@ -819,6 +820,26 @@ test("unsupported charset remains an error for non-HTML text", async () => {
     );
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("local file reads use a bounded reader instead of an unbounded whole-file read", async (t) => {
+  const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-local-bounded-read-"));
+  t.after(() => fs.rm(temporaryDirectory, { recursive: true, force: true }));
+  const filePath = path.join(temporaryDirectory, "sample.txt");
+  await fs.writeFile(filePath, "bounded text");
+
+  const originalReadFile = fsPromisesDefault.readFile;
+  fsPromisesDefault.readFile = async () => {
+    throw new Error("Unbounded fs.readFile must not be used for local inputs");
+  };
+  syncBuiltinESMExports();
+  try {
+    assert.equal(await readTextFile(filePath, 20), "bounded text");
+    await assert.rejects(readTextFile(filePath, 5), /File exceeds the 5-byte limit/);
+  } finally {
+    fsPromisesDefault.readFile = originalReadFile;
+    syncBuiltinESMExports();
   }
 });
 

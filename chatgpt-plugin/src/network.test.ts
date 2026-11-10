@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchPublicHtml, fetchPublicText, PublicHtmlFetchError } from "./network";
+import { fetchPublicHtml, fetchPublicText, PublicHtmlFetchError, readBoundedResponseText } from "./network";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -12,6 +12,41 @@ function htmlResponse(html = "<!doctype html><title>Example</title>", init: Resp
   if (!headers.has("content-type")) headers.set("content-type", "text/html; charset=utf-8");
   return new Response(html, { ...init, headers });
 }
+
+describe("readBoundedResponseText identity Content-Length", () => {
+  it.each(["2", "8"])("rejects an identity byte-count mismatch (declared %s, actual 5)", async (length) => {
+    const response = new Response("hello", { headers: { "content-length": length } });
+    await expect(readBoundedResponseText(response, 1024, "too large"))
+      .rejects.toThrow(`Response body length (5 bytes) does not match Content-Length (${length} bytes)`);
+  });
+
+  it("rejects a nonzero declared identity length for an absent body", async () => {
+    const response = new Response(null, { headers: { "content-length": "5" } });
+    await expect(readBoundedResponseText(response, 1024, "too large"))
+      .rejects.toThrow("Response body length (0 bytes) does not match Content-Length (5 bytes)");
+  });
+
+  it("accepts an exact identity body length", async () => {
+    const response = new Response("hello", { headers: { "content-length": "5" } });
+    await expect(readBoundedResponseText(response, 1024, "too large")).resolves.toBe("hello");
+  });
+
+  it.each([
+    { name: "decoded gzip", headers: new Headers({ "content-length": "8", "content-encoding": "gzip" }) },
+    { name: "chunked identity", headers: new Headers({ "content-length": "8", "transfer-encoding": "chunked" }) },
+    { name: "unsafe length", headers: new Headers({ "content-length": "9007199254740992" }) },
+  ])("does not compare non-comparable $name length headers", async ({ headers }) => {
+    const response = new Response("hello", { headers });
+    await expect(readBoundedResponseText(response, 1024, "too large")).resolves.toBe("hello");
+  });
+
+  it("still enforces streaming byte caps for chunked identity responses", async () => {
+    const response = new Response("hello", {
+      headers: { "content-length": "2", "transfer-encoding": "chunked" },
+    });
+    await expect(readBoundedResponseText(response, 3, "too large")).rejects.toThrow("too large");
+  });
+});
 
 describe("fetchPublicHtml", () => {
   it("fetches one normalized public HTML page without forwarding user credentials", async () => {
@@ -363,6 +398,30 @@ describe("fetchPublicText", () => {
     maxRedirects: 5,
   } as const;
 
+  it("rejects an identity Content-Length mismatch in gzip-sitemap decoding", async () => {
+    const xml = "<urlset><url><loc>https://example.com/</loc></url></urlset>";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(xml, {
+      headers: { "content-type": "application/gzip", "content-length": String(xml.length + 2) },
+    })));
+
+    await expect(fetchPublicText("https://example.com/map.xml.gz", {
+      ...textOptions, acceptedContentTypes: ["application/xml"], allowGzipSitemap: true,
+    })).rejects.toMatchObject({ code: "fetch_failed" });
+  });
+
+  it("does not compare chunked Content-Length when decoding sitemap text", async () => {
+    const xml = "<urlset><url><loc>https://example.com/</loc></url></urlset>";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(xml, {
+      headers: {
+        "content-type": "application/gzip",
+        "content-length": String(xml.length + 2),
+        "transfer-encoding": "chunked",
+      },
+    })));
+    await expect(fetchPublicText("https://example.com/map.xml.gz", {
+      ...textOptions, acceptedContentTypes: ["application/xml"], allowGzipSitemap: true,
+    })).resolves.toMatchObject({ text: xml });
+  });
 
   it("rejects partial HTTP 206 sitemap payloads rather than auditing incomplete XML", async () => {
     vi.stubGlobal("fetch", vi.fn(async () =>

@@ -194,12 +194,22 @@ function getXmlCharacterEncoding(bytes: Uint8Array): string {
   return match?.[2].trim() || "utf-8";
 }
 
-/** HTTP Content-Length describes wire bytes, which Fetch may have decompressed already. */
-function hasNonIdentityContentEncoding(response: Response): boolean {
-  return response.headers.get("content-encoding")?.split(",").some((part) => {
-    const coding = part.trim().toLowerCase();
-    return coding !== "" && coding !== "identity";
-  }) ?? false;
+/** Only identity, non-transfer-encoded bodies have comparable exact byte lengths. */
+function exactIdentityContentLength(response: Response): number | undefined {
+  const contentEncoding = response.headers.get("content-encoding")?.trim().toLowerCase();
+  if ((contentEncoding && contentEncoding !== "identity") || response.headers.has("transfer-encoding")) {
+    return undefined;
+  }
+  const value = response.headers.get("content-length");
+  if (value === null || !/^\d+$/.test(value.trim())) return undefined;
+  const length = Number(value);
+  return Number.isSafeInteger(length) ? length : undefined;
+}
+
+function assertExactIdentityBodyLength(actual: number, declared: number | undefined): void {
+  if (declared !== undefined && actual !== declared) {
+    throw new Error(`Response body length (${actual} bytes) does not match Content-Length (${declared} bytes)`);
+  }
 }
 
 /** Reads a response body without ever buffering more than the configured cap. */
@@ -213,14 +223,16 @@ export async function readBoundedResponseText(
   preferXmlBom = false,
   preferHtmlBom = false,
 ): Promise<string> {
-  const declaredLength = response.headers.get("content-length");
-  if (!hasNonIdentityContentEncoding(response) && declaredLength && /^\d+$/.test(declaredLength)
-    && Number(declaredLength) > maxBytes) {
+  const declaredLength = exactIdentityContentLength(response);
+  if (declaredLength !== undefined && declaredLength > maxBytes) {
     await cancelQuietly(response);
     throw new Error(tooLargeMessage);
   }
 
-  if (!response.body) return "";
+  if (!response.body) {
+    assertExactIdentityBodyLength(0, declaredLength);
+    return "";
+  }
 
   const reader = response.body.getReader();
   let totalBytes = 0;
@@ -301,6 +313,7 @@ export async function readBoundedResponseText(
     if (!decoder) {
       throw new Error("Response decoder was not initialized");
     }
+    assertExactIdentityBodyLength(totalBytes, declaredLength);
     text += decoder.decode();
     return text;
   } finally {
@@ -318,13 +331,15 @@ async function readBoundedGzipResponseText(
   maxBytes: number,
   tooLargeMessage: string,
 ): Promise<string> {
-  const declaredLength = response.headers.get("content-length");
-  if (!hasNonIdentityContentEncoding(response) && declaredLength && /^\d+$/.test(declaredLength)
-    && Number(declaredLength) > maxBytes) {
+  const declaredLength = exactIdentityContentLength(response);
+  if (declaredLength !== undefined && declaredLength > maxBytes) {
     await cancelQuietly(response);
     throw new Error(tooLargeMessage);
   }
-  if (!response.body) return "";
+  if (!response.body) {
+    assertExactIdentityBodyLength(0, declaredLength);
+    return "";
+  }
 
   // At the sitemap cap (1 MiB), holding the encoded representation avoids
   // a stream-peek race while remaining independently bounded in memory.
@@ -345,6 +360,7 @@ async function readBoundedGzipResponseText(
   } finally {
     reader.releaseLock();
   }
+  assertExactIdentityBodyLength(totalBytes, declaredLength);
   const bytes = new Uint8Array(totalBytes);
   let cursor = 0;
   for (const chunk of chunks) {

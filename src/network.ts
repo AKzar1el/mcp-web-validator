@@ -99,9 +99,9 @@ const blockedHostnameSuffixes = [
 const redirectStatuses = new Set([301, 302, 303, 307, 308]);
 // Custom API keys and session tokens are credentials too, even when they are
 // not sent in the standard Authorization or Cookie headers.
-const crossOriginCredentialHeader = /(?:^|[-_])(?:authorization|auth|cookie2?|(?:api|access|client|subscription|functions?|private)[-_]?key|token|secret|credential|password|session|signature|hmac)(?:$|[-_])/i;
+const crossOriginCredentialHeader = /(?:^|[-_])(?:authorization|authentication|auth|cookie2?|(?:api|access|client|subscription|functions?|private)[-_]?key|token|secret|credential|password|session|signature|hmac|jwt|csrf|xsrf)(?:$|[-_])/i;
 // Header names such as XApiKey and XAuthToken can omit separators entirely.
-const compactCredentialHeader = /(?:api|auth|access|refresh|client|session|security|subscription|functions?|private)(?:key|token|secret)|sessionid|signature|hmac/i;
+const compactCredentialHeader = /(?:api|auth|access|refresh|client|session|security|subscription|functions?|private)(?:key|token|secret)|authentication|sessionid|signature|hmac|jwt|csrf|xsrf/i;
 
 export interface PublicFetchOptions {
   method?: "GET" | "HEAD";

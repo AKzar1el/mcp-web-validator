@@ -269,6 +269,12 @@ test("manual redirects keep same-origin headers but strip credentials after a cr
         XAuthToken: "fixture-compact-auth-token",
         XClientSecret: "fixture-compact-client-secret",
         XSessionId: "fixture-compact-session-id",
+        "X-Authentication": "fixture-custom-authentication",
+        XAuthentication: "fixture-compact-authentication",
+        "X-JWT": "fixture-jwt",
+        XJwt: "fixture-compact-jwt",
+        "X-CSRF": "fixture-csrf",
+        XCsrf: "fixture-compact-csrf",
         "Signature": "fixture-http-message-signature",
         "Signature-Input": "fixture-signature-metadata",
         "X-Hub-Signature-256": "fixture-webhook-hmac",
@@ -307,6 +313,12 @@ test("manual redirects keep same-origin headers but strip credentials after a cr
       assert.equal(request.headers.get("XAuthToken"), "fixture-compact-auth-token");
       assert.equal(request.headers.get("XClientSecret"), "fixture-compact-client-secret");
       assert.equal(request.headers.get("XSessionId"), "fixture-compact-session-id");
+      assert.equal(request.headers.get("X-Authentication"), "fixture-custom-authentication");
+      assert.equal(request.headers.get("XAuthentication"), "fixture-compact-authentication");
+      assert.equal(request.headers.get("X-JWT"), "fixture-jwt");
+      assert.equal(request.headers.get("XJwt"), "fixture-compact-jwt");
+      assert.equal(request.headers.get("X-CSRF"), "fixture-csrf");
+      assert.equal(request.headers.get("XCsrf"), "fixture-compact-csrf");
       assert.equal(request.headers.get("Signature"), "fixture-http-message-signature");
       assert.equal(request.headers.get("XWebhookSignature"), "fixture-compact-webhook-signature");
       assert.equal(request.headers.get("Referer"), "https://1.1.1.1/private?access_token=fixture-referer-token");
@@ -318,6 +330,7 @@ test("manual redirects keep same-origin headers but strip credentials after a cr
         "Ocp-Apim-Subscription-Key", "X-Functions-Key", "XPrivateKey",
         "X-Amz-Security-Token", "X-Client-Secret", "X-Session-ID",
         "XApiKey", "XAuthToken", "XClientSecret", "XSessionId",
+        "X-Authentication", "XAuthentication", "X-JWT", "XJwt", "X-CSRF", "XCsrf",
         "Signature", "Signature-Input", "X-Hub-Signature-256", "XWebhookSignature",
         "Referer",
       ]) {

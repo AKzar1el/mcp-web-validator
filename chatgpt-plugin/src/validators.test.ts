@@ -255,6 +255,17 @@ describe("bounded audits", () => {
       .toBeUndefined();
   });
 
+  it("bounds untrusted page language diagnostic messages without changing issue counts", () => {
+    const invalidLanguage = "z".repeat(12_000);
+    const result = auditSeoMetadata(`<html lang="${invalidLanguage}"><head><title>Example</title></head><body></body></html>`);
+    const issue = result.issues.find((entry) => entry.code === "accessibility.page_language.invalid_primary_subtag");
+    expect(issue).toBeDefined();
+    expect(issue?.message.length).toBeLessThanOrEqual(1_000);
+    expect(issue?.message.endsWith("...")).toBe(true);
+    expect(result.total).toBe(result.counts.error + result.counts.warning + result.counts.info);
+    expect(result.truncated).toBe(false);
+  });
+
   it("accepts only registered i-* grandfathered tags, regardless of case", () => {
     for (const lang of [
       "i-ami", "i-bnn", "i-default", "i-enochian", "i-hak", "i-klingon",

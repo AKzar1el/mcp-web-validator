@@ -43,6 +43,7 @@ export interface AuditSeoMetadataOptions {
 }
 
 const MAX_AUDIT_ISSUES = 100;
+const MAX_AUDIT_MESSAGE_CHARS = 1_000;
 const REQUEST_TIMEOUT_MS = 5_000;
 const IETF_PROTOCOL_ASSIGNMENTS_IPV4 = ipaddr.parseCIDR("192.0.0.0/24");
 const GLOBALLY_REACHABLE_IETF_PROTOCOL_IPV4 = new Set(["192.0.0.9", "192.0.0.10"]);
@@ -65,7 +66,14 @@ function createAuditCollector() {
     add(issue: AuditIssue) {
       total += 1;
       counts[issue.severity] += 1;
-      if (issues.length < MAX_AUDIT_ISSUES) issues.push(issue);
+      if (issues.length < MAX_AUDIT_ISSUES) {
+        issues.push({
+          ...issue,
+          ...(issue.message.length > MAX_AUDIT_MESSAGE_CHARS
+            ? { message: `${issue.message.slice(0, MAX_AUDIT_MESSAGE_CHARS - 3)}...` }
+            : {}),
+        });
+      }
     },
     result(): AuditResult {
       return { issues, total, truncated: total > issues.length, counts };

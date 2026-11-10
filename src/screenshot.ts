@@ -10,6 +10,7 @@ import puppeteer, { type Browser as PuppeteerBrowser } from "puppeteer-core";
 import * as path from "path";
 import * as fs from "fs/promises";
 import * as os from "node:os";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPublicHttpUrl, getErrorMessage, resolveLocalFileWithinWorkspaceRoot } from "./network.js";
 import { startScreenshotTransportProxy } from "./screenshot-proxy.js";
@@ -211,6 +212,33 @@ function resolveContainedOutputPath(outputDirectory: string, fileName: string): 
   return outputPath;
 }
 
+async function writeScreenshotOutput(
+  page: Awaited<ReturnType<PuppeteerBrowser["newPage"]>>,
+  outputPath: string,
+  scopedOutput: boolean,
+): Promise<void> {
+  if (!scopedOutput) {
+    await page.screenshot({ path: outputPath, fullPage: false });
+    return;
+  }
+
+  // A direct screenshot write follows an existing hard link or symlink. Write
+  // to a uniquely reserved sibling and replace the directory entry instead.
+  const temporaryPath = path.join(path.dirname(outputPath), `.${path.basename(outputPath)}.${randomUUID()}.tmp`);
+  const reservation = await fs.open(temporaryPath, "wx", 0o600);
+  try {
+    await reservation.close();
+    await page.screenshot({ path: temporaryPath, fullPage: false });
+    const written = await fs.lstat(temporaryPath);
+    if (!written.isFile() || written.nlink !== 1) {
+      throw new Error("Screenshot temporary output is not a unique regular file");
+    }
+    await fs.rename(temporaryPath, outputPath);
+  } finally {
+    await fs.rm(temporaryPath, { force: true });
+  }
+}
+
 function isPathWithinDirectory(directory: string, filePath: string): boolean {
   const relativePath = path.relative(directory, filePath);
   // Only an actual parent segment escapes the boundary; names such as
@@ -365,6 +393,7 @@ export async function captureScreenshots(
     targetUrl = pathToFileURL(resolvedPath).href;
   }
 
+  const scopedOutput = process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT !== undefined;
   const resolvedOutputDirectory = await prepareScreenshotOutputDirectory(outputDirectory);
 
   const results: ScreenshotResult[] = [];
@@ -448,10 +477,7 @@ export async function captureScreenshots(
       const fileName = `${vp.name}_${vp.width}x${vp.height}.png`;
       const outputPath = resolveContainedOutputPath(resolvedOutputDirectory, fileName);
 
-      await page.screenshot({
-        path: outputPath,
-        fullPage: false // Captures above the fold viewport
-      });
+      await writeScreenshotOutput(page, outputPath, scopedOutput);
 
       results.push({
         viewportName: vp.name,

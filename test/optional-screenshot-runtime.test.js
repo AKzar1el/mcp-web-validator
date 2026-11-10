@@ -136,6 +136,64 @@ test("opt-in workspace root confines screenshot output directories before creati
   }
 });
 
+test("opt-in workspace root replaces screenshot output links without overwriting their external targets", async (t) => {
+  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-screenshot-output-link-"));
+  t.after(() => fs.rm(scratch, { recursive: true, force: true }));
+  const workspace = path.join(scratch, "workspace");
+  const outputDir = path.join(workspace, "screenshots");
+  await fs.mkdir(outputDir, { recursive: true });
+  const htmlFile = path.join(workspace, "page.html");
+  await fs.writeFile(htmlFile, "<title>Safe</title>");
+  const outsideFile = path.join(scratch, "outside.png");
+  await fs.writeFile(outsideFile, "external sentinel");
+  const outputFile = path.join(outputDir, "test_375x812.png");
+  await fs.link(outsideFile, outputFile);
+
+  const runtime = {
+    async launch() {
+      return {
+        async newPage() {
+          return {
+            setDefaultNavigationTimeout() {},
+            async setRequestInterception() {},
+            on() {},
+            async setViewport() {},
+            async goto() { return { status: () => 200 }; },
+            async screenshot({ path: screenshotPath }) { await fs.writeFile(screenshotPath, "new screenshot"); },
+          };
+        },
+        async close() {},
+      };
+    },
+  };
+  const previousRoot = process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
+  process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT = workspace;
+  try {
+    const captures = await captureScreenshots(htmlFile, outputDir, [{ name: "test", width: 375, height: 812 }], runtime);
+    // Windows may return the long path when the temp root used an 8.3 alias.
+    assert.equal(await fs.realpath(captures[0].outputPath), await fs.realpath(outputFile));
+    assert.equal(await fs.readFile(outsideFile, "utf8"), "external sentinel");
+    assert.equal(await fs.readFile(outputFile, "utf8"), "new screenshot");
+    assert.equal((await fs.stat(outputFile)).nlink, 1);
+
+    await fs.unlink(outputFile);
+    try {
+      await fs.symlink(outsideFile, outputFile, "file");
+      await captureScreenshots(htmlFile, outputDir, [{ name: "test", width: 375, height: 812 }], runtime);
+      assert.equal(await fs.readFile(outsideFile, "utf8"), "external sentinel");
+      assert.equal(await fs.readFile(outputFile, "utf8"), "new screenshot");
+      assert.equal((await fs.lstat(outputFile)).isSymbolicLink(), false);
+    } catch (error) {
+      if (!["EPERM", "EACCES", "ENOSYS"].includes(error?.code)) throw error;
+      t.diagnostic("File symlinks unavailable; hard-link overwrite regression still exercised");
+    }
+    assert.deepEqual((await fs.readdir(outputDir)).filter((name) => name.endsWith(".tmp")), []);
+  } finally {
+    if (previousRoot === undefined) delete process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
+    else process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT = previousRoot;
+  }
+});
+
 test("explicitly empty screenshot viewports fail instead of silently taking default captures", async () => {
   let browserLaunched = false;
   await assert.rejects(

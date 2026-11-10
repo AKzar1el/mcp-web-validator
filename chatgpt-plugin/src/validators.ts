@@ -53,7 +53,8 @@ async function validateHtmlDetailedWithSignal(
     body: html,
     signal,
   });
-  if (!response.ok) {
+  // A partial Nu response may omit diagnostics and must not yield a clean verdict.
+  if (!response.ok || response.status === 206) {
     try {
       await response.body?.cancel();
     } catch {

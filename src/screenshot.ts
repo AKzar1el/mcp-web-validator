@@ -416,18 +416,23 @@ export async function captureScreenshots(
     page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
 
     const incompleteAssetUrls = new Set<string>();
-    const pendingAssetUrls = new Set<string>();
+    const pendingAssetUrls = new Map<string, number>();
     const visualAsset = (kind: string): boolean => ["image", "stylesheet", "font", "script"].includes(kind);
     const isVisualRequest = (request: { resourceType?: () => string }): boolean =>
       typeof request.resourceType === "function" && visualAsset(request.resourceType());
+    const finishVisualRequest = (url: string): void => {
+      const count = pendingAssetUrls.get(url) ?? 0;
+      if (count <= 1) pendingAssetUrls.delete(url);
+      else pendingAssetUrls.set(url, count - 1);
+    };
     page.on("requestfailed", (request) => {
       if (isVisualRequest(request)) {
-        pendingAssetUrls.delete(request.url());
+        finishVisualRequest(request.url());
         incompleteAssetUrls.add(request.url());
       }
     });
     page.on("requestfinished", (request) => {
-      if (isVisualRequest(request)) pendingAssetUrls.delete(request.url());
+      if (isVisualRequest(request)) finishVisualRequest(request.url());
     });
     page.on("response", (response) => {
       const request = response.request();
@@ -438,7 +443,10 @@ export async function captureScreenshots(
 
     await page.setRequestInterception(true);
     page.on("request", (request) => {
-      if (isVisualRequest(request)) pendingAssetUrls.add(request.url());
+      if (isVisualRequest(request)) {
+        const url = request.url();
+        pendingAssetUrls.set(url, (pendingAssetUrls.get(url) ?? 0) + 1);
+      }
       void resolveScreenshotRequest(request, localDirectory, (message) => {
         blockedRequestMessage ??= message;
       }).catch(() => {
@@ -491,7 +499,7 @@ export async function captureScreenshots(
         height: vp.height,
         outputPath,
         ...((incompleteAssetUrls.size + pendingAssetUrls.size) > 0
-          ? { incompleteAssetCount: new Set([...incompleteAssetUrls, ...pendingAssetUrls]).size }
+          ? { incompleteAssetCount: new Set([...incompleteAssetUrls, ...pendingAssetUrls.keys()]).size }
           : {}),
       });
     }

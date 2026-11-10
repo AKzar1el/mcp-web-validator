@@ -6,10 +6,12 @@ import {
   getErrorMessage,
   PublicUrlError,
 } from "./network.js";
-import { getPrimaryLanguageSubtag, isKnownPrimaryLanguageSubtag } from "./language-subtags.js";
+import { getPrimaryLanguageSubtag, isKnownPrimaryLanguageSubtag, isRegisteredGrandfatheredILanguageTag, isWellFormedPrivateUseLanguageTag } from "./language-subtags.js";
 import { PACKAGE_VERSION } from "./version.js";
 
 export const MAX_AUDIT_ISSUES = 200;
+const MAX_AUDIT_ELEMENT_CHARS = 500;
+const MAX_AUDIT_MESSAGE_CHARS = 1_000;
 export const MAX_LINKS_TO_CHECK = 25;
 const LINK_CHECK_CONCURRENCY = 5;
 const LINK_CHECK_TIMEOUT_MS = 5_000;
@@ -36,6 +38,17 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
   return typeof status === "number" && HTTP_REDIRECT_STATUSES.has(status);
 }
 
+function isUnverifiedServerError(status: number): boolean {
+  // Other 5xx server failures do not establish a missing target. Preserve the
+  // existing bounded GET-confirmation semantics for 500/501 and origin-TLS failures.
+  return status >= 502 && status <= 599 && status !== 525 && status !== 526;
+}
+
+/** Ambiguous responses, access restrictions and network errors cannot establish destination health. */
+export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
+  return typeof status !== "number" || isUnverifiedServerError(status) || [300, 304, 401, 403, 406, 407, 408, 409, 411, 412, 415, 416, 417, 421, 422, 423, 424, 425, 426, 428, 429, 431, 451].includes(status);
+}
+
 export interface AuditCounts {
   error: number;
   warning: number;
@@ -51,7 +64,17 @@ export interface AuditDetails {
 
 function addIssue(issues: SEOIssue[], issue: SEOIssue): void {
   if (issues.length < MAX_AUDIT_ISSUES) {
-    issues.push(issue);
+    // Untrusted source text must not dominate an MCP response via either
+    // an element snippet or the issue's diagnostic message.
+    issues.push({
+      ...issue,
+      ...(issue.message.length > MAX_AUDIT_MESSAGE_CHARS
+        ? { message: `${issue.message.slice(0, MAX_AUDIT_MESSAGE_CHARS - 3)}...` }
+        : {}),
+      ...(issue.element && issue.element.length > MAX_AUDIT_ELEMENT_CHARS
+        ? { element: `${issue.element.slice(0, MAX_AUDIT_ELEMENT_CHARS - 3)}...` }
+        : {}),
+    });
   }
 }
 
@@ -86,10 +109,15 @@ function isJsonLdScriptType(type: string | undefined): boolean {
 }
 
 function hasJsonLdDocumentShape(value: unknown): boolean {
-  if (Array.isArray(value)) {
-    return value.every((entry) => typeof entry === "object" && entry !== null && !Array.isArray(entry));
-  }
-  return typeof value === "object" && value !== null;
+  const isObject = (entry: unknown): entry is Record<string, unknown> =>
+    typeof entry === "object" && entry !== null && !Array.isArray(entry);
+  const documents = Array.isArray(value) ? value : [value];
+  return documents.every((entry) => {
+    if (!isObject(entry)) return false;
+    if (!Object.hasOwn(entry, "@graph")) return true;
+    const graph = entry["@graph"];
+    return Array.isArray(graph) ? graph.every(isObject) : isObject(graph);
+  });
 }
 
 function isInTemplateContents(element: unknown): boolean {
@@ -102,48 +130,127 @@ function isInTemplateContents(element: unknown): boolean {
   return false;
 }
 
-function isAriaHiddenFromAccessibilityTree(element: unknown): boolean {
-  type ParentNode = { attribs?: Record<string, string>; parent?: unknown };
-  let node = element as ParentNode | null;
-  while (node) {
-    if (node.attribs?.["aria-hidden"]?.trim().toLowerCase() === "true") return true;
-    node = (node.parent ?? null) as ParentNode | null;
+function hasGoogleNoindexHeader(value: string | undefined): boolean {
+  if (!value) return false;
+  // Each newline represents a separate response-header field; a crawler scope
+  // applies only to following comma-separated directives in that field.
+  for (const line of value.split(/\r?\n/)) {
+    let appliesToGoogle = true;
+    for (const part of line.split(",")) {
+      const directive = part.trim().toLowerCase();
+      const scoped = /^([a-z][a-z0-9_-]*):\s*(.+)$/.exec(directive);
+      // Colon-valued robots directives do not change the crawler scope of
+      // subsequent comma-separated directives in the same header field.
+      if (scoped && !["max-snippet", "max-image-preview", "max-video-preview", "unavailable_after"].includes(scoped[1])) {
+        appliesToGoogle = scoped[1] === "googlebot";
+      }
+      const action = scoped ? scoped[2].trim() : directive;
+      if (appliesToGoogle && (action === "noindex" || action === "none")) return true;
+    }
   }
   return false;
+}
+
+function hasAmbiguousFoldedXRobotsNoindex(value: string | undefined): boolean {
+  if (!value) return false;
+  const parameterizedRules = new Set([
+    "max-snippet", "max-image-preview", "max-video-preview", "unavailable_after",
+  ]);
+  // Preserve explicit field boundaries; only comma-folded directives are ambiguous.
+  for (const line of value.split(/\r?\n/)) {
+    let nonGoogleScope = false;
+    for (const part of line.split(",")) {
+      const directive = part.trim().toLowerCase();
+      const scoped = /^([a-z][a-z0-9_-]*):\s*(.+)$/.exec(directive);
+      if (scoped && !parameterizedRules.has(scoped[1])) {
+        nonGoogleScope = scoped[1] !== "googlebot";
+        continue;
+      }
+      if (nonGoogleScope && (directive === "noindex" || directive === "none")) return true;
+    }
+  }
+  return false;
+}
+
+function inlineStyleValue(style: string, property: string): string | undefined {
+  let selected: string | undefined;
+  let selectedImportant = false;
+  for (const declaration of style.split(";")) {
+    const separator = declaration.indexOf(":");
+    if (separator < 0 || declaration.slice(0, separator).trim().toLowerCase() !== property) continue;
+    const raw = declaration.slice(separator + 1).trim().toLowerCase();
+    const important = /\s*!\s*important\s*$/.test(raw);
+    const value = raw.replace(/\s*!\s*important\s*$/, "").trim();
+    if (value && (!selectedImportant || important)) {
+      selected = value;
+      selectedImportant = important;
+    }
+  }
+  return selected;
+}
+
+function isHiddenFromAccessibilityTree(element: unknown): boolean {
+  type ParentNode = { name?: string; attribs?: Record<string, string>; children?: ParentNode[]; parent?: unknown };
+  let node = element as ParentNode | null;
+  let childWithinParent: ParentNode | null = null;
+  let inheritedVisibility: "visible" | "hidden" | "collapse" | undefined;
+  while (node) {
+    const attrs = node.attribs;
+    // User-agent styles hide a dialog and its descendants until the boolean open attribute is set.
+    if (node.name?.toLowerCase() === "dialog"
+      && !Object.hasOwn(attrs ?? {}, "open")) return true;
+    // A popover starts hidden until script or a user action shows it; static HTML has no open state.
+    if (attrs && Object.hasOwn(attrs, "popover")) return true;
+    if (childWithinParent && node.name?.toLowerCase() === "details" && !Object.hasOwn(attrs ?? {}, "open")) {
+      // Closed details exposes its first direct summary, not the remaining descendants.
+      const summary = node.children?.find((child) => child.name?.toLowerCase() === "summary");
+      if (childWithinParent !== summary) return true;
+    }
+    if (attrs?.["aria-hidden"]?.trim().toLowerCase() === "true") return true;
+    if (attrs && Object.hasOwn(attrs, "hidden")) return true;
+    // The boolean inert attribute excludes its entire subtree, regardless of its string value.
+    if (attrs && Object.hasOwn(attrs, "inert")) return true;
+    const style = attrs?.style ?? "";
+    if (inlineStyleValue(style, "display") === "none"
+      || inlineStyleValue(style, "content-visibility") === "hidden") return true;
+    // Visibility inherits but a descendant can explicitly restore visibility.
+    if (inheritedVisibility === undefined) {
+      const visibility = inlineStyleValue(style, "visibility");
+      if (visibility === "visible" || visibility === "hidden" || visibility === "collapse") {
+        inheritedVisibility = visibility;
+      }
+    }
+    childWithinParent = node;
+    node = (node.parent ?? null) as ParentNode | null;
+  }
+  return inheritedVisibility === "hidden" || inheritedVisibility === "collapse";
 }
 function referencedTextContent(element: unknown): string {
   type TextNode = {
     type?: string;
+    name?: string;
     data?: string;
     attribs?: Record<string, string>;
     children?: TextNode[];
     parent?: TextNode | null;
   };
   const root = element as TextNode;
-  const isHidden = (node: TextNode): boolean => {
-    const attrs = node.attribs;
-    if (!attrs) return false;
-    if (Object.prototype.hasOwnProperty.call(attrs, "hidden")
-      || attrs["aria-hidden"]?.trim().toLowerCase() === "true") return true;
-    return (attrs.style ?? "").split(";").some((declaration) => {
-      const [property, rawValue] = declaration.split(":");
-      const value = rawValue?.trim().toLowerCase().replace(/\s*!important\s*$/, "");
-      switch (property?.trim().toLowerCase()) {
-        case "display": return value === "none";
-        case "visibility": return value === "hidden" || value === "collapse";
-        case "content-visibility": return value === "hidden";
-        default: return false;
-      }
-    });
-  };
   // A directly referenced hidden root contributes its full subtree; hidden descendants of a visible root do not.
-  let hiddenReference = false;
-  for (let ancestor: TextNode | null | undefined = root; ancestor; ancestor = ancestor.parent) {
-    if (isHidden(ancestor)) { hiddenReference = true; break; }
-  }
+  const hiddenReference = isHiddenFromAccessibilityTree(root);
   const traverse = (node: TextNode): string => {
-    if (!hiddenReference && node !== root && isHidden(node)) return "";
-    if (node.type === "text") return node.data ?? "";
+    // Script, stylesheet and template contents never supply rendered label text.
+    if (node.name && ["script", "style", "template"].includes(node.name.toLowerCase())) return "";
+    if (!hiddenReference && node !== root) {
+      const attrs = node.attribs;
+      // Visibility can be restored deeper in the subtree; display, inert and aria-hidden cannot.
+      if (attrs && (Object.hasOwn(attrs, "hidden") || Object.hasOwn(attrs, "inert")
+        || attrs["aria-hidden"]?.trim().toLowerCase() === "true"
+        || inlineStyleValue(attrs.style ?? "", "display") === "none"
+        || inlineStyleValue(attrs.style ?? "", "content-visibility") === "hidden")) return "";
+    }
+    if (node.type === "text") {
+      return !hiddenReference && isHiddenFromAccessibilityTree(node) ? "" : (node.data ?? "");
+    }
     return (node.children ?? []).map(traverse).join("");
   };
   return traverse(root).trim();
@@ -179,25 +286,13 @@ function explicitSemanticRole(element: unknown): string | undefined {
     .find((token) => VALID_NON_ABSTRACT_ARIA_ROLES.has(token));
 }
 
-function hasNegativeTabIndex(element: unknown): boolean {
-  type ElementNode = { attribs?: Record<string, string> };
-  const value = (element as ElementNode | null)?.attribs?.tabindex?.trim();
-  if (!value || !/^[+-]?\d+$/.test(value)) return false;
-  return Number(value) < 0;
-}
-
-function isDecorativeIframe(element: unknown): boolean {
-  const role = explicitSemanticRole(element);
-  return role === "none" || role === "presentation";
-}
-
-function isUnambiguouslyPresentationalImage(element: unknown): boolean {
+function isUnambiguouslyPresentationalElement(element: unknown): boolean {
   type ElementNode = { attribs?: Record<string, string> };
   const attribs = (element as ElementNode | null)?.attribs ?? {};
   const role = explicitSemanticRole(element);
   if (role !== "none" && role !== "presentation") return false;
 
-  // Presentational roles are ignored when an element can take focus. Treat any
+  // Presentational roles are ignored when an image or iframe can take focus. Treat any
   // explicit tabindex as a potential conflict instead of guessing whether the
   // authored value will be focusable in a particular user agent.
   if (attribs.tabindex !== undefined) return false;
@@ -322,10 +417,18 @@ function canParseCanonicalHref(href: string): boolean {
   }
 }
 
+const editorialGraphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function countEditorialCharacters(text: string): number {
+  let count = 0;
+  for (const _ of editorialGraphemes.segment(text)) count += 1;
+  return count;
+}
+
 /**
  * Audits technical SEO and accessibility basics on HTML content using Cheerio
  */
-export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
+export function auditSeoMetadataDetailed(htmlContent: string, xRobotsTag?: string): AuditDetails {
   const $ = cheerio.load(htmlContent, { sourceCodeLocationInfo: true });
   const collector = createIssueCollector();
   const { add } = collector;
@@ -349,27 +452,28 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       });
     }
     const titleText = titleTag.first().text().trim();
-    if (titleText.length === 0) {
+    const titleLength = countEditorialCharacters(titleText);
+    if (titleLength === 0) {
       add({
         code: "seo.title.missing_or_empty",
         severity: "error",
         category: "SEO",
         message: "The <title> tag is empty.",
       });
-    } else if (titleText.length < 30) {
+    } else if (titleLength < 30) {
       add({
         code: "seo.title.length",
         severity: "info",
         category: "SEO",
-        message: `Title is ${titleText.length} characters. This is shorter than the audit's common editorial range; review whether it describes the page clearly.`,
+        message: `Title is ${titleLength} characters. This is shorter than the audit's common editorial range; review whether it describes the page clearly.`,
         element: `<title>${titleText}</title>`,
       });
-    } else if (titleText.length > 60) {
+    } else if (titleLength > 60) {
       add({
         code: "seo.title.length",
         severity: "info",
         category: "SEO",
-        message: `Title is ${titleText.length} characters. This is longer than the audit's common editorial range; Google title links may be shortened or rewritten depending on context and device.`,
+        message: `Title is ${titleLength} characters. This is longer than the audit's common editorial range; Google title links may be shortened or rewritten depending on context and device.`,
         element: `<title>${titleText}</title>`,
       });
     }
@@ -394,27 +498,28 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       });
     }
     const descText = metaDescription.first().attr("content")?.trim() || "";
-    if (descText.length === 0) {
+    const descriptionLength = countEditorialCharacters(descText);
+    if (descriptionLength === 0) {
       add({
         code: "seo.meta_description.missing_or_empty",
         severity: "error",
         category: "SEO",
         message: "Meta description content attribute is empty.",
       });
-    } else if (descText.length < 120) {
+    } else if (descriptionLength < 120) {
       add({
         code: "seo.meta_description.length",
         severity: "info",
         category: "SEO",
-        message: `Meta description is ${descText.length} characters. This is shorter than the audit's common editorial range; review whether it provides a useful page summary.`,
+        message: `Meta description is ${descriptionLength} characters. This is shorter than the audit's common editorial range; review whether it provides a useful page summary.`,
         element: `<meta name="description" content="${descText}">`,
       });
-    } else if (descText.length > 160) {
+    } else if (descriptionLength > 160) {
       add({
         code: "seo.meta_description.length",
         severity: "info",
         category: "SEO",
-        message: `Meta description is ${descText.length} characters. This is longer than the audit's common editorial range; displayed snippets may be shortened depending on the query and device.`,
+        message: `Meta description is ${descriptionLength} characters. This is longer than the audit's common editorial range; displayed snippets may be shortened depending on the query and device.`,
         element: `<meta name="description" content="${descText}">`,
       });
     }
@@ -438,12 +543,25 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   const usableCanonical = parseableCanonical.filter(
     (_, element) => !["hreflang", "lang", "media", "type"].some((attribute) => $(element).attr(attribute) !== undefined),
   );
+  const credentialedCanonical = parseableCanonical.filter((_, element) => {
+    const href = ($(element).attr("href") ?? "").trim();
+    const url = new URL(href, "https://example.invalid/");
+    return Boolean(url.username || url.password);
+  });
   if (invalidCanonical.length > 0) {
     add({
       code: "seo.canonical.invalid_url",
       severity: "warning",
       category: "SEO",
       message: "Canonical link href is not a usable HTTP(S) URL. Provide an HTTP(S) canonical target or remove the declaration.",
+    });
+  }
+  if (credentialedCanonical.length > 0) {
+    add({
+      code: "seo.canonical.embedded_credentials",
+      severity: "warning",
+      category: "SEO",
+      message: "Canonical URL embeds user credentials. Remove the username and password to avoid exposing secrets or relying on authenticated canonical targets.",
     });
   }
   if (usableCanonical.filter((_, element) => ($(element).attr("href") ?? "").includes("#")).length > 0) {
@@ -509,12 +627,20 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       .split(",")
       .some((directive) => ["noindex", "none"].includes(directive.trim().toLowerCase()));
   });
-  if (indexBlockingRobotsMeta.length > 0) {
+  if (indexBlockingRobotsMeta.length > 0 || hasGoogleNoindexHeader(xRobotsTag)) {
     add({
       code: "seo.robots.noindex",
       severity: "warning",
       category: "SEO",
       message: "A robots directive prevents Google from indexing this page. Confirm that noindex is intentional.",
+    });
+  }
+  if (hasAmbiguousFoldedXRobotsNoindex(xRobotsTag)) {
+    add({
+      code: "seo.robots.x_robots_tag.scope_ambiguous",
+      severity: "info",
+      category: "SEO",
+      message: "X-Robots-Tag contains a potentially ambiguous noindex after a non-Googlebot scope. Combined HTTP header fields may hide a separate global directive; inspect the origin response headers.",
     });
   }
 
@@ -606,8 +732,8 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   // --- Images Alt Tags (SEO + Accessibility) ---
   $("img").filter((_, element) =>
     !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
-    && !isUnambiguouslyPresentationalImage(element)
+    && !isHiddenFromAccessibilityTree(element)
+    && !isUnambiguouslyPresentationalElement(element)
   ).each((_, element) => {
     const img = $(element);
     const src = img.attr("src") || "unknown-source";
@@ -629,10 +755,10 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
         message: "Image needs a non-empty accessible name. Provide meaningful alt text or another supported label such as aria-label, aria-labelledby, or title.",
         element: `<img src="${src}">`,
       });
-    } else if (alt !== undefined && alt !== "" && alt.trim() === "") {
+    } else if (alt !== undefined && alt !== "" && alt.trim() === "" && !hasAlternateAccessibleName) {
       add({
         code: "accessibility.image_alt.empty",
-        severity: "info",
+        severity: "error",
         category: "Accessibility",
         message: "Whitespace-only 'alt' text does not provide an accessible name. Use alt=\"\" for a decorative image or meaningful alternative text for an informative image.",
         element: `<img src="${src}" alt="${alt}">`,
@@ -640,10 +766,13 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     }
   });
 
-  $("div[role], span[role]").filter((_, element) =>
-    hasExplicitSemanticImageRole(element)
+  $("[role]").filter((_, element) =>
+    element.namespace === "http://www.w3.org/1999/xhtml"
+    // Native images, image inputs and image-map areas have separate naming rules below.
+    && !["img", "input", "area"].includes(element.name.toLowerCase())
+    && hasExplicitSemanticImageRole(element)
     && !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const semanticImage = $(element);
     const labelledByIds = (semanticImage.attr("aria-labelledby") ?? "")
@@ -667,7 +796,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   $("[role]").filter((_, element) =>
     hasExplicitSvgImageRole(element)
     && !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const svgImage = $(element);
     const labelledByIds = (svgImage.attr("aria-labelledby") ?? "")
@@ -689,7 +818,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   });
 
   $("input[type=\"image\" i]").filter((_, element) =>
-    !isInTemplateContents(element) && !isAriaHiddenFromAccessibilityTree(element)
+    !isInTemplateContents(element) && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const input = $(element);
     const labelledByIds = (input.attr("aria-labelledby") ?? "")
@@ -714,9 +843,8 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
 
   $("iframe").filter((_, element) =>
     !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
-    && !hasNegativeTabIndex(element)
-    && !isDecorativeIframe(element)
+    && !isHiddenFromAccessibilityTree(element)
+    && !isUnambiguouslyPresentationalElement(element)
   ).each((_, element) => {
     const iframe = $(element);
     const labelledByIds = (iframe.attr("aria-labelledby") ?? "")
@@ -738,7 +866,7 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   });
 
   $("area[href]").filter((_, element) =>
-    !isInTemplateContents(element) && !isAriaHiddenFromAccessibilityTree(element)
+    !isInTemplateContents(element) && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const area = $(element);
     const labelledByIds = (area.attr("aria-labelledby") ?? "")
@@ -754,12 +882,18 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
     if (needsAccessibleName) {
       const href = area.attr("href")?.trim() ?? "";
       const map = area.closest("map");
-      const hasLabeledEquivalent = map.find("area[href]").filter((_, peer) =>
-        !isInTemplateContents(peer)
-        && !isAriaHiddenFromAccessibilityTree(peer)
-        && ($(peer).attr("href")?.trim() ?? "") === href
-        && Boolean($(peer).attr("alt")?.trim())
-      ).length > 0;
+      const hasLabeledEquivalent = map.find("area[href]").filter((_, peer) => {
+        const peerArea = $(peer);
+        const peerLabelledByIds = (peerArea.attr("aria-labelledby") ?? "")
+          .trim().split(/[\t\n\f\r ]+/).filter(Boolean);
+        return !isInTemplateContents(peer)
+          && !isHiddenFromAccessibilityTree(peer)
+          && (peerArea.attr("href")?.trim() ?? "") === href
+          && (Boolean(peerArea.attr("alt")?.trim())
+            || Boolean(peerArea.attr("aria-label")?.trim())
+            || Boolean(peerArea.attr("title")?.trim())
+            || peerLabelledByIds.some((id) => Boolean(textById.get(id))));
+      }).length > 0;
       needsAccessibleName = !hasLabeledEquivalent;
     }
 
@@ -776,7 +910,9 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   const htmlElement = $("html").first();
   const htmlNode = htmlElement.get(0) as { sourceCodeLocation?: unknown } | undefined;
   if (htmlNode?.sourceCodeLocation) {
-    const pageLanguage = htmlElement.attr("lang")?.trim();
+    const isXhtml = htmlElement.attr("xmlns") === "http://www.w3.org/1999/xhtml";
+    const pageLanguage = htmlElement.attr("lang")?.trim()
+      || (isXhtml ? htmlElement.attr("xml:lang")?.trim() : undefined);
     if (!pageLanguage) {
       add({
         code: "accessibility.page_language.missing_or_empty",
@@ -786,7 +922,14 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
       });
     } else {
       const primaryLanguageSubtag = getPrimaryLanguageSubtag(pageLanguage);
-      if (!isKnownPrimaryLanguageSubtag(primaryLanguageSubtag)) {
+      if (isWellFormedPrivateUseLanguageTag(pageLanguage)) {
+        add({
+          code: "accessibility.page_language.private_use",
+          severity: "info",
+          category: "Accessibility",
+          message: "This is a valid private-use BCP 47 language tag, but assistive technologies may not recognize it. Prefer a registered language tag when one applies.",
+        });
+      } else if (!isRegisteredGrandfatheredILanguageTag(pageLanguage) && !isKnownPrimaryLanguageSubtag(primaryLanguageSubtag)) {
         add({
           code: "accessibility.page_language.invalid_primary_subtag",
           severity: "error",
@@ -816,8 +959,8 @@ export function auditSeoMetadataDetailed(htmlContent: string): AuditDetails {
   return collector.details();
 }
 
-export function auditSeoMetadata(htmlContent: string): SEOIssue[] {
-  return auditSeoMetadataDetailed(htmlContent).issues;
+export function auditSeoMetadata(htmlContent: string, xRobotsTag?: string): SEOIssue[] {
+  return auditSeoMetadataDetailed(htmlContent, xRobotsTag).issues;
 }
 
 /**
@@ -873,7 +1016,7 @@ export function validateSchemaMarkup(htmlContent: string): SEOIssue[] {
 }
 
 /**
- * Extracts and tests links, treating redirect responses as reachable and 4xx/5xx as broken.
+ * Extracts and tests links, distinguishing reachable, failed and unverified responses.
  */
 export async function checkBrokenLinks(
   htmlContent: string,
@@ -963,18 +1106,26 @@ export async function checkBrokenLinks(
 
   async function checkLink(url: string): Promise<LinkStatus> {
     try {
-      const headResult = await fetchPublicHttp(url, {
-        method: "HEAD",
-        headers: { "User-Agent": LINK_CHECK_USER_AGENT },
-        timeoutMs: LINK_CHECK_TIMEOUT_MS,
-        maxRedirects: 0,
-      });
-      const headStatus = headResult.response.status;
-      const headFinalUrl = headResult.url.href;
-      await cancelResponseBody(headResult.response);
+      let headResult: Awaited<ReturnType<typeof fetchPublicHttp>> | undefined;
+      try {
+        headResult = await fetchPublicHttp(url, {
+          method: "HEAD",
+          headers: { "User-Agent": LINK_CHECK_USER_AGENT },
+          timeoutMs: LINK_CHECK_TIMEOUT_MS,
+          maxRedirects: 0,
+        });
+      } catch (error: unknown) {
+        // An origin may reject HEAD at the transport layer while accepting GET.
+        // Never retry URL-policy failures or expired request deadlines.
+        if (!(error instanceof TypeError)) throw error;
+      }
+      const headStatus = headResult?.response.status;
+      const headFinalUrl = headResult?.url.href ?? url;
+      if (headResult) await cancelResponseBody(headResult.response);
 
-      // Some sites reject or do not implement HEAD even when the linked resource is available.
-      if (headStatus === 405 || headStatus === 403 || headStatus === 501) {
+      // Some sites reject HEAD with 400/405, fail its transport, or return a
+      // false 404/410 for an available resource. Confirm with a bounded GET.
+      if (headStatus === undefined || [304, 400, 401, 403, 404, 405, 406, 408, 409, 410, 411, 412, 415, 416, 417, 422, 424, 500, 501].includes(headStatus)) {
         let getResult = await fetchPublicHttp(url, {
           method: "GET",
           headers: {
@@ -984,7 +1135,9 @@ export async function checkBrokenLinks(
           timeoutMs: LINK_CHECK_TIMEOUT_MS,
           maxRedirects: 0,
         });
-        if (getResult.response.status === 416) {
+        // Some origins reject an otherwise valid GET solely because of Range;
+        // confirm with an ordinary GET before declaring the link broken.
+        if (getResult.response.status === 400 || getResult.response.status === 416) {
           await cancelResponseBody(getResult.response);
           getResult = await fetchPublicHttp(url, {
             method: "GET",
@@ -995,7 +1148,7 @@ export async function checkBrokenLinks(
         }
 
         const status = getResult.response.status;
-        const ok = status >= 200 && status < 400;
+        const ok = status >= 200 && status < 400 && !isUnverifiedLinkStatus(status);
         const finalUrl = getResult.url.href;
         await cancelResponseBody(getResult.response);
         return {
@@ -1003,24 +1156,132 @@ export async function checkBrokenLinks(
           status,
           ok,
           message:
-            isHttpRedirectStatus(status)
-              ? "Redirect not followed"
-              : finalUrl !== url
-                ? `Redirected to ${finalUrl}`
-                : undefined,
+            status === 300
+              ? "Multiple choices without a selected destination; availability not verified"
+              : status === 304
+              ? "Not modified without a conditional request; destination availability not verified"
+              : status === 401 || status === 403
+              ? "Access restricted; destination availability not verified"
+              : status === 406
+              ? "Not acceptable under content negotiation; destination availability not verified"
+              : status === 407
+              ? "Proxy authentication required; destination availability not verified"
+              : status === 408
+              ? "Request timed out; destination availability not verified"
+              : status === 409
+              ? "Request conflict; destination availability not verified"
+              : status === 411
+              ? "Content length required; destination availability not verified"
+              : status === 412
+              ? "Precondition failed; destination availability not verified"
+              : status === 415
+              ? "Unsupported media type; destination availability not verified"
+              : status === 416
+              ? "Range not satisfiable; destination availability not verified"
+              : status === 417
+              ? "Expectation failed; destination availability not verified"
+              : status === 421
+              ? "Request was misdirected; destination availability not verified"
+              : status === 422
+              ? "Unprocessable request; destination availability not verified"
+              : status === 423
+              ? "Resource locked; destination availability not verified"
+              : status === 424
+              ? "Failed dependency; destination availability not verified"
+              : status === 425
+              ? "Request rejected as Too Early; destination availability not verified"
+              : status === 426
+              ? "Protocol upgrade required; destination availability not verified"
+              : status === 428
+              ? "Precondition required; destination availability not verified"
+              : status === 429
+              ? "Rate limited; destination availability not verified"
+              : status === 431
+              ? "Request headers too large; destination availability not verified"
+              : status === 451
+              ? "Unavailable for legal reasons; destination availability not verified"
+               : status === 502 || status === 503 || status === 504 || (status >= 520 && status <= 524)
+              ? "Temporary gateway or service failure; destination availability not verified"
+              : status === 511
+              ? "Network authentication required; destination availability not verified"
+              : status === 525
+              ? "Cloudflare TLS handshake with origin failed; destination unavailable"
+              : status === 526
+              ? "Cloudflare could not validate origin TLS certificate; destination unavailable"
+              : isUnverifiedServerError(status)
+              ? "Server error; destination availability not verified"
+              : isHttpRedirectStatus(status)
+                ? "Redirect not followed"
+                : finalUrl !== url
+                  ? `Redirected to ${finalUrl}`
+                  : undefined,
         };
       }
 
       return {
         url,
         status: headStatus,
-        ok: headStatus >= 200 && headStatus < 400,
+        ok: headStatus >= 200 && headStatus < 400 && !isUnverifiedLinkStatus(headStatus),
         message:
-          isHttpRedirectStatus(headStatus)
-            ? "Redirect not followed"
-            : headFinalUrl !== url
-              ? `Redirected to ${headFinalUrl}`
-              : undefined,
+          headStatus === 300
+            ? "Multiple choices without a selected destination; availability not verified"
+            : headStatus === 304
+            ? "Not modified without a conditional request; destination availability not verified"
+            : headStatus === 401 || headStatus === 403
+            ? "Access restricted; destination availability not verified"
+            : headStatus === 406
+            ? "Not acceptable under content negotiation; destination availability not verified"
+            : headStatus === 407
+            ? "Proxy authentication required; destination availability not verified"
+            : headStatus === 408
+            ? "Request timed out; destination availability not verified"
+            : headStatus === 409
+            ? "Request conflict; destination availability not verified"
+            : headStatus === 411
+            ? "Content length required; destination availability not verified"
+            : headStatus === 412
+            ? "Precondition failed; destination availability not verified"
+            : headStatus === 415
+            ? "Unsupported media type; destination availability not verified"
+            : headStatus === 416
+            ? "Range not satisfiable; destination availability not verified"
+            : headStatus === 417
+            ? "Expectation failed; destination availability not verified"
+            : headStatus === 421
+            ? "Request was misdirected; destination availability not verified"
+            : headStatus === 422
+            ? "Unprocessable request; destination availability not verified"
+            : headStatus === 423
+            ? "Resource locked; destination availability not verified"
+            : headStatus === 424
+            ? "Failed dependency; destination availability not verified"
+            : headStatus === 425
+            ? "Request rejected as Too Early; destination availability not verified"
+            : headStatus === 426
+            ? "Protocol upgrade required; destination availability not verified"
+            : headStatus === 428
+            ? "Precondition required; destination availability not verified"
+            : headStatus === 429
+            ? "Rate limited; destination availability not verified"
+            : headStatus === 431
+            ? "Request headers too large; destination availability not verified"
+            : headStatus === 451
+            ? "Unavailable for legal reasons; destination availability not verified"
+             : headStatus === 502 || headStatus === 503 || headStatus === 504 || (headStatus >= 520 && headStatus <= 524)
+            ? "Temporary gateway or service failure; destination availability not verified"
+            : headStatus === 511
+            ? "Network authentication required; destination availability not verified"
+            : headStatus === 525
+            ? "Cloudflare TLS handshake with origin failed; destination unavailable"
+            : headStatus === 526
+            ? "Cloudflare could not validate origin TLS certificate; destination unavailable"
+            : isUnverifiedServerError(headStatus)
+            ? "Server error; destination availability not verified"
+            : isHttpRedirectStatus(headStatus)
+              ? "Redirect not followed"
+              : headFinalUrl !== url
+                ? `Redirected to ${headFinalUrl}`
+                : undefined,
       };
     } catch (error: unknown) {
       return {

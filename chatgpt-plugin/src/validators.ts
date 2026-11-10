@@ -25,6 +25,7 @@ export interface HtmlValidationResult {
 const VALIDATOR_TIMEOUT_MS = 15_000;
 const MAX_VALIDATION_MESSAGES = 200;
 const MAX_VALIDATOR_RESPONSE_BYTES = 2 * 1024 * 1024;
+const MAX_DIAGNOSTIC_MESSAGE_CHARS = 1_000;
 
 async function withValidatorTimeout<T>(action: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const controller = new AbortController();
@@ -50,9 +51,11 @@ async function validateHtmlDetailedWithSignal(
       "user-agent": SERVICE_USER_AGENT,
     },
     body: html,
+    redirect: "error",
     signal,
   });
-  if (!response.ok) {
+  // A partial Nu response may omit diagnostics and must not yield a clean verdict.
+  if (!response.ok || response.status === 206) {
     try {
       await response.body?.cancel();
     } catch {
@@ -94,10 +97,19 @@ async function validateHtmlDetailedWithSignal(
       lastLine?: unknown;
       lastColumn?: unknown;
     };
+    const normalizedType = typeof item.type === "string" ? item.type.trim().toLowerCase() : "";
+    const normalizedSubType = typeof item.subType === "string" ? item.subType.trim().toLowerCase() : "";
+    if (normalizedType === "non-document-error") {
+      throw new Error("The Nu HTML Checker could not complete validation (non-document-error).");
+    }
+    if (!["error", "warning", "info"].includes(normalizedType)
+      || typeof item.message !== "string" || !item.message.trim()) {
+      throw new Error("The Nu HTML Checker returned a malformed validation message.");
+    }
     const type: ValidationMessage["type"] =
-      item.type === "error" || item.type === "non-document-error"
+      normalizedType === "error"
         ? "error"
-        : item.type === "warning" || item.subType === "warning"
+        : normalizedType === "warning" || (normalizedType === "info" && normalizedSubType === "warning")
           ? "warning"
           : "info";
     counts[type] += 1;
@@ -105,13 +117,13 @@ async function validateHtmlDetailedWithSignal(
 
     messages.push({
       type,
-      message: typeof item.message === "string" && item.message.trim()
-        ? item.message
-        : "Validator returned an unspecified message.",
-      line: typeof item.lastLine === "number" && Number.isFinite(item.lastLine)
+      message: item.message.length > MAX_DIAGNOSTIC_MESSAGE_CHARS
+        ? `${item.message.slice(0, MAX_DIAGNOSTIC_MESSAGE_CHARS - 3)}...`
+        : item.message,
+      line: typeof item.lastLine === "number" && Number.isSafeInteger(item.lastLine) && item.lastLine >= 0
         ? item.lastLine
         : undefined,
-      column: typeof item.lastColumn === "number" && Number.isFinite(item.lastColumn)
+      column: typeof item.lastColumn === "number" && Number.isSafeInteger(item.lastColumn) && item.lastColumn >= 0
         ? item.lastColumn
         : undefined,
     });

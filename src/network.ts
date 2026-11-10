@@ -97,6 +97,11 @@ const blockedHostnameSuffixes = [
 ];
 
 const redirectStatuses = new Set([301, 302, 303, 307, 308]);
+// Custom API keys and session tokens are credentials too, even when they are
+// not sent in the standard Authorization or Cookie headers.
+const crossOriginCredentialHeader = /(?:^|[-_])(?:authorization|authentication|auth|cookie2?|(?:api|access|client|subscription|functions?|private)[-_]?key|token|secret|credential|password|session|signature|hmac|jwt|csrf|xsrf)(?:$|[-_])/i;
+// Header names such as XApiKey and XAuthToken can omit separators entirely.
+const compactCredentialHeader = /(?:api|auth|access|refresh|client|session|security|subscription|functions?|private)(?:key|token|secret)|authentication|sessionid|signature|hmac|jwt|csrf|xsrf/i;
 
 export interface PublicFetchOptions {
   method?: "GET" | "HEAD";
@@ -193,6 +198,23 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
     if (timeout) {
       clearTimeout(timeout);
     }
+  }
+}
+
+async function withAbortSignal<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) throw signal.reason;
+  let onAbort: (() => void) | undefined;
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<T>((_, reject) => {
+        onAbort = () => reject(signal.reason);
+        signal.addEventListener("abort", onAbort, { once: true });
+        if (signal.aborted) onAbort();
+      }),
+    ]);
+  } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
   }
 }
 
@@ -406,16 +428,30 @@ export async function readResponseText(
   sniffXmlEncoding = false,
   preferXmlBom = false,
   preferHtmlBom = false,
+  sniffCssEncoding = false,
+  preferCssBom = false,
 ): Promise<string> {
   assertPositiveInteger(maxBytes, "maxBytes");
 
-  const declaredLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+  const declaredLengthHeader = response.headers.get("content-length");
+  const declaredLength = Number(declaredLengthHeader);
+  const contentEncoding = response.headers.get("content-encoding")?.trim().toLowerCase();
+  // Fetch can decode compressed bodies while retaining their wire length.
+  // Transfer-encoded bodies likewise do not have a comparable identity length.
+  const isIdentityLength = (!contentEncoding || contentEncoding === "identity")
+    && !response.headers.has("transfer-encoding");
+  const hasExactLength = isIdentityLength && declaredLengthHeader !== null
+    && /^\d+$/.test(declaredLengthHeader.trim())
+    && Number.isSafeInteger(declaredLength);
+  if (hasExactLength && declaredLength > maxBytes) {
     await cancelResponseBody(response);
     throw new Error(`Response exceeds the ${maxBytes}-byte limit`);
   }
 
   if (!response.body) {
+    if (hasExactLength && declaredLength !== 0) {
+      throw new Error(`Response body length (0 bytes) does not match Content-Length (${declaredLength} bytes)`);
+    }
     return "";
   }
 
@@ -438,7 +474,8 @@ export async function readResponseText(
   const startDecoder = async (): Promise<void> => {
     if (decoder) return;
     let encodingLabel = encoding ?? "utf-8";
-    if ((encoding === undefined && (sniffHtmlEncoding || sniffXmlEncoding)) || preferXmlBom || preferHtmlBom) {
+    if ((encoding === undefined && (sniffHtmlEncoding || sniffXmlEncoding || sniffCssEncoding))
+      || preferXmlBom || preferHtmlBom || preferCssBom) {
       const sniffLength = Math.min(pendingBytes, HTML_ENCODING_SNIFF_BYTES);
       const sniffBytes = new Uint8Array(sniffLength);
       let copied = 0;
@@ -450,8 +487,10 @@ export async function readResponseText(
       }
       if (preferXmlBom) {
         encodingLabel = getXmlBomCharacterEncoding(sniffBytes) ?? encodingLabel;
-      } else if (preferHtmlBom) {
+      } else if (preferHtmlBom || preferCssBom) {
         encodingLabel = getHtmlBomCharacterEncoding(sniffBytes) ?? encodingLabel;
+      } else if (sniffCssEncoding) {
+        encodingLabel = getCssCharacterEncoding(sniffBytes);
       } else {
         encodingLabel = sniffXmlEncoding
           ? getXmlCharacterEncoding(sniffBytes)
@@ -469,7 +508,8 @@ export async function readResponseText(
     pendingBytes = 0;
   };
 
-  if (!preferXmlBom && !preferHtmlBom && (encoding !== undefined || (!sniffHtmlEncoding && !sniffXmlEncoding))) {
+  if (!preferXmlBom && !preferHtmlBom && !preferCssBom
+    && (encoding !== undefined || (!sniffHtmlEncoding && !sniffXmlEncoding && !sniffCssEncoding))) {
     await startDecoder();
   }
 
@@ -499,6 +539,9 @@ export async function readResponseText(
     await startDecoder();
     if (!decoder) {
       throw new Error("Response decoder was not initialized");
+    }
+    if (hasExactLength && totalBytes !== declaredLength) {
+      throw new Error(`Response body length (${totalBytes} bytes) does not match Content-Length (${declaredLength} bytes)`);
     }
     text += decoder.decode();
     return text;
@@ -560,8 +603,14 @@ export async function fetchPublicHttp(
     throw new Error("maxRedirects must be an integer between 0 and 10");
   }
 
-  let currentTarget = await resolvePublicHttpUrl(input);
-  let requestHeaders = options.headers;
+  // One deadline covers the entire manual redirect chain, not each hop separately.
+  const requestSignal = AbortSignal.timeout(timeoutMs);
+  let currentTarget = await withAbortSignal(() => resolvePublicHttpUrl(input), requestSignal);
+  // The validated URL, not caller-supplied headers, must control HTTP authority.
+  // A spoofed Host header can select another virtual host on the pinned IP.
+  let requestHeaders = options.headers && Object.fromEntries(
+    Object.entries(options.headers).filter(([name]) => name.toLowerCase() !== "host"),
+  );
   for (let redirectCount = 0; ; redirectCount += 1) {
     const dispatcher = createPinnedDispatcher(currentTarget.addresses);
     let response: Response;
@@ -570,7 +619,7 @@ export async function fetchPublicHttp(
         method: options.method ?? "GET",
         headers: requestHeaders,
         redirect: "manual",
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: requestSignal,
         dispatcher,
       } as RequestInit & { dispatcher: Agent });
     } catch (error) {
@@ -602,13 +651,15 @@ export async function fetchPublicHttp(
     } catch {
       throw new PublicUrlError("Redirect target is not a valid URL");
     }
-    const nextTarget = await resolvePublicHttpUrl(redirectUrl);
+    const nextTarget = await withAbortSignal(() => resolvePublicHttpUrl(redirectUrl), requestSignal);
     if (nextTarget.url.origin !== currentTarget.url.origin && requestHeaders) {
       // Manual redirect handling does not apply Fetch's cross-origin
-      // credential-header stripping automatically. Never forward them onward.
+      // credential-header stripping automatically. Explicit Referer values can
+      // also contain private paths or query tokens; never forward them onward.
       requestHeaders = Object.fromEntries(
         Object.entries(requestHeaders).filter(
-          ([name]) => !/^(authorization|proxy-authorization|cookie|cookie2)$/i.test(name),
+          ([name]) => !["referer", "referrer"].includes(name.toLowerCase())
+            && !crossOriginCredentialHeader.test(name) && !compactCredentialHeader.test(name),
         ),
       );
     }
@@ -631,7 +682,8 @@ export async function fetchPublicText(
     maxRedirects: options.maxRedirects,
   });
 
-  if (!response.ok) {
+  // No-content and partial responses are not complete validation documents.
+  if (!response.ok || response.status === 204 || response.status === 205 || response.status === 206) {
     const status = response.status;
     await cancelResponseBody(response);
     throw new Error(`URL returned HTTP status ${status}`);
@@ -658,20 +710,50 @@ export async function fetchPublicText(
   const shouldPreferHtmlBom = contentType === "text/html"
     && declaredEncoding !== undefined
     && isSupportedCharacterEncoding(declaredEncoding);
+  const shouldSniffCssEncoding = contentType === "text/css" && declaredEncoding === undefined;
+  const shouldPreferCssBom = contentType === "text/css" && declaredEncoding !== undefined;
+  const text = await readResponseText(
+    response,
+    maxBytes,
+    shouldSniffHtmlEncoding || shouldSniffXmlEncoding ? undefined : declaredEncoding,
+    shouldSniffHtmlEncoding,
+    shouldSniffXmlEncoding,
+    shouldPreferXmlBom,
+    shouldPreferHtmlBom,
+    shouldSniffCssEncoding,
+    shouldPreferCssBom,
+  );
+  if ((contentType === "text/html" || contentType === "application/xhtml+xml") && !text.trim()) {
+    throw new Error("URL returned an empty HTML document");
+  }
   return {
-    text: await readResponseText(
-      response,
-      maxBytes,
-      shouldSniffHtmlEncoding || shouldSniffXmlEncoding ? undefined : declaredEncoding,
-      shouldSniffHtmlEncoding,
-      shouldSniffXmlEncoding,
-      shouldPreferXmlBom,
-      shouldPreferHtmlBom,
-    ),
+    text,
     url: url.href,
     status: response.status,
     contentType: contentTypeHeader,
   };
+}
+
+/** Resolve an opt-in trusted local file scope for all stdio file consumers. */
+export async function resolveLocalFileWithinWorkspaceRoot(filePath: string): Promise<string> {
+  const resolvedPath = path.resolve(filePath);
+  const configuredRoot = process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
+  if (configuredRoot === undefined) return resolvedPath;
+  if (!path.isAbsolute(configuredRoot)) {
+    throw new Error("MCP_WEB_VALIDATOR_WORKSPACE_ROOT must be an absolute directory path");
+  }
+  const root = await fs.realpath(configuredRoot);
+  if (!(await fs.stat(root)).isDirectory()) {
+    throw new Error("MCP_WEB_VALIDATOR_WORKSPACE_ROOT must refer to a directory");
+  }
+  // Resolve symlinks before enforcing the opt-in scope. Without the setting,
+  // clients retain their documented ability to select local files elsewhere.
+  const candidate = await fs.realpath(resolvedPath);
+  const relative = path.relative(root, candidate);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error("Local file path is outside MCP_WEB_VALIDATOR_WORKSPACE_ROOT");
+  }
+  return candidate;
 }
 
 /** Reads a bounded regular text file, optionally applying HTML/XHTML/CSS byte-decoding rules. */
@@ -682,17 +764,34 @@ export async function readTextFile(
 ): Promise<string> {
   assertPositiveInteger(maxBytes, "maxBytes");
   const resolvedPath = path.resolve(filePath);
-  const stats = await fs.stat(resolvedPath);
-  if (!stats.isFile()) {
-    throw new Error(`Path is not a regular file: ${resolvedPath}`);
-  }
-  if (stats.size > maxBytes) {
-    throw new Error(`File exceeds the ${maxBytes}-byte limit: ${resolvedPath}`);
-  }
+  const openedPath = await resolveLocalFileWithinWorkspaceRoot(filePath);
+  const file = await fs.open(openedPath, "r");
+  let contents: Buffer;
+  try {
+    // Check the opened file itself; a path can change between stat and read.
+    const stats = await file.stat();
+    if (!stats.isFile()) {
+      throw new Error(`Path is not a regular file: ${resolvedPath}`);
+    }
+    if (stats.size > maxBytes) {
+      throw new Error(`File exceeds the ${maxBytes}-byte limit: ${resolvedPath}`);
+    }
 
-  const contents = await fs.readFile(resolvedPath);
-  if (contents.byteLength > maxBytes) {
-    throw new Error(`File exceeds the ${maxBytes}-byte limit: ${resolvedPath}`);
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    while (totalBytes <= maxBytes) {
+      const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, maxBytes - totalBytes + 1));
+      const { bytesRead } = await file.read(chunk, 0, chunk.length, null);
+      if (bytesRead === 0) break;
+      totalBytes += bytesRead;
+      if (totalBytes > maxBytes) {
+        throw new Error(`File exceeds the ${maxBytes}-byte limit: ${resolvedPath}`);
+      }
+      chunks.push(chunk.subarray(0, bytesRead));
+    }
+    contents = Buffer.concat(chunks, totalBytes);
+  } finally {
+    await file.close();
   }
 
   if (markupMediaType === undefined) {

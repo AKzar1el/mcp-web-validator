@@ -3,6 +3,59 @@ import test from "node:test";
 import { createValidationReport } from "../dist/report.js";
 import { auditSeoMetadata } from "../dist/seo-auditor.js";
 
+test("truncated report inputs without full severity counts cannot earn complete scores", () => {
+  const common = {
+    htmlFilePath: "index.html",
+    cssAudited: true,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [],
+  };
+  const cases = [
+    {
+      label: "HTML",
+      input: { htmlMessages: [{ type: "info", message: "Shown HTML note" }], htmlTotalMessages: 4, htmlTruncated: true },
+      score: "htmlScore",
+    },
+    {
+      label: "CSS",
+      input: { cssMessages: [{ type: "warning", line: 1, message: "Shown CSS warning" }], cssTotalMessages: 4, cssTruncated: true },
+      score: "cssScore",
+    },
+    {
+      label: "SEO",
+      input: { seoIssues: [{ severity: "info", category: "SEO", message: "Shown SEO note" }], seoTotalIssues: 4, seoTruncated: true },
+      score: "seoScore",
+    },
+    {
+      label: "JSON-LD",
+      input: { schemaIssues: [{ severity: "info", category: "Schema", message: "Shown schema note" }], schemaTotalIssues: 4, schemaTruncated: true },
+      score: "seoScore",
+    },
+  ];
+
+  for (const { label, input, score } of cases) {
+    const result = createValidationReport({ ...common, ...input });
+    assert.equal(result.summary[score], null, `${label} score must not rely on visible-only counts`);
+    assert.equal(result.summary.overallScore, null, `${label} must not produce a complete overall score`);
+    assert.match(result.report, /full severity counts.*unavailable/i);
+    assert.doesNotMatch(result.report, /Summary counts and scoring use all returned/i);
+  }
+
+  const completeCounts = createValidationReport({
+    ...common,
+    htmlMessages: [{ type: "info", message: "Shown HTML note" }],
+    htmlTotalMessages: 4,
+    htmlTruncated: true,
+    htmlCounts: { error: 0, warning: 0, info: 4 },
+  });
+  assert.equal(completeCounts.summary.htmlScore, 100);
+  assert.equal(completeCounts.summary.overallScore, 100);
+  assert.doesNotMatch(completeCounts.report, /Incomplete diagnostic counts/);
+});
+
 test("report scoring does not penalize informational SEO findings", () => {
   const result = createValidationReport({
     htmlFilePath: "site|name.html",
@@ -17,7 +70,61 @@ test("report scoring does not penalize informational SEO findings", () => {
   assert.equal(result.summary.seoScore, 100);
   assert.equal(result.summary.cssScore, null);
   assert.equal(result.summary.linkScore, null);
-  assert.match(result.report, /site\\\|name\.html/);
+  assert.match(result.report, /\*Generated for: `site\|name\.html`\*/);
+});
+
+test("report filenames with backticks remain inside a single Markdown code span", () => {
+  const common = {
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [],
+  };
+  const embedded = createValidationReport({
+    ...common,
+    htmlFilePath: "site``[click](evil).html",
+  });
+  assert.ok(embedded.report.includes("*Generated for: ```site``[click](evil).html```*"));
+
+  const leading = createValidationReport({
+    ...common,
+    htmlFilePath: "`start.html",
+  });
+  assert.ok(leading.report.includes("*Generated for: `` `start.html ``*"));
+});
+
+test("report neutralizes terminal control characters in untrusted Markdown cells", () => {
+  const result = createValidationReport({
+    htmlFilePath: "page\u001b[2J.html",
+    cssAudited: false,
+    htmlMessages: [{ type: "error", message: "Bad\u001b[31m HTML", extract: "<x>\u009b0m" }],
+    cssMessages: [],
+    seoIssues: [{ severity: "warning", category: "SEO", message: "Bad\u0000 metadata" }],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/bad", status: 404, ok: false, message: "Failed\u007f lookup" }],
+  });
+
+  assert.doesNotMatch(result.report, /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/);
+  assert.match(result.report, /Bad .* HTML/);
+  assert.match(result.report, /Bad\s+metadata/);
+  assert.match(result.report, /&lt;x&gt;/);
+});
+
+test("Markdown report strips bidi formatting controls while preserving RTL letters", () => {
+  const rtl = "\u0645\u0631\u062d\u0628\u0627";
+  const result = createValidationReport({
+    htmlFilePath: `page\u202e.html`,
+    cssAudited: false,
+    htmlMessages: [{ type: "error", message: `Invalid \u2066markup\u2069 ${rtl}` }],
+    cssMessages: [],
+    seoIssues: [{ severity: "warning", category: "SEO", message: `Spoof\u202b hidden\u202c ${rtl}` }],
+    schemaIssues: [],
+    links: [{ url: `https://example.test/\u200frtl`, status: 404, ok: false }],
+  });
+  assert.doesNotMatch(result.report, /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u);
+  assert.ok(result.report.includes(rtl), "natural RTL letters must remain visible");
 });
 
 test("report scoring does not penalize title and meta-description editorial length guidance", () => {
@@ -153,10 +260,14 @@ test("report keeps redirects visible without counting them as broken links", () 
   });
 
   assert.equal(result.summary.linksChecked, 11);
-  assert.equal(result.summary.brokenLinks, 5);
-  assert.equal(result.summary.linkScore, 0);
-  assert.match(result.report, /5 broken or unreachable, 4 redirects to review of 11 checked/);
-  assert.match(result.report, /\| https:\/\/example\.test\/301 \| 301 \| Yes \| Redirect not followed \|/);
+  assert.equal(result.summary.brokenLinks, 3);
+  assert.equal(result.summary.unverifiedLinks, 2);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /3 confirmed HTTP failures, 2 unverified, 4 redirects to review of 11 checked/);
+  assert.match(result.report, /Link integrity \| Incomplete \| N\/A/);
+  assert.match(result.report, /\| https:\/\/example\.test\/blocked \| blocked \| Unverified \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/301 \| 301 \| Redirect \| Redirect not followed \|/);
 
   const redirectsOnly = createValidationReport({
     htmlFilePath: "redirects.html",
@@ -168,10 +279,170 @@ test("report keeps redirects visible without counting them as broken links", () 
     links: [{ url: "https://example.test/redirect", status: 301, ok: true, message: "Redirect not followed" }],
   });
   assert.equal(redirectsOnly.summary.brokenLinks, 0);
-  assert.equal(redirectsOnly.summary.linkScore, 100);
+  assert.equal(redirectsOnly.summary.unverifiedLinks, 0);
+  assert.equal(redirectsOnly.summary.linkScore, null);
+  assert.equal(redirectsOnly.summary.overallScore, null);
+  assert.match(redirectsOnly.report, /Link integrity \| Incomplete \| N\/A/);
+  assert.match(redirectsOnly.report, /Unfollowed redirect destinations/);
+  assert.match(redirectsOnly.report, /destination was not checked/);
 });
 
-test("report does not count HTTP 304 as a redirect", () => {
+test("redirect targets keep mixed successful-link scores incomplete without counting as broken", () => {
+  const result = createValidationReport({
+    htmlFilePath: "mixed-redirects.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [
+      { url: "https://example.test/ok", status: 200, ok: true },
+      { url: "https://example.test/moved", status: 302, ok: true },
+      { url: "https://example.test/permanent", status: 308, ok: true },
+    ],
+  });
+
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 0);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /2 redirects to review of 3 checked/);
+  assert.match(result.report, /\| https:\/\/example\.test\/ok \| 200 \| Yes \| Accessible \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/moved \| 302 \| Redirect \| Redirect not followed \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/permanent \| 308 \| Redirect \| Redirect not followed \|/);
+});
+
+test("report link details never default to Accessible for failures or unverified checks", () => {
+  const result = createValidationReport({
+    htmlFilePath: "fallback-details.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [
+      { url: "https://example.test/ok", status: 200, ok: true },
+      { url: "https://example.test/redirect", status: 301, ok: true },
+      { url: "https://example.test/missing", status: 404, ok: false },
+      { url: "https://example.test/error", status: 500, ok: false },
+      { url: "https://example.test/limited", status: 429, ok: false },
+      { url: "https://example.test/blocked", status: "blocked", ok: false },
+      { url: "https://example.test/failed", status: "failed", ok: false },
+      { url: "https://example.test/custom", status: 410, ok: false, message: "Gone by owner" },
+    ],
+  });
+
+  assert.match(result.report, /\| https:\/\/example\.test\/ok \| 200 \| Yes \| Accessible \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/redirect \| 301 \| Redirect \| Redirect not followed \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/missing \| 404 \| No \| HTTP response indicated failure \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/error \| 500 \| No \| HTTP response indicated failure \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/limited \| 429 \| Unverified \| Destination availability not verified \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/blocked \| blocked \| Unverified \| Destination availability not verified \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/failed \| failed \| Unverified \| Destination availability not verified \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/custom \| 410 \| No \| Gone by owner \|/);
+});
+
+test("report does not penalize or falsely clear checks blocked by policy or network failures", () => {
+  const result = createValidationReport({
+    htmlFilePath: "partial-links.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [
+      { url: "https://example.test/good", status: 200, ok: true },
+      { url: "https://localhost/", status: "blocked", ok: false, message: "Private address" },
+      { url: "https://example.test/timeout", status: "failed", ok: false, message: "Timed out" },
+    ],
+  });
+  assert.equal(result.summary.linksChecked, 3);
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 2);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /0 confirmed HTTP failures, 2 unverified/);
+  assert.doesNotMatch(result.report, /No links checked/);
+});
+
+test("report treats HTTP 429 rate limits as unverified rather than broken destinations", () => {
+  const result = createValidationReport({
+    htmlFilePath: "rate-limited.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/rate-limited", status: 429, ok: false }],
+  });
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /1 unverified/);
+  assert.match(result.report, /Incomplete link verification/);
+});
+
+test("report withholds link health scores for HTTP 431 request header rejections", () => {
+  const result = createValidationReport({
+    htmlFilePath: "header-limited.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/header-limited", status: 431, ok: false }],
+  });
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /1 unverified/);
+  assert.match(result.report, /Incomplete link verification/);
+  assert.match(result.report, /\| https:\/\/example\.test\/header-limited \| 431 \| Unverified \|/);
+});
+
+test("report withholds scores for HTTP 451 legal access restrictions", () => {
+  const result = createValidationReport({
+    htmlFilePath: "legal-access.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/legal", status: 451, ok: false }],
+  });
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /Incomplete link verification/);
+  assert.match(result.report, /\| https:\/\/example\.test\/legal \| 451 \| Unverified \|/);
+});
+
+test("report withholds scores for authenticated or forbidden link destinations", () => {
+  for (const status of [401, 403]) {
+    const result = createValidationReport({
+      htmlFilePath: "restricted.html",
+      cssAudited: false,
+      htmlMessages: [],
+      cssMessages: [],
+      seoIssues: [],
+      schemaIssues: [],
+      links: [
+        { url: "https://example.test/restricted", status, ok: false },
+        { url: "https://example.test/missing", status: 404, ok: false },
+      ],
+    });
+    assert.equal(result.summary.brokenLinks, 1);
+    assert.equal(result.summary.unverifiedLinks, 1);
+    assert.equal(result.summary.linkScore, null);
+    assert.equal(result.summary.overallScore, null);
+    assert.match(result.report, /Incomplete link verification/);
+  }
+});
+
+test("report with HTTP 304 withholds link score without marking a redirect or failure", () => {
   const result = createValidationReport({
     htmlFilePath: "not-modified.html",
     cssAudited: false,
@@ -179,13 +450,211 @@ test("report does not count HTTP 304 as a redirect", () => {
     cssMessages: [],
     seoIssues: [],
     schemaIssues: [],
-    links: [{ url: "https://example.test/not-modified", status: 304, ok: true }],
+    links: [{ url: "https://example.test/not-modified", status: 304, ok: false }],
   });
 
   assert.equal(result.summary.brokenLinks, 0);
-  assert.equal(result.summary.linkScore, 100);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.match(result.report, /Incomplete link verification/);
   assert.match(result.report, /0 redirects to review of 1 checked/);
   assert.doesNotMatch(result.report, /1 redirect to review/);
+});
+
+test("report treats ambiguous HTTP 300 as incomplete verification rather than a redirect", () => {
+  const result = createValidationReport({
+    htmlFilePath: "multiple-choices.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/choices", status: 300, ok: false }],
+  });
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.match(result.report, /Incomplete link verification/);
+  assert.match(result.report, /0 redirects to review of 1 checked/);
+});
+
+test("report withholds link score on HTTP 408 instead of claiming a broken URL", () => {
+  const result = createValidationReport({
+    htmlFilePath: "request-timeout.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/slow", status: 408, ok: false }],
+  });
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.match(result.report, /Incomplete link verification/);
+  assert.match(result.report, /0 confirmed HTTP failures/);
+});
+
+test("report treats HTTP 425 Too Early as unverified instead of a broken URL", () => {
+  const result = createValidationReport({
+    htmlFilePath: "too-early.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/too-early", status: 425, ok: false }],
+  });
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.match(result.report, /Incomplete link verification/);
+  assert.match(result.report, /0 confirmed HTTP failures/);
+});
+
+test("report withholds scores for HTTP 426 protocol upgrade requirements", () => {
+  const result = createValidationReport({
+    htmlFilePath: "protocol-upgrade.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [{ url: "https://example.test/upgrade", status: 426, ok: false }],
+  });
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /Incomplete link verification/);
+  assert.match(result.report, /0 confirmed HTTP failures/);
+});
+
+test("report withholds link and overall scores for negotiation, precondition and lock refusals", () => {
+  const result = createValidationReport({
+    htmlFilePath: "conditional-access.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [406, 412, 423, 500].map((status) => ({
+      url: `https://example.test/${status}`, status, ok: false,
+    })),
+  });
+  assert.equal(result.summary.brokenLinks, 1);
+  assert.equal(result.summary.unverifiedLinks, 3);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /1 confirmed HTTP failures, 3 unverified/i);
+  assert.match(result.report, /Incomplete link verification/);
+});
+
+test("report treats exhausted HTTP 416 range negotiation as unverified, not missing", () => {
+  const result = createValidationReport({
+    htmlFilePath: "range-unsatisfied.html", cssAudited: false,
+    htmlMessages: [], cssMessages: [], seoIssues: [], schemaIssues: [],
+    links: [{ url: "https://example.test/empty", status: 416, ok: false }],
+  });
+  assert.equal(result.summary.brokenLinks, 0);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /Incomplete link verification/);
+});
+
+test("report withholds scores when request-condition refusals cannot establish missing links", () => {
+  const result = createValidationReport({
+    htmlFilePath: "request-refusals.html", cssAudited: false,
+    htmlMessages: [], cssMessages: [], seoIssues: [], schemaIssues: [],
+    links: [409, 415, 417, 422, 424, 404].map((status) => ({
+      url: `https://example.test/${status}`, status, ok: false,
+    })),
+  });
+  assert.equal(result.summary.brokenLinks, 1);
+  assert.equal(result.summary.unverifiedLinks, 5);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /1 confirmed HTTP failures, 5 unverified/i);
+  assert.match(result.report, /Incomplete link verification/);
+});
+
+test("report withholds link score for temporary HTTP gateway/service outages while retaining confirmed failures", () => {
+  const result = createValidationReport({
+    htmlFilePath: "temporary-outages.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [
+      ...[502, 503, 504].map((status) => ({ url: `https://example.test/${status}`, status, ok: false })),
+      { url: "https://example.test/500", status: 500, ok: false },
+    ],
+  });
+  assert.equal(result.summary.brokenLinks, 1);
+  assert.equal(result.summary.unverifiedLinks, 3);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /1 confirmed HTTP failures, 3 unverified/i);
+  assert.match(result.report, /Incomplete link verification/);
+});
+
+test("report does not call proxy-auth or misdirected responses confirmed broken links", () => {
+  const result = createValidationReport({
+    htmlFilePath: "upstream-routing.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [
+      { url: "https://example.test/407", status: 407, ok: false },
+      { url: "https://example.test/421", status: 421, ok: false },
+      { url: "https://example.test/500", status: 500, ok: false },
+    ],
+  });
+  assert.equal(result.summary.brokenLinks, 1);
+  assert.equal(result.summary.unverifiedLinks, 2);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /1 confirmed HTTP failures, 2 unverified/i);
+  assert.match(result.report, /Incomplete link verification/);
+});
+
+test("report withholds broken-link scoring for network authentication challenges", () => {
+  const result = createValidationReport({
+    htmlFilePath: "network-login.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [
+      { url: "https://example.test/network-login", status: 511, ok: false },
+      { url: "https://example.test/server-failure", status: 500, ok: false },
+    ],
+  });
+  assert.equal(result.summary.brokenLinks, 1);
+  assert.equal(result.summary.unverifiedLinks, 1);
+  assert.equal(result.summary.linkScore, null);
+  assert.equal(result.summary.overallScore, null);
+  assert.match(result.report, /1 confirmed HTTP failures, 1 unverified/i);
+  assert.match(result.report, /\| Unverified \| Destination availability not verified/);
+});
+
+test("report keeps Cloudflare 520-524 unverified but treats 500 and 525-526 as failures", () => {
+  const result = createValidationReport({
+    htmlFilePath: "edge-failures.html", cssAudited: false,
+    htmlMessages: [], cssMessages: [], seoIssues: [], schemaIssues: [],
+    links: [500, 520, 521, 522, 523, 524, 525, 526].map((status) => ({
+      url: `https://example.test/${status}`, status, ok: false,
+    })),
+  });
+  assert.equal(result.summary.brokenLinks, 3);
+  assert.equal(result.summary.unverifiedLinks, 5);
+  assert.equal(result.summary.linkScore, null);
+  assert.match(result.report, /3 confirmed HTTP failures, 5 unverified/i);
 });
 
 test("report surfaces CSS warnings without counting them as CSS errors", () => {

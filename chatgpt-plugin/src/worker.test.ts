@@ -497,6 +497,7 @@ describe("polished tool responses", () => {
       vi.fn()
         .mockResolvedValueOnce(new Response(null, { status: 200 }))
         .mockResolvedValueOnce(new Response(null, { status: 301 }))
+        .mockResolvedValueOnce(new Response(null, { status: 404 }))
         .mockResolvedValueOnce(new Response(null, { status: 404 })),
     );
 
@@ -511,11 +512,14 @@ describe("polished tool responses", () => {
 
     expect(result.structuredContent).toMatchObject({
       links_checked: 3,
+      eligible_links: 3,
+      links_truncated: false,
       healthy_links: 1,
       redirects: 1,
       unreachable_links: 1,
       overview: {
         status: "needs_attention",
+        truncated: false,
         counts: [
           { key: "checked", label: "Checked", value: 3, tone: "info" },
           { key: "healthy", label: "Healthy", value: 1, tone: "success" },
@@ -527,8 +531,158 @@ describe("polished tool responses", () => {
     expect(result.content[0]?.text).toContain("1 healthy link, 1 redirect, and 1 unreachable link");
   });
 
+  it("marks link checks partial when the maximum hides distinct eligible links", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callTool("check_broken_links", {
+      html: '<a href="https://example.com/first">First</a><a href="https://example.com/first">Duplicate</a><a href="https://example.com/second">Second</a>',
+      max_links: 1,
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      links_checked: 1,
+      eligible_links: 2,
+      links_truncated: true,
+      overview: { status: "partial", total: 2, shown: 1, truncated: true },
+    });
+    expect(result.content[0]?.text).toContain("1 of 2 eligible links");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a rate-limited link as unverified, not unreachable or healthy", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 429 }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 })));
+
+    const result = await callTool("check_broken_links", {
+      html: '<a href="https://example.com/limited">Limited</a><a href="https://example.com/ok">OK</a>',
+      max_links: 2,
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      links_checked: 2,
+      healthy_links: 1,
+      unreachable_links: 0,
+      unverified_links: 1,
+      overview: { status: "partial" },
+    });
+    expect(result.content[0]?.text).toContain("unverified");
+    expect(result.content[0]?.text).not.toContain("returned status 429");
+  });
+
+  it("checks GET after HEAD 500 before counting an otherwise healthy link as unreachable", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: RequestInfo | URL, options?: RequestInit) => {
+      requests.push(options?.method ?? "");
+      return new Response(null, { status: options?.method === "HEAD" ? 500 : 200 });
+    }));
+
+    const result = await callTool("check_broken_links", {
+      html: '<a href="https://example.com/error">Error</a>',
+      max_links: 1,
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      links_checked: 1,
+      healthy_links: 1,
+      unreachable_links: 0,
+      unverified_links: 0,
+      overview: { status: "passed" },
+    });
+    expect(requests).toEqual(["HEAD", "GET"]);
+  });
+
+  it("treats 401 and 403 as access-restricted checks, not confirmed broken links", async () => {
+    const methods: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL, options?: RequestInit) => {
+      methods.push(options?.method ?? "");
+      return new Response(null, { status: String(target).endsWith("/login") ? 401 : 403 });
+    }));
+    const result = await callTool("check_broken_links", {
+      html: '<a href="https://example.com/login">Login</a><a href="https://example.com/forbidden">Forbidden</a>',
+      max_links: 2,
+    });
+    expect(result.structuredContent).toMatchObject({
+      links_checked: 2,
+      healthy_links: 0,
+      unreachable_links: 0,
+      unverified_links: 2,
+      overview: { status: "partial" },
+    });
+    expect(methods.sort()).toEqual(["GET", "GET", "HEAD", "HEAD"]);
+  });
+
+  it("confirms a HEAD 401 with GET when the public destination is accessible", async () => {
+    const methods: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_target: RequestInfo | URL, options?: RequestInit) => {
+      methods.push(options?.method ?? "");
+      return new Response(null, { status: options?.method === "HEAD" ? 401 : 200 });
+    }));
+    const result = await callTool("check_broken_links", {
+      html: '<a href="https://example.com/login">Login</a>',
+      max_links: 1,
+    });
+    expect(result.structuredContent).toMatchObject({
+      healthy_links: 1,
+      unreachable_links: 0,
+      unverified_links: 0,
+      overview: { status: "passed" },
+    });
+    expect(methods).toEqual(["HEAD", "GET"]);
+  });
+
+  it("marks a combined audit partial when a link is rate-limited, without calling it broken", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL, options?: RequestInit) => {
+      const url = String(target);
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      if (url === "https://example.com/limited" && options?.method === "HEAD") {
+        return new Response(null, { status: 429 });
+      }
+      throw new Error(`Unexpected fetch target: ${url}`);
+    }));
+
+    const result = await callTool("generate_validation_report", {
+      html: '<!doctype html><html lang="en"><head><title>Example</title></head><body><h1>Example</h1><a href="https://example.com/limited">Link</a></body></html>',
+      check_links: true,
+      max_links: 1,
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      links_checked: 1,
+      broken_links: 0,
+      unreachable_links: 0,
+      unverified_links: 1,
+      overview: { status: "partial" },
+    });
+    expect(result.content[0]?.text).toContain("remains unverified");
+  });
+
+  it("makes an otherwise clear combined report partial when link coverage is capped", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      if (String(target).startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      return new Response(null, { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callTool("generate_validation_report", {
+      html: '<!doctype html><html lang="en"><head><title>Example</title></head><body><h1>Example</h1><a href="https://example.com/a">A</a><a href="https://example.com/b">B</a></body></html>',
+      check_links: true,
+      max_links: 1,
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      links_checked: 1,
+      eligible_links: 2,
+      links_truncated: true,
+      overview: { status: "partial" },
+    });
+    expect(result.structuredContent.overview.detail).toContain("1 of 2 eligible links");
+    expect(fetchMock.mock.calls.filter(([target]) => !String(target).startsWith("https://html5.validator.nu/"))).toHaveLength(1);
+  });
+
   it("checks fragment-only links pointing to a different HTML base document", async () => {
-    const fetchMock = vi.fn(async (_target: unknown) => new Response(null, { status: 404 }));
+    const fetchMock = vi.fn(async (_target: unknown, _options?: RequestInit) => new Response(null, { status: 404 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const remote = await callTool("check_broken_links", {
@@ -537,7 +691,11 @@ describe("polished tool responses", () => {
       max_links: 1,
     });
     expect(remote.structuredContent).toMatchObject({ links_checked: 1, unreachable_links: 1 });
-    expect(fetchMock.mock.calls.map(([target]) => String(target))).toEqual(["https://example.com/docs/"]);
+    expect(fetchMock.mock.calls.map(([target]) => String(target))).toEqual([
+      "https://example.com/docs/",
+      "https://example.com/docs/",
+    ]);
+    expect(fetchMock.mock.calls.map(([, options]) => options?.method)).toEqual(["HEAD", "GET"]);
 
     const samePage = await callTool("check_broken_links", {
       html: '<base href="/source"><a href="#local">Same page</a>',
@@ -552,9 +710,9 @@ describe("polished tool responses", () => {
       max_links: 1,
     });
     expect(privateBase.structuredContent).toMatchObject({ links_checked: 0 });
-    expect(fetchMock.mock.calls).toHaveLength(1);
+    expect(fetchMock.mock.calls).toHaveLength(2);
   });
-  it("does not classify HTTP 304 as a redirect", async () => {
+  it("does not classify an unconditional HTTP 304 as a healthy link or redirect", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(null, { status: 304 })));
 
     const result = await callTool("check_broken_links", {
@@ -564,14 +722,15 @@ describe("polished tool responses", () => {
 
     expect(result.structuredContent).toMatchObject({
       links_checked: 1,
-      healthy_links: 1,
+      healthy_links: 0,
       redirects: 0,
       unreachable_links: 0,
+      unverified_links: 1,
       overview: {
-        status: "passed",
+        status: "partial",
       },
     });
-    expect(result.content[0]?.text).toContain("1 healthy link, 0 redirects, and 0 unreachable links");
+    expect(result.content[0]?.text).toContain("unverified");
     expect(result.content[0]?.text).not.toContain("redirect status 304");
   });
 
@@ -846,6 +1005,101 @@ describe("public webpage audit", () => {
 });
 
 describe("public site audit", () => {
+  it("explains unsupported sitemap queries without exposing their values or claiming full coverage", async () => {
+    const privateMarker = "private-sitemap-token-should-not-escape";
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/robots.txt") {
+        return new Response(`User-agent: *\nSitemap: /map.xml?key=${privateMarker}\n`, {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === "https://example.com/") return new Response("<!doctype html><html lang='en'><title>Example</title><body><h1>Example</h1></body></html>", { headers: { "content-type": "text/html" } });
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    }));
+
+    const result = await callTool("audit_public_site", { site_url: "https://example.com/", max_pages: 1 });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      discovery: "root_only",
+      discovery_error: "sitemap_query_unsupported",
+      overview: { status: "partial" },
+    });
+    expect(result.structuredContent.overview.detail).toContain("query-bearing sitemap");
+    expect(result.structuredContent.overview.next_action).toContain("without query parameters");
+    expect(JSON.stringify(result)).not.toContain(privateMarker);
+  });
+
+  it("does not claim a complete pass when sitemap discovery fails but the root audit succeeds", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") {
+        return new Response("<!doctype html><html><head><title>Example site root</title></head><body><h1>Example</h1></body></html>", {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/sitemap.xml") return new Response("Unavailable", { status: 503 });
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    }));
+
+    const result = await callTool("audit_public_site", { site_url: "https://example.com/", max_pages: 1 });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      discovery: "root_only",
+      discovery_error: "sitemap_unavailable",
+      pages_audited: 1,
+      pages_selected: 1,
+      score_coverage_percent: 100,
+      overview: { status: "partial" },
+    });
+    expect(result.structuredContent.overview.next_action).toContain("sitemap");
+    expect(result.structuredContent.overview.detail).toContain("not site-wide coverage");
+  });
+
+  it("explains a robots-excluded coverage gap even when the eligible page audit finishes", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") {
+        return new Response("<!doctype html><html lang='en'><head><title>Example</title></head><body><h1>Example</h1></body></html>", {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nDisallow: /private\nSitemap: /sitemap.xml\n", {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response("<urlset><url><loc>https://example.com/</loc></url><url><loc>https://example.com/private</loc></url></urlset>", {
+          headers: { "content-type": "application/xml" },
+        });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    }));
+
+    const result = await callTool("audit_public_site", { site_url: "https://example.com/", max_pages: 2 });
+
+    expect(result.structuredContent).toMatchObject({
+      pages_selected: 1,
+      pages_audited: 1,
+      pages_skipped_robots: 1,
+      overview: { status: "partial" },
+    });
+    expect(result.structuredContent.overview.next_action).toContain("robots.txt");
+    expect(result.structuredContent.overview.counts).toContainEqual(expect.objectContaining({
+      key: "pages_skipped_robots",
+      value: 1,
+    }));
+    expect(JSON.stringify(result)).not.toContain("https://example.com/private</loc>");
+  });
+
   it("returns compact same-origin sitemap summaries without exposing fetched HTML", async () => {
     const privateMarker = "private-site-marker-that-must-not-be-returned";
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {

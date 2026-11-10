@@ -10,8 +10,9 @@ import puppeteer, { type Browser as PuppeteerBrowser } from "puppeteer-core";
 import * as path from "path";
 import * as fs from "fs/promises";
 import * as os from "node:os";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { assertPublicHttpUrl, getErrorMessage } from "./network.js";
+import { assertPublicHttpUrl, getErrorMessage, resolveLocalFileWithinWorkspaceRoot } from "./network.js";
 import { startScreenshotTransportProxy } from "./screenshot-proxy.js";
 
 export interface ViewportConfig {
@@ -25,6 +26,18 @@ export interface ScreenshotResult {
   width: number;
   height: number;
   outputPath: string;
+  incompleteAssetCount?: number;
+}
+
+/** Carries paths already written when a later viewport cannot be captured. */
+export class PartialScreenshotCaptureError extends Error {
+  readonly screenshots: ScreenshotResult[];
+
+  constructor(cause: unknown, screenshots: ScreenshotResult[]) {
+    super(getErrorMessage(cause), { cause });
+    this.name = "PartialScreenshotCaptureError";
+    this.screenshots = [...screenshots];
+  }
 }
 
 const DEFAULT_VIEWPORTS: ViewportConfig[] = [
@@ -36,6 +49,7 @@ const DEFAULT_VIEWPORTS: ViewportConfig[] = [
 const MAX_VIEWPORTS = 10;
 const MIN_VIEWPORT_DIMENSION = 100;
 const MAX_VIEWPORT_DIMENSION = 7_680;
+const MAX_TOTAL_VIEWPORT_PIXELS = 64_000_000;
 const SAFE_VIEWPORT_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 const NAVIGATION_TIMEOUT_MS = 30_000;
 
@@ -151,6 +165,7 @@ function validateViewports(viewports: ViewportConfig[]): ViewportConfig[] {
   }
 
   const outputNames = new Set<string>();
+  let totalPixels = 0;
   return viewports.map((viewport, index) => {
     if (!viewport || typeof viewport !== "object") {
       throw new Error(`Viewport #${index + 1} must be an object`);
@@ -172,6 +187,13 @@ function validateViewports(viewports: ViewportConfig[]): ViewportConfig[] {
       }
     }
 
+    totalPixels += viewport.width * viewport.height;
+    if (totalPixels > MAX_TOTAL_VIEWPORT_PIXELS) {
+      throw new Error(
+        `Screenshot viewports exceed aggregate viewport pixel budget of ${MAX_TOTAL_VIEWPORT_PIXELS.toLocaleString("en-US")} CSS pixels`,
+      );
+    }
+
     const outputName = `${viewport.name}_${viewport.width}x${viewport.height}.png`.toLowerCase();
     if (outputNames.has(outputName)) {
       throw new Error(`Duplicate viewport output filename: ${outputName}`);
@@ -190,9 +212,83 @@ function resolveContainedOutputPath(outputDirectory: string, fileName: string): 
   return outputPath;
 }
 
+async function writeScreenshotOutput(
+  page: Awaited<ReturnType<PuppeteerBrowser["newPage"]>>,
+  outputPath: string,
+  scopedOutput: boolean,
+): Promise<void> {
+  if (!scopedOutput) {
+    await page.screenshot({ path: outputPath, fullPage: false });
+    return;
+  }
+
+  // A direct screenshot write follows an existing hard link or symlink. Write
+  // to a uniquely reserved sibling and replace the directory entry instead.
+  const temporaryPath = path.join(path.dirname(outputPath), `.${path.basename(outputPath)}.${randomUUID()}.tmp`);
+  const reservation = await fs.open(temporaryPath, "wx", 0o600);
+  try {
+    await reservation.close();
+    await page.screenshot({ path: temporaryPath, fullPage: false });
+    const written = await fs.lstat(temporaryPath);
+    if (!written.isFile() || written.nlink !== 1) {
+      throw new Error("Screenshot temporary output is not a unique regular file");
+    }
+    await fs.rename(temporaryPath, outputPath);
+  } finally {
+    await fs.rm(temporaryPath, { force: true });
+  }
+}
+
 function isPathWithinDirectory(directory: string, filePath: string): boolean {
   const relativePath = path.relative(directory, filePath);
-  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+  // Only an actual parent segment escapes the boundary; names such as
+  // "..assets" are legal descendants and must not be rejected.
+  return relativePath !== ".."
+    && !relativePath.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relativePath);
+}
+
+async function prepareScreenshotOutputDirectory(outputDirectory: string): Promise<string> {
+  const resolvedDirectory = path.resolve(outputDirectory);
+  const configuredRoot = process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
+  if (configuredRoot === undefined) {
+    await fs.mkdir(resolvedDirectory, { recursive: true });
+    return resolvedDirectory;
+  }
+
+  if (!path.isAbsolute(configuredRoot)) {
+    throw new Error("MCP_WEB_VALIDATOR_WORKSPACE_ROOT must be an absolute directory path");
+  }
+  const root = await fs.realpath(configuredRoot);
+  if (!(await fs.stat(root)).isDirectory()) {
+    throw new Error("MCP_WEB_VALIDATOR_WORKSPACE_ROOT must refer to a directory");
+  }
+
+  // Resolve the nearest existing ancestor before mkdir, so a symlinked parent
+  // cannot redirect newly created screenshot directories outside the scope.
+  let ancestor = resolvedDirectory;
+  let canonicalAncestor: string;
+  for (;;) {
+    try {
+      canonicalAncestor = await fs.realpath(ancestor);
+      break;
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const parent = path.dirname(ancestor);
+      if (parent === ancestor) throw error;
+      ancestor = parent;
+    }
+  }
+  const plannedDirectory = path.resolve(canonicalAncestor, path.relative(ancestor, resolvedDirectory));
+  if (!isPathWithinDirectory(root, plannedDirectory)) {
+    throw new Error("Screenshot output directory is outside MCP_WEB_VALIDATOR_WORKSPACE_ROOT");
+  }
+  await fs.mkdir(resolvedDirectory, { recursive: true });
+  const canonicalDirectory = await fs.realpath(resolvedDirectory);
+  if (!isPathWithinDirectory(root, canonicalDirectory)) {
+    throw new Error("Screenshot output directory is outside MCP_WEB_VALIDATOR_WORKSPACE_ROOT");
+  }
+  return canonicalDirectory;
 }
 
 async function assertLocalScreenshotRequestAllowed(requestUrl: URL, localDirectory: string): Promise<void> {
@@ -280,18 +376,14 @@ export async function captureScreenshots(
     throw new Error("outputDirectory must be a non-empty string");
   }
 
-  const viewports = validateViewports(
-    customViewports && customViewports.length > 0 ? customViewports : DEFAULT_VIEWPORTS,
-  );
-  const resolvedOutputDirectory = path.resolve(outputDirectory);
-
+  const viewports = validateViewports(customViewports ?? DEFAULT_VIEWPORTS);
   // Resolve target to file:// URL if it is a local file path
   let targetUrl: string;
   let localDirectory: string | undefined;
   if (/^https?:\/\//i.test(targetPath)) {
     targetUrl = (await assertPublicHttpUrl(targetPath)).href;
   } else {
-    const absolutePath = path.resolve(targetPath);
+    const absolutePath = await resolveLocalFileWithinWorkspaceRoot(targetPath);
     const resolvedPath = await fs.realpath(absolutePath);
     const stats = await fs.stat(resolvedPath);
     if (!stats.isFile()) {
@@ -301,8 +393,8 @@ export async function captureScreenshots(
     targetUrl = pathToFileURL(resolvedPath).href;
   }
 
-  // Ensure output directory exists
-  await fs.mkdir(resolvedOutputDirectory, { recursive: true });
+  const scopedOutput = process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT !== undefined;
+  const resolvedOutputDirectory = await prepareScreenshotOutputDirectory(outputDirectory);
 
   const results: ScreenshotResult[] = [];
   let blockedRequestMessage: string | undefined;
@@ -310,14 +402,37 @@ export async function captureScreenshots(
     blockedRequestMessage ??= message;
   });
   let browser: PuppeteerBrowser | undefined;
+  let captureFailed = false;
 
   try {
     browser = await browserRuntime.launch(transportProxy.url);
     const page = await browser.newPage();
     page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
 
+    const incompleteAssetUrls = new Set<string>();
+    const pendingAssetUrls = new Set<string>();
+    const visualAsset = (kind: string): boolean => ["image", "stylesheet", "font", "script"].includes(kind);
+    const isVisualRequest = (request: { resourceType?: () => string }): boolean =>
+      typeof request.resourceType === "function" && visualAsset(request.resourceType());
+    page.on("requestfailed", (request) => {
+      if (isVisualRequest(request)) {
+        pendingAssetUrls.delete(request.url());
+        incompleteAssetUrls.add(request.url());
+      }
+    });
+    page.on("requestfinished", (request) => {
+      if (isVisualRequest(request)) pendingAssetUrls.delete(request.url());
+    });
+    page.on("response", (response) => {
+      const request = response.request();
+      if (isVisualRequest(request) && response.status() >= 400) {
+        incompleteAssetUrls.add(request.url());
+      }
+    });
+
     await page.setRequestInterception(true);
     page.on("request", (request) => {
+      if (isVisualRequest(request)) pendingAssetUrls.add(request.url());
       void resolveScreenshotRequest(request, localDirectory, (message) => {
         blockedRequestMessage ??= message;
       }).catch(() => {
@@ -326,6 +441,9 @@ export async function captureScreenshots(
     });
 
     for (const vp of viewports) {
+      blockedRequestMessage = undefined;
+      incompleteAssetUrls.clear();
+      pendingAssetUrls.clear();
       await page.setViewport({
         width: vp.width,
         height: vp.height,
@@ -334,10 +452,18 @@ export async function captureScreenshots(
 
       // Load URL (wait until network is idle or DOM loaded)
       try {
-        await page.goto(targetUrl, {
+        const navigationResponse = await page.goto(targetUrl, {
           waitUntil: "domcontentloaded",
           timeout: NAVIGATION_TIMEOUT_MS,
         });
+        if (navigationResponse) {
+          const status = navigationResponse.status();
+          // 204/205 contain no document; 206 may contain only part of one.
+          // Neither can produce a trustworthy full-page screenshot.
+          if (status === 204 || status === 205 || status === 206 || status >= 400) {
+            throw new Error(`HTTP ${status} from main document`);
+          }
+        }
       } catch (error: unknown) {
         if (blockedRequestMessage) {
           throw new Error(`Screenshot navigation blocked: ${blockedRequestMessage}`);
@@ -351,23 +477,41 @@ export async function captureScreenshots(
       const fileName = `${vp.name}_${vp.width}x${vp.height}.png`;
       const outputPath = resolveContainedOutputPath(resolvedOutputDirectory, fileName);
 
-      await page.screenshot({
-        path: outputPath,
-        fullPage: false // Captures above the fold viewport
-      });
+      await writeScreenshotOutput(page, outputPath, scopedOutput);
 
       results.push({
         viewportName: vp.name,
         width: vp.width,
         height: vp.height,
-        outputPath
+        outputPath,
+        ...((incompleteAssetUrls.size + pendingAssetUrls.size) > 0
+          ? { incompleteAssetCount: new Set([...incompleteAssetUrls, ...pendingAssetUrls]).size }
+          : {}),
       });
     }
+  } catch (error) {
+    captureFailed = true;
+    if (results.length > 0) throw new PartialScreenshotCaptureError(error, results);
+    throw error;
   } finally {
-    if (browser) {
-      await browser.close();
+    let cleanupFailed = false;
+    let cleanupError: unknown;
+    try {
+      if (browser) await browser.close();
+    } catch (error) {
+      cleanupFailed = true;
+      cleanupError = error;
     }
-    await transportProxy.close();
+    try {
+      await transportProxy.close();
+    } catch (error) {
+      if (!cleanupFailed) {
+        cleanupFailed = true;
+        cleanupError = error;
+      }
+    }
+    // Cleanup must not obscure the original capture failure.
+    if (!captureFailed && cleanupFailed) throw cleanupError;
   }
 
   return results;

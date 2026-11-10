@@ -1,7 +1,7 @@
 import * as cheerio from "cheerio";
 import ipaddr from "ipaddr.js";
 import { HOSTED_MAX_LINKS, SERVICE_USER_AGENT } from "./constants";
-import { getPrimaryLanguageSubtag, isKnownPrimaryLanguageSubtag } from "./language-subtags";
+import { getPrimaryLanguageSubtag, isKnownPrimaryLanguageSubtag, isRegisteredGrandfatheredILanguageTag, isWellFormedPrivateUseLanguageTag } from "./language-subtags";
 
 export type AuditSeverity = "error" | "warning" | "info";
 
@@ -25,6 +25,11 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
   return typeof status === "number" && HTTP_REDIRECT_STATUSES.has(status);
 }
 
+export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
+  return typeof status !== "number"
+    || [300, 304, 401, 403, 406, 407, 408, 409, 412, 415, 416, 417, 421, 422, 423, 424, 425, 426, 428, 429, 431, 451, 502, 503, 504, 511, 520, 521, 522, 523, 524].includes(status);
+}
+
 export interface AuditResult {
   issues: AuditIssue[];
   total: number;
@@ -38,6 +43,7 @@ export interface AuditSeoMetadataOptions {
 }
 
 const MAX_AUDIT_ISSUES = 100;
+const MAX_AUDIT_MESSAGE_CHARS = 1_000;
 const REQUEST_TIMEOUT_MS = 5_000;
 const IETF_PROTOCOL_ASSIGNMENTS_IPV4 = ipaddr.parseCIDR("192.0.0.0/24");
 const GLOBALLY_REACHABLE_IETF_PROTOCOL_IPV4 = new Set(["192.0.0.9", "192.0.0.10"]);
@@ -60,7 +66,14 @@ function createAuditCollector() {
     add(issue: AuditIssue) {
       total += 1;
       counts[issue.severity] += 1;
-      if (issues.length < MAX_AUDIT_ISSUES) issues.push(issue);
+      if (issues.length < MAX_AUDIT_ISSUES) {
+        issues.push({
+          ...issue,
+          ...(issue.message.length > MAX_AUDIT_MESSAGE_CHARS
+            ? { message: `${issue.message.slice(0, MAX_AUDIT_MESSAGE_CHARS - 3)}...` }
+            : {}),
+        });
+      }
     },
     result(): AuditResult {
       return { issues, total, truncated: total > issues.length, counts };
@@ -73,10 +86,15 @@ function isJsonLdScriptType(type: string | undefined): boolean {
 }
 
 function hasJsonLdDocumentShape(value: unknown): boolean {
-  if (Array.isArray(value)) {
-    return value.every((entry) => typeof entry === "object" && entry !== null && !Array.isArray(entry));
-  }
-  return typeof value === "object" && value !== null;
+  const isObject = (entry: unknown): entry is Record<string, unknown> =>
+    typeof entry === "object" && entry !== null && !Array.isArray(entry);
+  const documents = Array.isArray(value) ? value : [value];
+  return documents.every((entry) => {
+    if (!isObject(entry)) return false;
+    if (!Object.hasOwn(entry, "@graph")) return true;
+    const graph = entry["@graph"];
+    return Array.isArray(graph) ? graph.every(isObject) : isObject(graph);
+  });
 }
 
 function isInTemplateContents(element: unknown): boolean {
@@ -89,11 +107,14 @@ function isInTemplateContents(element: unknown): boolean {
   return false;
 }
 
-function isAriaHiddenFromAccessibilityTree(element: unknown): boolean {
+function isHiddenFromAccessibilityTree(element: unknown): boolean {
   type ParentNode = { attribs?: Record<string, string>; parent?: unknown };
   let node = element as ParentNode | null;
   while (node) {
-    if (node.attribs?.["aria-hidden"]?.trim().toLowerCase() === "true") return true;
+    const attrs = node.attribs;
+    if (attrs?.["aria-hidden"]?.trim().toLowerCase() === "true") return true;
+    if (attrs && Object.hasOwn(attrs, "hidden")) return true;
+    if ((attrs?.style ?? "").split(";").some((declaration) => /^\s*display\s*:\s*none(?:\s*!important)?\s*$/i.test(declaration))) return true;
     node = (node.parent ?? null) as ParentNode | null;
   }
   return false;
@@ -438,12 +459,25 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   const usableCanonical = parseableCanonical.filter(
     (_, element) => !["hreflang", "lang", "media", "type"].some((attribute) => $(element).attr(attribute) !== undefined),
   );
+  const credentialedCanonical = parseableCanonical.filter((_, element) => {
+    const href = ($(element).attr("href") ?? "").trim();
+    const url = new URL(href, "https://example.invalid/");
+    return Boolean(url.username || url.password);
+  });
   if (invalidCanonical.length > 0) {
     collector.add({
       code: "seo.canonical.invalid_url",
       severity: "warning",
       category: "SEO",
       message: "Canonical link href is not a usable HTTP(S) URL. Provide an HTTP(S) canonical target or remove the declaration.",
+    });
+  }
+  if (credentialedCanonical.length > 0) {
+    collector.add({
+      code: "seo.canonical.embedded_credentials",
+      severity: "warning",
+      category: "SEO",
+      message: "Canonical URL embeds user credentials. Remove the username and password to avoid exposing secrets or relying on authenticated canonical targets.",
     });
   }
   if (usableCanonical.filter((_, element) => ($(element).attr("href") ?? "").includes("#")).length > 0) {
@@ -611,7 +645,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
 
   $("img").filter((_, element) =>
     !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
     && !isUnambiguouslyPresentationalImage(element)
   ).each((_, element) => {
     const img = $(element);
@@ -632,10 +666,10 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
         category: "Accessibility",
         message: "Image needs a non-empty accessible name. Provide meaningful alt text or another supported label such as aria-label, aria-labelledby, or title.",
       });
-    } else if (alt !== undefined && alt !== "" && alt.trim() === "") {
+    } else if (alt !== undefined && alt !== "" && alt.trim() === "" && !hasAlternateAccessibleName) {
       collector.add({
         code: "accessibility.image_alt.empty",
-        severity: "info",
+        severity: "error",
         category: "Accessibility",
         message: "Whitespace-only alt text does not provide an accessible name. Use alt=\"\" for a decorative image or meaningful alternative text for an informative image.",
       });
@@ -645,7 +679,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   $("div[role], span[role]").filter((_, element) =>
     hasExplicitSemanticImageRole(element)
     && !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const semanticImage = $(element);
     const labelledByIds = (semanticImage.attr("aria-labelledby") ?? "")
@@ -669,7 +703,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   $("[role]").filter((_, element) =>
     hasExplicitSvgImageRole(element)
     && !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const svgImage = $(element);
     const labelledByIds = (svgImage.attr("aria-labelledby") ?? "")
@@ -691,7 +725,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   });
 
   $("input[type=\"image\" i]").filter((_, element) =>
-    !isInTemplateContents(element) && !isAriaHiddenFromAccessibilityTree(element)
+    !isInTemplateContents(element) && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const input = $(element);
     const labelledByIds = (input.attr("aria-labelledby") ?? "")
@@ -716,7 +750,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
 
   $("iframe").filter((_, element) =>
     !isInTemplateContents(element)
-    && !isAriaHiddenFromAccessibilityTree(element)
+    && !isHiddenFromAccessibilityTree(element)
     && !hasNegativeTabIndex(element)
     && !isDecorativeIframe(element)
   ).each((_, element) => {
@@ -740,7 +774,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   });
 
   $("area[href]").filter((_, element) =>
-    !isInTemplateContents(element) && !isAriaHiddenFromAccessibilityTree(element)
+    !isInTemplateContents(element) && !isHiddenFromAccessibilityTree(element)
   ).each((_, element) => {
     const area = $(element);
     const labelledByIds = (area.attr("aria-labelledby") ?? "")
@@ -758,7 +792,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
       const map = area.closest("map");
       const hasLabeledEquivalent = map.find("area[href]").filter((_, peer) =>
         !isInTemplateContents(peer)
-        && !isAriaHiddenFromAccessibilityTree(peer)
+        && !isHiddenFromAccessibilityTree(peer)
         && ($(peer).attr("href")?.trim() ?? "") === href
         && Boolean($(peer).attr("alt")?.trim())
       ).length > 0;
@@ -778,7 +812,9 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   const htmlElement = $("html").first();
   const htmlNode = htmlElement.get(0) as { sourceCodeLocation?: unknown } | undefined;
   if (htmlNode?.sourceCodeLocation) {
-    const pageLanguage = htmlElement.attr("lang")?.trim();
+    const isXhtml = htmlElement.attr("xmlns") === "http://www.w3.org/1999/xhtml";
+    const pageLanguage = htmlElement.attr("lang")?.trim()
+      || (isXhtml ? htmlElement.attr("xml:lang")?.trim() : undefined);
     if (!pageLanguage) {
       collector.add({
         code: "accessibility.page_language.missing_or_empty",
@@ -788,7 +824,14 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
       });
     } else {
       const primaryLanguageSubtag = getPrimaryLanguageSubtag(pageLanguage);
-      if (!isKnownPrimaryLanguageSubtag(primaryLanguageSubtag)) {
+      if (isWellFormedPrivateUseLanguageTag(pageLanguage)) {
+        collector.add({
+          code: "accessibility.page_language.private_use",
+          severity: "info",
+          category: "Accessibility",
+          message: "This is a valid private-use BCP 47 language tag, but assistive technologies may not recognize it. Prefer a registered language tag when one applies.",
+        });
+      } else if (!isRegisteredGrandfatheredILanguageTag(pageLanguage) && !isKnownPrimaryLanguageSubtag(primaryLanguageSubtag)) {
         collector.add({
           code: "accessibility.page_language.invalid_primary_subtag",
           severity: "error",
@@ -922,6 +965,8 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
           "user-agent": SERVICE_USER_AGENT,
         },
         redirect: "manual",
+        credentials: "omit",
+        cache: "no-store",
         signal: controller.signal,
       });
       await response.body?.cancel();
@@ -932,15 +977,36 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
   };
 
   try {
-    let response = await execute("HEAD");
-    if (response.status === 403 || response.status === 405 || response.status === 501) {
+    let response: Response;
+    let usedGet = false;
+    try {
+      response = await execute("HEAD");
+    } catch (error) {
+      // Some public origins reject HEAD at the transport layer; only retry
+      // network-type failures, not aborted/expired requests.
+      if (!(error instanceof TypeError)) throw error;
+      response = await execute("GET");
+      usedGet = true;
+    }
+    // Some origins return a false negative to HEAD while a normal GET works.
+    if (!usedGet && [401, 403, 404, 405, 410, 500, 501].includes(response.status)) {
       response = await execute("GET");
     }
     return {
       url: url.toString(),
       status: response.status,
-      ok: response.status >= 200 && response.status < 400,
-      message: isHttpRedirectStatus(response.status) ? "Redirect not followed." : undefined,
+      ok: response.status >= 200 && response.status < 400 && !isUnverifiedLinkStatus(response.status),
+      message: response.status === 300
+        ? "Multiple choices without a selected destination; availability not verified."
+        : response.status === 304
+        ? "Not modified without a conditional request; destination availability not verified."
+        : response.status === 401 || response.status === 403
+        ? "Access restricted; destination availability not verified."
+        : response.status === 429
+          ? "Rate limited; destination availability not verified."
+        : isHttpRedirectStatus(response.status)
+          ? "Redirect not followed."
+          : undefined,
     };
   } catch {
     return {
@@ -974,11 +1040,11 @@ async function mapWithConcurrency<T, R>(
  * Checks a capped set of public HTTP(S) links. It does not follow redirects,
  * request custom ports, or return response bodies.
  */
-export async function checkBrokenLinks(
+export async function checkBrokenLinksDetailed(
   html: string,
   baseUrl: string | undefined,
   maxLinks: number,
-): Promise<LinkStatus[]> {
+): Promise<{ links: LinkStatus[]; eligibleLinks: number; truncated: boolean }> {
   const fallbackBaseUrl = baseUrl ? toPublicHttpUrl(baseUrl)?.toString() : undefined;
   if (baseUrl && !fallbackBaseUrl) {
     throw new Error("base_url must be a public HTTP(S) URL on port 80 or 443.");
@@ -1010,15 +1076,28 @@ export async function checkBrokenLinks(
   );
   const limit = Math.min(Math.max(maxLinks, 1), HOSTED_MAX_LINKS);
 
+  // Count eligible unique links beyond the request cap without fetching them.
   $("a[href], area[href]").filter((_, element) => !isInTemplateContents(element)).each((_, element) => {
-    if (urls.length >= limit) return;
     const href = $(element).attr("href")?.trim();
     if (!href || (href.startsWith("#") && !checkCrossDocumentFragments) || /^(mailto:|tel:|javascript:|data:)/i.test(href)) return;
     const url = toPublicHttpUrl(href, effectiveBaseUrl);
     if (!url || seen.has(url.toString())) return;
     seen.add(url.toString());
-    urls.push(url);
+    if (urls.length < limit) urls.push(url);
   });
 
-  return mapWithConcurrency(urls, 5, fetchStatus);
+  return {
+    links: await mapWithConcurrency(urls, 5, fetchStatus),
+    eligibleLinks: seen.size,
+    truncated: seen.size > urls.length,
+  };
+}
+
+/** Compatibility helper for callers that only need checked link statuses. */
+export async function checkBrokenLinks(
+  html: string,
+  baseUrl: string | undefined,
+  maxLinks: number,
+): Promise<LinkStatus[]> {
+  return (await checkBrokenLinksDetailed(html, baseUrl, maxLinks)).links;
 }

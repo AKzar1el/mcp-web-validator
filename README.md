@@ -58,6 +58,12 @@ The npm package exposes these exact runtime tool names:
 | `report.validation` | Combine HTML/XHTML, optional CSS, SEO, JSON-LD, and bounded link checks in a Markdown report. | Reads selected files, contacts the validators, and checks eligible public links found in the markup; `.xhtml` inputs use XHTML parsing semantics for Nu validation. |
 | `screenshot.capture` | Capture desktop, tablet, mobile, or custom viewport screenshots. | Opens a selected local file or eligible public URL and writes PNG files to the selected output directory; existing matching files may be replaced. |
 
+For direct Node.js integrations, `auditSeoMetadata(html, xRobotsTag)` and
+`auditSeoMetadataDetailed(html, xRobotsTag)` from `dist/seo-auditor.js` accept
+an optional caller-observed `X-Robots-Tag` HTTP response-header value. Separate
+multiple header fields with newlines. This inspection is offline and never
+fetches headers; the MCP `seo.metadata` tool still analyzes supplied HTML only.
+
 ## Hosted app tools
 
 The hosted app exposes eight tools:
@@ -80,6 +86,8 @@ The hosted app exposes eight tools:
 Only validate files, markup, and public webpages that you own or are authorized to inspect. Public page URLs can contain sensitive query values, so remove tokens and private identifiers before submitting them. Do not submit passwords, API keys, access tokens, payment data, health data, private source code, or other sensitive personal data.
 
 The local server runs with the same operating-system permissions as its MCP client. Review tool inputs before approving file access, outbound validation, link checking, or screenshot creation. The hosted app has no access to your local filesystem.
+
+For tighter local-file validation scope, optionally set `MCP_WEB_VALIDATOR_WORKSPACE_ROOT` to an **absolute directory path** in the local MCP server's environment. When set, `html.local`, `css.local`, local-file inputs to `report.validation`, and local screenshot `targetPath` accept only files whose resolved paths (including symlinks) stay within that directory. Screenshot `outputDir` must also remain within the resolved root, including when creating a new nested directory or following an existing symlink. Screenshots replace their final output filename via a temporary sibling file so an existing hard link or symlink cannot redirect the image write. Without this setting, the documented user-selected local-file and screenshot destination behavior is unchanged. This is a defense against unintended tool arguments, not an isolation boundary against a malicious local process concurrently changing filesystem paths.
 
 See the published [privacy policy](https://digestseo.com/privacy/) for data-handling details and [SECURITY.md](SECURITY.md) for private vulnerability reporting.
 
@@ -118,6 +126,52 @@ plugin is published, install **Web Validator by DigestSEO** from Cursor's
 Marketplace or add the repository from Cursor's plugin UI. The plugin bundles
 the same local stdio server and does not require API keys or environment
 variables.
+
+### Visual Studio Code with GitHub Copilot
+
+In VS Code, run **MCP: Add Server** from the Command Palette and choose **Command
+(stdio)** with `npx -y mcp-web-validator`. Or add the following to your own
+workspace's `.vscode/mcp.json` (VS Code format):
+
+```json
+{
+  "servers": {
+    "mcp-web-validator": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "mcp-web-validator"]
+    }
+  }
+}
+```
+
+For a remote-only connection, use this server entry instead (no local Node.js
+required, but local-file and screenshot tools are unavailable):
+
+```json
+{
+  "servers": {
+    "mcp-web-validator-hosted": {
+      "type": "http",
+      "url": "https://web-validator-mcp.digestseo.com/mcp"
+    }
+  }
+}
+```
+
+Open **MCP: List Servers** to start/check the connection. In Copilot Agent
+chat, ask it to run `seo.metadata` on an HTML snippet you provide (input field
+`htmlContent`) and report its metadata issues. This is an offline, no-network
+smoke test of the local stdio server; it should return structured `issues` and
+`totalIssues` without contacting W3C or fetching a webpage. Use the **local**
+server for this check, since the hosted surface has different tool names.
+
+The repository also contains a portable root `.mcp.json` for compatible
+Copilot harness clients. Its top-level key is `mcpServers`, **not** `servers`;
+do not copy that object unchanged into `.vscode/mcp.json`. VS Code's
+[MCP configuration reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration)
+explains the file formats and supported scopes. Review tool permissions before
+allowing outbound validation or filesystem-writing screenshot calls.
 
 ### OpenAI Codex
 
@@ -209,6 +263,7 @@ npm run deploy:dry-run
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations. Deployment and marketplace-review notes live in [chatgpt-plugin/SUBMISSION.md](chatgpt-plugin/SUBMISSION.md).
 For agent-assisted installation, see [llms-install.md](llms-install.md).
+For a copy-ready, zero-paid-provider GitHub Actions metadata gate, see [examples/github-actions](examples/github-actions/README.md).
 
 ## Ecosystem
 

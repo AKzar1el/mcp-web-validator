@@ -70,13 +70,14 @@ export interface PublicSiteAuditOptions {
   siteUrl: string;
   maxPages: number;
   pageOffset: number;
+  expectedDiscoveryFingerprint?: string;
 }
 
 export interface PublicSiteAuditResult {
   site_url: string;
   sitemap_url?: string;
   discovery: SiteDiscovery;
-  discovery_error?: "robots_unavailable" | "sitemap_unavailable" | "sitemap_invalid";
+  discovery_error?: "robots_unavailable" | "sitemap_unavailable" | "sitemap_invalid" | "sitemap_query_unsupported";
   pages_discovered: number;
   pages_selected: number;
   pages_audited: number;
@@ -85,6 +86,7 @@ export interface PublicSiteAuditResult {
   pages_skipped_robots: number;
   truncated: boolean;
   next_page_offset?: number;
+  discovery_fingerprint: string;
   audit_health_score?: number;
   score_coverage_percent: number;
   pages: SiteAuditPageSummary[];
@@ -100,12 +102,14 @@ interface RobotsRule {
 interface ParsedRobots {
   rules: RobotsRule[];
   sitemapUrls: URL[];
+  sitemapQueryUnsupported: boolean;
 }
 
 interface ParsedSitemap {
   pageUrls: URL[];
   childSitemaps: URL[];
   invalid: boolean;
+  queryUnsupported?: boolean;
 }
 
 interface DiscoveryResult {
@@ -144,9 +148,13 @@ function compactMessage(value: string): string {
   return compact.length <= 220 ? compact : `${compact.slice(0, 219).trimEnd()}…`;
 }
 
-function sameOriginCrawlUrl(value: string, baseUrl: string, origin: string): URL | undefined {
+function sameOriginCrawlUrl(value: string, baseUrl: string, origin: string, onQueryUnsupported?: () => void): URL | undefined {
   const url = toPublicHttpUrl(value, baseUrl);
   if (!url || url.origin !== origin) return undefined;
+  if (url.search && onQueryUnsupported) {
+    onQueryUnsupported();
+    return undefined;
+  }
   url.hash = "";
   // Query values can contain secrets and create an unbounded crawl surface.
   url.search = "";
@@ -228,6 +236,7 @@ function robotsPatternMatches(path: string, rule: string): boolean {
 export function parseRobotsTxt(value: string, origin: string): ParsedRobots {
   const groups: Array<{ agents: string[]; rules: RobotsRule[] }> = [];
   const sitemapUrls: URL[] = [];
+  let sitemapQueryUnsupported = false;
   let current = { agents: [] as string[], rules: [] as RobotsRule[] };
   let currentHasRules = false;
 
@@ -246,7 +255,9 @@ export function parseRobotsTxt(value: string, origin: string): ParsedRobots {
     const directiveValue = line.slice(separator + 1).trim();
 
     if (field === "sitemap") {
-      const sitemapUrl = sameOriginCrawlUrl(directiveValue, origin, origin);
+      const sitemapUrl = sameOriginCrawlUrl(directiveValue, origin, origin, () => {
+        sitemapQueryUnsupported = true;
+      });
       if (sitemapUrl) sitemapUrls.push(sitemapUrl);
       continue;
     }
@@ -269,7 +280,9 @@ export function parseRobotsTxt(value: string, origin: string): ParsedRobots {
   for (const group of groups) {
     const specificity = group.agents.reduce((best, agent) => {
       if (agent === "*") return Math.max(best, 0);
-      return SITE_AUDIT_USER_AGENT === agent ? Math.max(best, agent.length) : best;
+      // Robots product tokens match case-insensitively within the crawler name.
+      // Prefer the longest matching token over a shorter one or the wildcard.
+      return SITE_AUDIT_USER_AGENT.includes(agent) ? Math.max(best, agent.length) : best;
     }, -1);
     if (specificity > bestSpecificity) {
       bestSpecificity = specificity;
@@ -286,6 +299,7 @@ export function parseRobotsTxt(value: string, origin: string): ParsedRobots {
   return {
     rules: matchingGroups.flatMap((group) => group.rules),
     sitemapUrls: uniqueSitemaps,
+    sitemapQueryUnsupported,
   };
 }
 
@@ -305,8 +319,202 @@ export function isAllowedByRobots(url: URL, rules: RobotsRule[]): boolean {
   return winner?.allow ?? true;
 }
 
+/** XML 1.0 Char production, for both literal characters and numeric references. */
+function isValidXmlCharacter(codePoint: number): boolean {
+  return codePoint === 0x9 || codePoint === 0xa || codePoint === 0xd ||
+    (codePoint >= 0x20 && codePoint <= 0xd7ff) ||
+    (codePoint >= 0xe000 && codePoint <= 0xfffd) ||
+    (codePoint >= 0x10000 && codePoint <= 0x10ffff);
+}
+
+/** Do not let Cheerio's XML recovery turn malformed entity references into sitemap URLs. */
+function hasValidXmlEntities(text: string): boolean {
+  const referencePattern = /&(?:amp|lt|gt|apos|quot|#(?:[0-9]+|x[0-9a-fA-F]+));/y;
+  let offset = text.indexOf("&");
+  while (offset !== -1) {
+    referencePattern.lastIndex = offset;
+    const match = referencePattern.exec(text);
+    if (!match) return false;
+    if (match[0].startsWith("&#")) {
+      const digits = match[0].slice(2, -1);
+      const codePoint = digits.startsWith("x")
+        ? Number.parseInt(digits.slice(1), 16)
+        : Number.parseInt(digits, 10);
+      if (!isValidXmlCharacter(codePoint)) return false;
+    }
+    offset = text.indexOf("&", referencePattern.lastIndex);
+  }
+  return true;
+}
+
+/** Namespace bindings compare decoded XML attribute values, not their source spellings. */
+function normalizeXmlNamespaceUri(raw: string): string {
+  const predefined: Record<string, string> = {
+    "&amp;": "&", "&lt;": "<", "&gt;": ">", "&apos;": "'", "&quot;": '"',
+  };
+  return raw.replace(/\r\n|[\r\n\t]|&(?:amp|lt|gt|apos|quot|#(?:[0-9]+|x[0-9a-fA-F]+));/g, (reference) => {
+    if (reference[0] !== "&") return " ";
+    if (reference.startsWith("&#")) {
+      const digits = reference.slice(2, -1);
+      const codePoint = digits.startsWith("x")
+        ? Number.parseInt(digits.slice(1), 16)
+        : Number.parseInt(digits, 10);
+      return String.fromCodePoint(codePoint);
+    }
+    return predefined[reference];
+  });
+}
+
+/** Cheerio recovers broken XML; reject malformed markup before using discovered URLs. */
+function isWellFormedSitemapXml(value: string): boolean {
+  // Character validity applies to comments, CDATA and markup too, not only text nodes.
+  for (const character of value) {
+    if (!isValidXmlCharacter(character.codePointAt(0)!)) return false;
+  }
+  const stack: string[] = [];
+  const namespaceScopes: Map<string, string>[] = [];
+  const xmlNamespace = "http://www.w3.org/XML/1998/namespace";
+  const xmlnsNamespace = "http://www.w3.org/2000/xmlns/";
+  const namePattern = /^[\p{L}_][\p{L}\p{N}_.:-]*$/u;
+  const localNamePattern = /^[\p{L}_][\p{L}\p{N}_.-]*$/u;
+  let position = 0;
+  let roots = 0;
+  while (position < value.length) {
+    const start = value.indexOf("<", position);
+    if (start === -1) {
+      return stack.length === 0 && roots === 1 && (position === value.length || !value.slice(position).trim());
+    }
+    const text = value.slice(position, start);
+    if ((stack.length === 0 && text.trim()) || text.includes("]]>") || !hasValidXmlEntities(text)) return false;
+
+    if (value.startsWith("<!--", start)) {
+      const end = value.indexOf("-->", start + 4);
+      if (end === -1 || value.slice(start + 4, end).includes("--")) return false;
+      position = end + 3;
+      continue;
+    }
+    if (value.startsWith("<![CDATA[", start)) {
+      if (!stack.length) return false;
+      const end = value.indexOf("]]>", start + 9);
+      if (end === -1) return false;
+      position = end + 3;
+      continue;
+    }
+    if (value.startsWith("<?", start)) {
+      const end = value.indexOf("?>", start + 2);
+      if (end === -1) return false;
+      const instruction = value.slice(start + 2, end);
+      const target = /^[^\s?]+/.exec(instruction)?.[0];
+      if (!target || !namePattern.test(target)) return false;
+      let data = instruction.slice(target.length);
+      if (data && !/^[ \t\r\n]/.test(data)) return false;
+      // The PI target "xml" is reserved for the initial declaration only.
+      if (target?.toLowerCase() === "xml") {
+        const atDocumentStart = start === 0 || (start === 1 && value.charCodeAt(0) === 0xfeff);
+        if (target !== "xml" || !atDocumentStart || stack.length !== 0 || roots !== 0) return false;
+        // XML declarations require version first, then optional encoding and standalone.
+        const version = /^[ \t\r\n]+version[ \t\r\n]*=[ \t\r\n]*(?:"1\.[0-9]+"|'1\.[0-9]+')/.exec(data);
+        if (!version) return false;
+        data = data.slice(version[0].length);
+        const encoding = /^[ \t\r\n]+encoding[ \t\r\n]*=[ \t\r\n]*(?:"[A-Za-z][A-Za-z0-9._-]*"|'[A-Za-z][A-Za-z0-9._-]*')/.exec(data);
+        if (encoding) data = data.slice(encoding[0].length);
+        const standalone = /^[ \t\r\n]+standalone[ \t\r\n]*=[ \t\r\n]*(?:"(?:yes|no)"|'(?:yes|no)')/.exec(data);
+        if (standalone) data = data.slice(standalone[0].length);
+        if (!/^[ \t\r\n]*$/.test(data)) return false;
+      }
+      position = end + 2;
+      continue;
+    }
+    if (value.startsWith("<!", start)) return false;
+
+    let end = start + 1;
+    let quote: string | undefined;
+    for (; end < value.length; end++) {
+      const character = value[end];
+      if (quote) {
+        // XML attributes may use &lt;, but never an unescaped '<'.
+        if (character === "<") return false;
+        if (character === quote) quote = undefined;
+      } else if (character === '"' || character === "'") {
+        quote = character;
+      } else if (character === "<") {
+        return false;
+      } else if (character === ">") {
+        break;
+      }
+    }
+    if (end >= value.length || quote) return false;
+    let content = value.slice(start + 1, end).trim();
+    if (content.startsWith("/")) {
+      const closingName = content.slice(1).trim();
+      if (!namePattern.test(closingName) || stack.pop() !== closingName) return false;
+      namespaceScopes.pop();
+    } else {
+      const empty = content.endsWith("/");
+      if (empty) content = content.slice(0, -1).trimEnd();
+      const match = /^([^\s]+)([\s\S]*)$/.exec(content);
+      if (!match || !namePattern.test(match[1])) return false;
+      // XML attributes require a name and a quoted value, unlike permissive HTML.
+      let attributes = match[2];
+      const seenAttributes = new Set<string>();
+      const namespaceDeclarations = new Map<string, string>();
+      while (attributes.trim()) {
+        const attribute = /^\s+([\p{L}_][\p{L}\p{N}_.:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/u.exec(attributes);
+        if (!attribute || seenAttributes.has(attribute[1]) || !hasValidXmlEntities(attribute[2] ?? attribute[3])) return false;
+        seenAttributes.add(attribute[1]);
+        if (attribute[1] === "xmlns") {
+          const uri = normalizeXmlNamespaceUri(attribute[2] ?? attribute[3]);
+          if (uri === xmlNamespace || uri === xmlnsNamespace) return false;
+        } else if (attribute[1].startsWith("xmlns:")) {
+          const prefix = attribute[1].slice(6);
+          const uri = normalizeXmlNamespaceUri(attribute[2] ?? attribute[3]);
+          if (!localNamePattern.test(prefix) || prefix === "xmlns" || !uri ||
+              uri === xmlnsNamespace || (prefix === "xml") !== (uri === xmlNamespace)) return false;
+          namespaceDeclarations.set(prefix, uri);
+        }
+        attributes = attributes.slice(attribute[0].length);
+      }
+      const bindings = new Map<string, string>(
+        namespaceScopes[namespaceScopes.length - 1] ?? [["xml", xmlNamespace]],
+      );
+      for (const [prefix, uri] of namespaceDeclarations) bindings.set(prefix, uri);
+      const hasBoundPrefix = (name: string): boolean => {
+        const separator = name.indexOf(":");
+        if (separator === -1) return true;
+        return localNamePattern.test(name.slice(0, separator)) &&
+          localNamePattern.test(name.slice(separator + 1)) &&
+          bindings.has(name.slice(0, separator));
+      };
+      if (!hasBoundPrefix(match[1])) return false;
+      const expandedAttributes = new Set<string>();
+      for (const name of seenAttributes) {
+        if (name === "xmlns" || name.startsWith("xmlns:")) continue;
+        if (!hasBoundPrefix(name)) return false;
+        // Different prefixes may identify the same attribute after namespace resolution.
+        const separator = name.indexOf(":");
+        const namespace = separator === -1 ? "" : bindings.get(name.slice(0, separator))!;
+        const localName = separator === -1 ? name : name.slice(separator + 1);
+        const expandedName = JSON.stringify([namespace, localName]);
+        if (expandedAttributes.has(expandedName)) return false;
+        expandedAttributes.add(expandedName);
+      }
+      if (!stack.length && ++roots > 1) return false;
+      if (!empty) {
+        stack.push(match[1]);
+        namespaceScopes.push(bindings);
+      }
+    }
+    position = end + 1;
+  }
+  return roots === 1 && stack.length === 0;
+}
+
 function parseSitemapXml(value: string, baseUrl: string, origin: string): ParsedSitemap {
   if (/<\s*!(?:doctype|entity)\b/i.test(value)) {
+    return { pageUrls: [], childSitemaps: [], invalid: true };
+  }
+
+  if (!isWellFormedSitemapXml(value)) {
     return { pageUrls: [], childSitemaps: [], invalid: true };
   }
 
@@ -316,25 +524,27 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
     const childSitemaps: URL[] = [];
     const seenPages = new Set<string>();
     const seenSitemaps = new Set<string>();
+    let queryUnsupported = false;
+    const sitemapCrawlUrl = (value: string): URL | undefined =>
+      sameOriginCrawlUrl(value, baseUrl, origin, () => { queryUnsupported = true; });
 
     const documentElement = $.root().children().first();
-    const documentElementName = String(documentElement.prop("tagName") ?? "");
+    // Cheerio's tagName property uppercases names even in XML mode; the node name preserves XML case.
+    const documentElementName = documentElement.get(0)?.name ?? "";
     const documentElementLocalName = documentElementName
-      .slice(documentElementName.indexOf(":") + 1)
-      .toLowerCase();
+      .slice(documentElementName.indexOf(":") + 1);
 
     if (documentElementLocalName === "rss" && documentElement.attr("version") === "2.0") {
       $("channel > item > link").each((_index, element) => {
-        const url = sameOriginCrawlUrl($(element).text().trim(), baseUrl, origin);
+        const url = sitemapCrawlUrl($(element).text().trim());
         if (url) addUniqueUrl(pageUrls, seenPages, url);
       });
-      return { pageUrls, childSitemaps, invalid: false };
+      return { pageUrls, childSitemaps, invalid: false, queryUnsupported };
     }
 
-    const documentElementQualifiedName = documentElement.get(0)?.name ?? documentElementName.toLowerCase();
-    const documentElementSeparator = documentElementQualifiedName.indexOf(":");
+    const documentElementSeparator = documentElementName.indexOf(":");
     const documentElementPrefix = documentElementSeparator >= 0
-      ? documentElementQualifiedName.slice(0, documentElementSeparator)
+      ? documentElementName.slice(0, documentElementSeparator)
       : "";
     const documentElementNamespaceDeclaration = documentElementPrefix
       ? `xmlns:${documentElementPrefix}`
@@ -362,26 +572,31 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
       const atomNodes = new Set(atomElements.toArray());
 
       atomElements.each((_index, element) => {
-        const qualifiedName = String($(element).prop("tagName") ?? "");
-        const localName = qualifiedName.slice(qualifiedName.indexOf(":") + 1).toLowerCase();
+        if (element.type !== "tag") return;
+        const qualifiedName = element.name;
+        const localName = qualifiedName.slice(qualifiedName.indexOf(":") + 1);
         if (localName !== "link") return;
 
         const parent = $(element).parent().get(0);
         if (!parent || !atomNodes.has(parent)) return;
-        const parentName = String($(parent).prop("tagName") ?? "");
-        const parentLocalName = parentName.slice(parentName.indexOf(":") + 1).toLowerCase();
+        const parentName = parent.name;
+        const parentLocalName = parentName.slice(parentName.indexOf(":") + 1);
         if (parentLocalName !== "entry") return;
 
         const rel = $(element).attr("rel")?.trim().toLowerCase();
         if (rel && rel !== "alternate") return;
-        const url = sameOriginCrawlUrl($(element).attr("href")?.trim() ?? "", baseUrl, origin);
+        const url = sitemapCrawlUrl($(element).attr("href")?.trim() ?? "");
         if (url) addUniqueUrl(pageUrls, seenPages, url);
       });
-      return { pageUrls, childSitemaps, invalid: false };
+      return { pageUrls, childSitemaps, invalid: false, queryUnsupported };
     }
 
     const legacyUnnamespacedDocument = !documentElementName.includes(":")
       && documentElement.attr("xmlns") === undefined;
+    if (!["urlset", "sitemapindex"].includes(documentElementLocalName)
+      || (!legacyUnnamespacedDocument && documentElementNamespace !== SITEMAP_XML_NAMESPACE)) {
+      return { pageUrls: [], childSitemaps: [], invalid: true };
+    }
     const protocolElements = $("*").filter((_index, element) => {
       if (element.type !== "tag") return false;
       const qualifiedName = element.name;
@@ -405,19 +620,20 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
     const protocolNodes = new Set(protocolElements.toArray());
 
     protocolElements.each((_index, element) => {
-      const qualifiedName = String($(element).prop("tagName") ?? "");
-      const localName = qualifiedName.slice(qualifiedName.indexOf(":") + 1).toLowerCase();
+      if (element.type !== "tag") return;
+      const qualifiedName = element.name;
+      const localName = qualifiedName.slice(qualifiedName.indexOf(":") + 1);
       if (localName !== "loc") return;
 
       const parent = $(element).parent().get(0);
       const grandparent = parent ? $(parent).parent().get(0) : undefined;
       if (!parent || !grandparent || !protocolNodes.has(parent) || !protocolNodes.has(grandparent)) return;
 
-      const parentName = String($(parent).prop("tagName") ?? "");
-      const grandparentName = String($(grandparent).prop("tagName") ?? "");
-      const parentLocalName = parentName.slice(parentName.indexOf(":") + 1).toLowerCase();
-      const grandparentLocalName = grandparentName.slice(grandparentName.indexOf(":") + 1).toLowerCase();
-      const url = sameOriginCrawlUrl($(element).text().trim(), baseUrl, origin);
+      const parentName = parent.name;
+      const grandparentName = grandparent.name;
+      const parentLocalName = parentName.slice(parentName.indexOf(":") + 1);
+      const grandparentLocalName = grandparentName.slice(grandparentName.indexOf(":") + 1);
+      const url = sitemapCrawlUrl($(element).text().trim());
       if (!url) return;
 
       if (parentLocalName === "url" && grandparentLocalName === "urlset") {
@@ -426,7 +642,7 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
         addUniqueUrl(childSitemaps, seenSitemaps, url);
       }
     });
-    return { pageUrls, childSitemaps, invalid: false };
+    return { pageUrls, childSitemaps, invalid: false, queryUnsupported };
   } catch {
     return { pageUrls: [], childSitemaps: [], invalid: true };
   }
@@ -435,13 +651,23 @@ function parseSitemapXml(value: string, baseUrl: string, origin: string): Parsed
 function parseTextSitemap(value: string, baseUrl: string, origin: string): ParsedSitemap {
   const pageUrls: URL[] = [];
   const seenPages = new Set<string>();
+  let queryUnsupported = false;
   for (const line of value.split(/\r\n|\n|\r/)) {
     const candidate = line.trim();
     if (!candidate) continue;
-    const url = sameOriginCrawlUrl(candidate, baseUrl, origin);
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(candidate);
+    } catch {
+      return { pageUrls: [], childSitemaps: [], invalid: true };
+    }
+    if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+      return { pageUrls: [], childSitemaps: [], invalid: true };
+    }
+    const url = sameOriginCrawlUrl(candidate, baseUrl, origin, () => { queryUnsupported = true; });
     if (url) addUniqueUrl(pageUrls, seenPages, url);
   }
-  return { pageUrls, childSitemaps: [], invalid: false };
+  return { pageUrls, childSitemaps: [], invalid: false, queryUnsupported };
 }
 
 function parseSitemapRepresentation(
@@ -486,7 +712,6 @@ async function discoverFromSitemaps(
         maxBytes: SITE_AUDIT_MAX_SITEMAP_BYTES,
         allowGzipSitemap: true,
       });
-      sitemapUrl ??= fetched.finalUrl;
       const representationType = new URL(fetched.finalUrl).pathname.toLowerCase().endsWith(".txt.gz")
         ? "text/plain" : fetched.contentType;
       const parsed = parseSitemapRepresentation(fetched.text, representationType, fetched.finalUrl, origin);
@@ -494,6 +719,8 @@ async function discoverFromSitemaps(
         discoveryError ??= "sitemap_invalid";
         continue;
       }
+      sitemapUrl ??= fetched.finalUrl;
+      if (parsed.queryUnsupported) discoveryError ??= "sitemap_query_unsupported";
 
       for (const pageUrl of parsed.pageUrls) {
         if (pageUrls.length >= SITE_AUDIT_MAX_SITEMAP_URLS) {
@@ -538,7 +765,7 @@ async function discoverSitePages(origin: string): Promise<DiscoveryResult> {
     const status = robotsHttpStatus(cause);
     const emptySuccessfulRobots = cause instanceof PublicHtmlFetchError && cause.code === "empty";
     if (emptySuccessfulRobots || (status !== undefined && status >= 400 && status <= 499 && status !== 429)) {
-      robots = { rules: [], sitemapUrls: [] };
+      robots = { rules: [], sitemapUrls: [], sitemapQueryUnsupported: false };
     } else if (status === 429 || (status !== undefined && status >= 500 && status <= 599)) {
       return {
         rules: [{ allow: false, path: "/" }],
@@ -559,14 +786,17 @@ async function discoverSitePages(origin: string): Promise<DiscoveryResult> {
   }
 
   const fallbackSitemap = new URL("/sitemap.xml", origin);
-  const sitemapUrls = robots.sitemapUrls.length > 0 ? robots.sitemapUrls : [fallbackSitemap];
+  const sitemapUrls = robots.sitemapUrls.length > 0
+    ? robots.sitemapUrls
+    : robots.sitemapQueryUnsupported ? [] : [fallbackSitemap];
   const discovered = await discoverFromSitemaps(origin, sitemapUrls);
+  const discoveryError = discovered.discoveryError ?? (robots.sitemapQueryUnsupported ? "sitemap_query_unsupported" : undefined);
   return {
     rules: robots.rules,
     pageUrls: discovered.pageUrls,
-    discovery: discovered.pageUrls.length > 0 ? (discovered.discoveryError ? "partial" : "sitemap") : "root_only",
+    discovery: discovered.pageUrls.length > 0 ? (discoveryError ? "partial" : "sitemap") : "root_only",
     sitemapUrl: discovered.sitemapUrl,
-    discoveryError: discovered.discoveryError,
+    discoveryError,
     truncated: discovered.truncated,
   };
 }
@@ -818,7 +1048,23 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
     eligible.push(candidate);
   }
 
-  const pageOffset = Math.min(options.pageOffset, eligible.length);
+  // Offset pagination is only safe against the same ordered discovery snapshot.
+  // Hash the eligible URL sequence, not just its length: insertions and reorderings
+  // otherwise cause silent duplicates or skipped pages on later batches.
+  const snapshotBytes = new TextEncoder().encode(JSON.stringify({
+    origin,
+    urls: eligible.map((url) => url.href),
+  }));
+  const snapshotHash = await crypto.subtle.digest("SHA-256", snapshotBytes);
+  const discoveryFingerprint = Array.from(new Uint8Array(snapshotHash), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  if (options.pageOffset > 0 && options.expectedDiscoveryFingerprint !== discoveryFingerprint) {
+    throw new Error("Stale site audit continuation: restart with page_offset 0 and use its discovery fingerprint.");
+  }
+  if (options.pageOffset > eligible.length) {
+    throw new Error("Invalid site audit continuation: page_offset exceeds the discovered eligible pages; restart with page_offset 0.");
+  }
+
+  const pageOffset = options.pageOffset;
   const selected = eligible.slice(pageOffset, pageOffset + options.maxPages);
   const prefetchedKey = crawlKey(seedUrl);
   const auditedPages = await mapWithCrawlConcurrency(selected, (candidate) =>
@@ -844,6 +1090,7 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
     pages_failed: pagesFailed,
     pages_skipped_robots: pagesSkippedRobots + pages.filter((page) => page.failure_code === "robots_redirect_blocked").length,
     truncated: discovery.truncated || hasMorePages,
+    discovery_fingerprint: discoveryFingerprint,
     ...(hasMorePages ? { next_page_offset: pageOffset + selected.length } : {}),
     ...(scores.length > 0
       ? { audit_health_score: Math.round(scores.reduce((total, score) => total + score, 0) / scores.length) }

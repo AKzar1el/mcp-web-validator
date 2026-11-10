@@ -62,11 +62,28 @@ export const MAX_CSS_VALIDATION_BYTES = 128_000;
 const MAX_VALIDATOR_RESPONSE_BYTES = 5_000_000;
 const USER_AGENT = `mcp-web-validator/${PACKAGE_VERSION} (+https://digestseo.com/validator-mcp/)`;
 export const MAX_VALIDATION_MESSAGES = 200;
+const MAX_HTML_EXTRACT_CHARS = 500;
+const MAX_DIAGNOSTIC_MESSAGE_CHARS = 1_000;
+const MAX_CSS_CONTEXT_CHARS = 500;
+const MAX_DIAGNOSTIC_SUBTYPE_CHARS = 64;
+
+function boundDiagnosticText(text: string, maxChars: number): string {
+  return text.length > maxChars ? `${text.slice(0, maxChars - 3)}...` : text;
+}
 
 function isKnownCssValidatorLimitation(type: string | undefined, message: string): boolean {
   if (type?.trim().toLowerCase() !== "at-rule") return false;
   const normalized = message.trim().toLowerCase().replace(/[“”"'‘’]/g, "");
   return normalized === "unrecognized at-rule @container";
+}
+
+function normalizeCssDiagnosticMessage(value: unknown, fallback: string): string {
+  const message = typeof value === "string" ? value.trim() : "";
+  return boundDiagnosticText(message || fallback, MAX_DIAGNOSTIC_MESSAGE_CHARS);
+}
+
+function normalizeCssDiagnosticLine(value: unknown): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
 
 function assertContentSize(content: string, maxBytes: number, label: string): void {
@@ -82,27 +99,31 @@ function normalizeW3CMessage(message: unknown): W3CMessage {
   }
 
   const candidate = message as Record<string, unknown>;
-  if (typeof candidate.type !== "string" || typeof candidate.message !== "string") {
+  if (typeof candidate.type !== "string" || typeof candidate.message !== "string" || !candidate.message.trim()) {
+    throw new Error("W3C HTML validator returned a malformed message");
+  }
+  const type = candidate.type.trim().toLowerCase();
+  if (!["error", "warning", "info", "non-document-error"].includes(type)) {
     throw new Error("W3C HTML validator returned a malformed message");
   }
 
   const normalized: W3CMessage = {
-    type: candidate.type,
-    message: candidate.message,
+    type,
+    message: boundDiagnosticText(candidate.message, MAX_DIAGNOSTIC_MESSAGE_CHARS),
   };
 
   for (const field of ["lastLine", "lastColumn", "firstLine", "firstColumn"] as const) {
-    if (typeof candidate[field] === "number" && Number.isInteger(candidate[field])) {
+    if (typeof candidate[field] === "number" && Number.isSafeInteger(candidate[field]) && candidate[field] >= 0) {
       normalized[field] = candidate[field];
     }
   }
 
   if (typeof candidate.extract === "string") {
-    normalized.extract = candidate.extract;
+    normalized.extract = boundDiagnosticText(candidate.extract, MAX_HTML_EXTRACT_CHARS);
   }
 
   if (typeof candidate.subType === "string") {
-    normalized.subType = candidate.subType;
+    normalized.subType = boundDiagnosticText(candidate.subType.trim(), MAX_DIAGNOSTIC_SUBTYPE_CHARS);
   }
 
   return normalized;
@@ -128,7 +149,8 @@ export async function validateHtmlContentDetailed(
       signal: AbortSignal.timeout(VALIDATOR_TIMEOUT_MS),
     });
 
-    if (!response.ok) {
+    // A partial JSON payload can look clean while omitting validator diagnostics.
+    if (!response.ok || response.status === 206) {
       await cancelResponseBody(response);
       throw new Error(`W3C HTML validator returned HTTP status ${response.status}`);
     }
@@ -142,6 +164,9 @@ export async function validateHtmlContentDetailed(
       throw new Error("W3C HTML validator returned an invalid response shape");
     }
     const normalized = data.messages.map(normalizeW3CMessage);
+    if (normalized.some((message) => message.type.trim().toLowerCase() === "non-document-error")) {
+      throw new Error("W3C HTML validator could not complete validation (non-document-error)");
+    }
     const counts: HtmlValidationResult["counts"] = { error: 0, warning: 0, info: 0 };
     for (const message of normalized) {
       counts[getW3CMessageSeverity(message)] += 1;
@@ -187,7 +212,8 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
       signal: AbortSignal.timeout(VALIDATOR_TIMEOUT_MS),
     });
 
-    if (!response.ok) {
+    // Incomplete upstream diagnostics cannot establish a valid CSS verdict.
+    if (!response.ok || response.status === 206) {
       await cancelResponseBody(response);
       throw new Error(`W3C CSS validator returned HTTP status ${response.status}`);
     }
@@ -203,13 +229,13 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
       cssvalidation?: {
         validity?: boolean;
         errors?: Array<{
-          line: number;
+          line?: unknown;
           message: string;
           context?: string;
           type?: string;
         }>;
         warnings?: Array<{
-          line: number;
+          line?: unknown;
           message: string;
           context?: string;
           type?: string;
@@ -220,11 +246,11 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
     if (!data.cssvalidation || typeof data.cssvalidation !== "object") {
       throw new Error("W3C CSS validator returned an invalid response shape");
     }
-    if (
-      typeof data.cssvalidation.validity !== "boolean" &&
-      !Array.isArray(data.cssvalidation.errors) &&
-      !Array.isArray(data.cssvalidation.warnings)
-    ) {
+    if (typeof data.cssvalidation.validity !== "boolean") {
+      throw new Error("W3C CSS validator returned an invalid response shape");
+    }
+    if (("errors" in data.cssvalidation && !Array.isArray(data.cssvalidation.errors))
+      || ("warnings" in data.cssvalidation && !Array.isArray(data.cssvalidation.warnings))) {
       throw new Error("W3C CSS validator returned an invalid response shape");
     }
 
@@ -234,22 +260,24 @@ export async function validateCssContentDetailed(cssContent: string): Promise<Cs
       throw new Error("W3C CSS validator reported invalid CSS without error diagnostics");
     }
     const normalizedErrors = errors.map((err) => {
-      const message = err.message ? err.message.trim() : "Unknown CSS validation error";
+      const message = normalizeCssDiagnosticMessage(err.message, "Unknown CSS validation error");
       return {
-        line: err.line || 0,
+        line: normalizeCssDiagnosticLine(err.line),
         type: "error",
         message,
-        context: err.context || undefined,
+        context: typeof err.context === "string" && err.context
+          ? boundDiagnosticText(err.context, MAX_CSS_CONTEXT_CHARS) : undefined,
         ...(isKnownCssValidatorLimitation(err.type, message)
           ? { compatibility: "known-validator-limitation" as const }
           : {}),
       };
     });
     const normalizedWarnings = warnings.map((warning) => ({
-      line: warning.line || 0,
+      line: normalizeCssDiagnosticLine(warning.line),
       type: "warning",
-      message: warning.message ? warning.message.trim() : "Unknown CSS validation warning",
-      context: warning.context || undefined,
+      message: normalizeCssDiagnosticMessage(warning.message, "Unknown CSS validation warning"),
+      context: typeof warning.context === "string" && warning.context
+        ? boundDiagnosticText(warning.context, MAX_CSS_CONTEXT_CHARS) : undefined,
     }));
     const normalized = [...normalizedErrors, ...normalizedWarnings];
     const compatibilityLimitation = normalizedErrors.filter(

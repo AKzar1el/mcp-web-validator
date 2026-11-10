@@ -194,6 +194,24 @@ function getXmlCharacterEncoding(bytes: Uint8Array): string {
   return match?.[2].trim() || "utf-8";
 }
 
+/** Only identity, non-transfer-encoded bodies have comparable exact byte lengths. */
+function exactIdentityContentLength(response: Response): number | undefined {
+  const contentEncoding = response.headers.get("content-encoding")?.trim().toLowerCase();
+  if ((contentEncoding && contentEncoding !== "identity") || response.headers.has("transfer-encoding")) {
+    return undefined;
+  }
+  const value = response.headers.get("content-length");
+  if (value === null || !/^\d+$/.test(value.trim())) return undefined;
+  const length = Number(value);
+  return Number.isSafeInteger(length) ? length : undefined;
+}
+
+function assertExactIdentityBodyLength(actual: number, declared: number | undefined): void {
+  if (declared !== undefined && actual !== declared) {
+    throw new Error(`Response body length (${actual} bytes) does not match Content-Length (${declared} bytes)`);
+  }
+}
+
 /** Reads a response body without ever buffering more than the configured cap. */
 export async function readBoundedResponseText(
   response: Response,
@@ -205,13 +223,16 @@ export async function readBoundedResponseText(
   preferXmlBom = false,
   preferHtmlBom = false,
 ): Promise<string> {
-  const declaredLength = response.headers.get("content-length");
-  if (declaredLength && /^\d+$/.test(declaredLength) && Number(declaredLength) > maxBytes) {
+  const declaredLength = exactIdentityContentLength(response);
+  if (declaredLength !== undefined && declaredLength > maxBytes) {
     await cancelQuietly(response);
     throw new Error(tooLargeMessage);
   }
 
-  if (!response.body) return "";
+  if (!response.body) {
+    assertExactIdentityBodyLength(0, declaredLength);
+    return "";
+  }
 
   const reader = response.body.getReader();
   let totalBytes = 0;
@@ -292,6 +313,7 @@ export async function readBoundedResponseText(
     if (!decoder) {
       throw new Error("Response decoder was not initialized");
     }
+    assertExactIdentityBodyLength(totalBytes, declaredLength);
     text += decoder.decode();
     return text;
   } finally {
@@ -300,21 +322,24 @@ export async function readBoundedResponseText(
 }
 
 
-/** Gzip sitemap payloads enforce both transfer-byte and expanded-byte quotas.
- * Fetch implementations may transparently decode Content-Encoding:gzip bodies
- * while preserving response headers; sniff the actual bytes before gunzipping.
+/** Gzip sitemap payloads bound both the bytes exposed by Fetch and any gzip expansion.
+ * Fetch may transparently decode Content-Encoding:gzip while preserving wire
+ * headers; sniff the exposed bytes before attempting a second decompression.
  */
 async function readBoundedGzipResponseText(
   response: Response,
   maxBytes: number,
   tooLargeMessage: string,
 ): Promise<string> {
-  const declaredLength = response.headers.get("content-length");
-  if (declaredLength && /^\d+$/.test(declaredLength) && Number(declaredLength) > maxBytes) {
+  const declaredLength = exactIdentityContentLength(response);
+  if (declaredLength !== undefined && declaredLength > maxBytes) {
     await cancelQuietly(response);
     throw new Error(tooLargeMessage);
   }
-  if (!response.body) return "";
+  if (!response.body) {
+    assertExactIdentityBodyLength(0, declaredLength);
+    return "";
+  }
 
   // At the sitemap cap (1 MiB), holding the encoded representation avoids
   // a stream-peek race while remaining independently bounded in memory.
@@ -335,6 +360,7 @@ async function readBoundedGzipResponseText(
   } finally {
     reader.releaseLock();
   }
+  assertExactIdentityBodyLength(totalBytes, declaredLength);
   const bytes = new Uint8Array(totalBytes);
   let cursor = 0;
   for (const chunk of chunks) {
@@ -424,7 +450,7 @@ export async function fetchPublicHtml(
         continue;
       }
 
-      if (!response.ok) {
+      if (!response.ok || response.status === 206) {
         const status = response.status;
         await cancelQuietly(response);
         throw new PublicHtmlFetchError("http_status", `The page returned HTTP ${status}.`, status);

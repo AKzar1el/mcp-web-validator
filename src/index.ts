@@ -5,7 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { captureScreenshots } from "./screenshot.js";
+import { captureScreenshots, PartialScreenshotCaptureError } from "./screenshot.js";
 import {
   auditSeoMetadata,
   auditSeoMetadataDetailed,
@@ -28,6 +28,7 @@ import {
   reportContent,
   schemaValidationContent,
   screenshotCaptureContent,
+  screenshotPartialCaptureContent,
   seoAuditContent,
 } from "./presentation.js";
 import { PACKAGE_VERSION } from "./version.js";
@@ -49,13 +50,17 @@ const PATH_MAX_LENGTH = 4_096;
 const MAX_VIEWPORTS = 8;
 
 function localHtmlValidationMediaType(filePath: string): HtmlValidationMediaType {
-  return path.extname(filePath).toLowerCase() === ".xhtml"
+  const extension = path.extname(filePath).toLowerCase();
+  return extension === ".xhtml" || extension === ".xht"
     ? "application/xhtml+xml"
     : "text/html";
 }
 
 const filePathSchema = z.string().trim().min(1).max(PATH_MAX_LENGTH);
-const htmlContentSchema = z.string().min(1).max(HTML_MAX_BYTES);
+const htmlContentSchema = z.string().min(1).max(HTML_MAX_BYTES).refine(
+  (value) => new TextEncoder().encode(value).byteLength <= HTML_MAX_BYTES,
+  `HTML input must not exceed ${HTML_MAX_BYTES.toLocaleString("en-US")} UTF-8 bytes.`,
+);
 const publicUrlSchema = z
   .string()
   .url()
@@ -109,6 +114,7 @@ const screenshotSchema = z.object({
   width: z.number().int(),
   height: z.number().int(),
   outputPath: z.string(),
+  incompleteAssetCount: z.number().int().nonnegative().optional(),
 });
 
 const reportSummarySchema = z.object({
@@ -127,6 +133,7 @@ const reportSummarySchema = z.object({
   schemaErrors: z.number().int().nonnegative(),
   linksChecked: z.number().int().nonnegative(),
   brokenLinks: z.number().int().nonnegative(),
+  unverifiedLinks: z.number().int().nonnegative(),
 });
 
 const externalReadOnlyAnnotations = {
@@ -180,6 +187,7 @@ function failedReport(filePath: string, error: string): ValidationReport {
       schemaErrors: 0,
       linksChecked: 0,
       brokenLinks: 0,
+      unverifiedLinks: 0,
     },
     htmlMessages: [],
     htmlTotalMessages: 0,
@@ -695,7 +703,7 @@ export function createServer(): McpServer {
     {
       title: "Capture responsive screenshots",
       description:
-        "Renders a local HTML file or HTTP(S) URL in a sandboxed local Chromium browser and writes PNG screenshots to the requested directory. Downloads the pinned headless browser on first use if it is not already cached. Existing matching files may be replaced.",
+        "Renders a local HTML file or HTTP(S) URL in a sandboxed local Chromium browser and writes PNG screenshots to the requested directory. Downloads the pinned headless browser on first use if it is not already cached. Existing matching files may be replaced. Completed PNG paths are included if a later viewport fails.",
       inputSchema: {
         targetPath: z
           .string()
@@ -749,12 +757,28 @@ export function createServer(): McpServer {
       const outputDirectory = path.resolve(outputDir);
       try {
         const screenshots = await captureScreenshots(targetPath, outputDirectory, viewports);
+        const affected = screenshots.filter((capture) => (capture.incompleteAssetCount ?? 0) > 0);
+        if (affected.length > 0) {
+          const error = `${affected.length} screenshot viewport(s) have failed or blocked visual assets; files were saved but captures may be incomplete.`;
+          return result(
+            { screenshots, outputDirectory, error },
+            screenshotPartialCaptureContent(screenshots.length, outputDirectory, error),
+            true,
+          );
+        }
         return result(
           { screenshots, outputDirectory },
           screenshotCaptureContent(screenshots.length, outputDirectory),
         );
       } catch (cause) {
         const error = getErrorMessage(cause);
+        if (cause instanceof PartialScreenshotCaptureError) {
+          return result(
+            { screenshots: cause.screenshots, outputDirectory, error },
+            screenshotPartialCaptureContent(cause.screenshots.length, outputDirectory, error),
+            true,
+          );
+        }
         return result(
           { screenshots: [], outputDirectory, error },
           failureContent(

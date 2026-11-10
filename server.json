@@ -814,6 +814,11 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 9007199254740991
+              },
+              "unverifiedLinks": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
               }
             },
             "required": [
@@ -830,7 +835,8 @@
               "seoWarnings",
               "schemaErrors",
               "linksChecked",
-              "brokenLinks"
+              "brokenLinks",
+              "unverifiedLinks"
             ],
             "additionalProperties": false
           },
@@ -1121,7 +1127,7 @@
     {
       "name": "screenshot.capture",
       "title": "Capture responsive screenshots",
-      "description": "Renders a local HTML file or HTTP(S) URL in a sandboxed local Chromium browser and writes PNG screenshots to the requested directory. Downloads the pinned headless browser on first use if it is not already cached. Existing matching files may be replaced.",
+      "description": "Renders a local HTML file or HTTP(S) URL in a sandboxed local Chromium browser and writes PNG screenshots to the requested directory. Downloads the pinned headless browser on first use if it is not already cached. Existing matching files may be replaced. Completed PNG paths are included if a later viewport fails.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1200,6 +1206,11 @@
                 },
                 "outputPath": {
                   "type": "string"
+                },
+                "incompleteAssetCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
                 }
               },
               "required": [

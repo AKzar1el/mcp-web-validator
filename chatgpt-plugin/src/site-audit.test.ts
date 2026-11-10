@@ -37,16 +37,17 @@ describe("robots rules", () => {
     expect(parsed.sitemapUrls.map((url) => url.href)).toEqual(["https://example.com/sitemap.xml"]);
   });
 
-  it("falls back to wildcard rules when only a prefix of the crawler product token is named", () => {
+  it("honors a named crawler product-token prefix instead of unrelated wildcard rules", () => {
     const rules = parseRobotsTxt([
-      "User-agent: DigestSEO",
-      "Allow: /",
+      "User-agent: DIGESTSEO",
+      "Disallow: /private",
       "",
       "User-agent: *",
-      "Disallow: /",
+      "Allow: /",
     ].join("\n"), "https://example.com");
 
     expect(isAllowedByRobots(new URL("https://example.com/private"), rules.rules)).toBe(false);
+    expect(isAllowedByRobots(new URL("https://example.com/other"), rules.rules)).toBe(true);
   });
 
   it("normalizes percent-encoded unreserved octets while preserving reserved encodings", () => {
@@ -397,6 +398,40 @@ describe("auditPublicSite", () => {
     expect(fetchMock.mock.calls.some(([target]) => String(target).startsWith("http://127.0.0.1"))).toBe(false);
   });
 
+  it("reports the valid sitemap source when an earlier robots sitemap is malformed", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/robots.txt") {
+        return new Response(
+          "User-agent: *\nSitemap: https://example.com/bad.xml\nSitemap: https://example.com/good.xml\n",
+          { headers: { "content-type": "text/plain" } },
+        );
+      }
+      if (url === "https://example.com/bad.xml") {
+        return new Response("<other/>", { headers: { "content-type": "application/xml" } });
+      }
+      if (url === "https://example.com/good.xml") {
+        return new Response("<urlset><url><loc>https://example.com/valid-page</loc></url></urlset>", {
+          headers: { "content-type": "application/xml" },
+        });
+      }
+      if (url === "https://example.com/valid-page") return htmlResponse();
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 2, pageOffset: 0 });
+    expect(result).toMatchObject({
+      discovery: "partial",
+      discovery_error: "sitemap_invalid",
+      sitemap_url: "https://example.com/good.xml",
+      pages_discovered: 2,
+      pages_audited: 2,
+    });
+  });
+
   it("fails closed on gzip sitemap expansion over the existing one-megabyte limit", async () => {
     const oversizedXml = "<urlset>" + " ".repeat(1024 * 1024 + 16) + "</urlset>";
     const compressed = await new Response(
@@ -418,6 +453,225 @@ describe("auditPublicSite", () => {
     const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 2, pageOffset: 0 });
     expect(result).toMatchObject({ discovery: "root_only", discovery_error: "sitemap_unavailable", pages_discovered: 1 });
     expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/oversized.xml.gz")).toBe(true);
+  });
+
+  it("reports unsupported XML roots and malformed text sitemap entries instead of silently completing discovery", async () => {
+    for (const [path, body, contentType] of [
+      ["/unsupported.xml", "<other><url><loc>https://example.com/private</loc></url></other>", "application/xml"],
+      ["/broken.txt", "This is not a URL sitemap\n<html>not a URL</html>", "text/plain"],
+    ]) {
+      const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+        const url = String(target);
+        if (url === "https://example.com/") return htmlResponse();
+        if (url === "https://example.com/robots.txt") {
+          return new Response(`User-agent: *\nSitemap: ${path}\n`, { headers: { "content-type": "text/plain" } });
+        }
+        if (url === `https://example.com${path}`) return new Response(body, { headers: { "content-type": contentType } });
+        if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+        throw new Error(`Unexpected URL: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 1, pageOffset: 0 });
+      expect(result).toMatchObject({ discovery: "root_only", discovery_error: "sitemap_invalid", pages_discovered: 1 });
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([
+    ["missing root end tag", "<urlset><url><loc>https://example.com/hidden</loc></url>"],
+    ["uppercase sitemap root", "<URLSET><url><loc>https://example.com/hidden</loc></url></URLSET>"],
+    ["mixed-case prefixed sitemap root", '<sm:UrlSet xmlns:sm="http://www.sitemaps.org/schemas/sitemap/0.9"><sm:url><sm:loc>https://example.com/hidden</sm:loc></sm:url></sm:UrlSet>'],
+    ["uppercase Atom feed root", '<Feed xmlns="http://www.w3.org/2005/Atom"><entry><link href="https://example.com/hidden"/></entry></Feed>'],
+    ["uppercase RSS root", '<RSS version="2.0"><channel><item><link>https://example.com/hidden</link></item></channel></RSS>'],
+    ["missing URL end tag", "<urlset><url><loc>https://example.com/hidden</loc></urlset>"],
+    ["mismatched closing tags", "<urlset><url><loc>https://example.com/hidden</url></loc></urlset>"],
+    ["multiple document elements", "<urlset></urlset><urlset><url><loc>https://example.com/hidden</loc></url></urlset>"],
+    ["unclosed quoted attribute", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["raw angle bracket in double-quoted attribute", '<urlset label="a < b"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["raw angle bracket in single-quoted attribute", "<urlset label='a < b'><url><loc>https://example.com/hidden</loc></url></urlset>"],
+    ["CDATA close delimiter in ordinary text", "<urlset><url><loc>https://example.com/hidden</loc><lastmod>bad]]>date</lastmod></url></urlset>"],
+    ["CDATA close delimiter at end of ordinary text", "<urlset><url><loc>https://example.com/hidden</loc><lastmod>bad]]></lastmod></url></urlset>"],
+    ["XML declaration after the document root", '<urlset><url><loc>https://example.com/hidden</loc></url></urlset><?xml version="1.0"?>'],
+    ["XML declaration inside the document root", '<urlset><?xml version="1.0"?><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["XML declaration after a leading comment", '<!-- comment --><?xml version="1.0"?><urlset><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["XML declaration after leading whitespace", ' \n<?xml version="1.0"?><urlset><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["mixed-case reserved XML processing instruction target", '<?XmL version="1.0"?><urlset><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["XML declaration missing version", '<?xml?><urlset><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["XML declaration with encoding but no version", '<?xml encoding="UTF-8"?><urlset><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["XML declaration with invalid standalone value", '<?xml version="1.0" standalone="maybe"?><urlset><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["XML declaration with invalid pseudo-attribute order", '<?xml encoding="UTF-8" version="1.0"?><urlset><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["empty processing instruction target", '<??><urlset><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["processing instruction target preceded by whitespace", '<? xml-stylesheet?><urlset><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["processing instruction target starting with a digit", '<?1invalid?><urlset><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["undeclared child element prefix", '<urlset><bad:meta/><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["undeclared root attribute prefix", '<urlset bad:label="x"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["duplicate expanded attribute names on the root", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:a="urn:shared" xmlns:b="urn:shared" a:id="1" b:id="2"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["duplicate expanded attribute names through inherited bindings", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:a="urn:shared"><url xmlns:b="urn:shared" a:id="1" b:id="2"><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["duplicate expanded attributes with numeric namespace URI reference", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:a="urn:shared" xmlns:b="urn:sh&#97;red" a:id="1" b:id="2"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["duplicate expanded attributes with equivalent ampersand entities", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:a="urn:a&amp;b" xmlns:b="urn:a&#38;b" a:id="1" b:id="2"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["reserved xml prefix rebound through a character reference", '<urlset xmlns:xml="urn:other&#x73;"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["reserved xmlns namespace declared through a character reference", '<urlset xmlns:ext="http://www.w3.org/2000/xmln&#115;/"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["reserved xml namespace as default through a character reference", '<urlset xmlns="http://www.w3.org/XML/1998/namesp&#97;ce"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["namespace declaration leaked to sibling", '<urlset><url xmlns:ext="urn:extension"><ext:meta/></url><url><ext:meta/><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["empty namespace binding for a prefix", '<urlset xmlns:ext=""><ext:meta/><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["reserved xml prefix rebound", '<urlset xmlns:xml="urn:not-xml"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["reserved xmlns prefix declared", '<urlset xmlns:xmlns="urn:extension"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["namespace declaration with invalid prefix name", '<urlset xmlns:1ext="urn:extension"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["qualified element with invalid local name", '<urlset xmlns:ext="urn:extension"><ext:1invalid/><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["qualified element with multiple colons", '<urlset xmlns:ext="urn:extension"><ext:too:many/><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["text after document root", "<urlset></urlset>garbage"],
+    ["raw ampersand in text", "<urlset><url><loc>https://example.com/hidden</loc><lastmod>a & b</lastmod></url></urlset>"],
+    ["undeclared entity in text", "<urlset><url><loc>https://example.com/hidden</loc><lastmod>&bogus;</lastmod></url></urlset>"],
+    ["invalid numeric character reference", "<urlset><url><loc>https://example.com/hidden</loc><lastmod>&#0;</lastmod></url></urlset>"],
+    ["surrogate character reference", "<urlset><url><loc>https://example.com/hidden</loc><lastmod>&#xD800;</lastmod></url></urlset>"],
+    ["out-of-range character reference", "<urlset><url><loc>https://example.com/hidden</loc><lastmod>&#x110000;</lastmod></url></urlset>"],
+    ["raw ampersand in attribute", '<urlset label="a & b"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["undeclared entity in attribute", '<urlset label="&bogus;"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["invalid character reference in attribute", '<urlset label="&#x0;"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["unterminated entity reference", "<urlset><url><loc>https://example.com/hidden</loc><lastmod>&amp</lastmod></url></urlset>"],
+    ["raw NUL in text", "<urlset><url><loc>https://example.com/hidden</loc><lastmod>bad\u0000date</lastmod></url></urlset>"],
+    ["raw control in attribute", '<urlset label="bad\u0001value"><url><loc>https://example.com/hidden</loc></url></urlset>'],
+    ["raw control in CDATA", "<urlset><url><loc>https://example.com/hidden</loc><lastmod><![CDATA[bad\u000Bdate]]></lastmod></url></urlset>"],
+    ["invalid XML noncharacter in comment", "<urlset><!-- bad\uFFFEcomment --><url><loc>https://example.com/hidden</loc></url></urlset>"],
+  ])("rejects malformed XML sitemap: %s", async (_name, sitemapBody) => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /map.xml\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/map.xml") {
+        return new Response(sitemapBody, { headers: { "content-type": "application/xml" } });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 3, pageOffset: 0 });
+    expect(result).toMatchObject({ discovery: "root_only", discovery_error: "sitemap_invalid", pages_discovered: 1 });
+    expect(result.pages.map((page) => page.url)).not.toContain("https://example.com/hidden");
+  });
+
+  it.each([
+    ["predefined entities", '<urlset label="Fish &amp; Chips"><url><loc>https://example.com/allowed</loc><lastmod>&lt;&gt;&quot;&apos;</lastmod></url></urlset>'],
+    ["escaped angle bracket in attribute", '<urlset label="a &lt; b"><url><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["valid numeric entities", '<urlset label="&#65;&#xA;"><url><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["literal ampersands in CDATA and comments", '<urlset><!-- &bogus; --><url><loc>https://example.com/allowed</loc><lastmod><![CDATA[&bogus;]]></lastmod></url></urlset>'],
+    ["CDATA close delimiter ending a CDATA section", '<urlset><url><loc>https://example.com/allowed</loc><lastmod><![CDATA[valid]]>tail</lastmod></url></urlset>'],
+    ["initial XML declaration", '<?xml version="1.0"?><urlset><url><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["initial XML declaration with encoding and standalone", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><urlset><url><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["initial XML declaration after a BOM", '\uFEFF<?xml version="1.0"?><urlset><url><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["ordinary stylesheet processing instruction", '<?xml-stylesheet type="text/xsl" href="style.xsl"?><urlset><url><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["declared extension prefix on root", '<urlset xmlns:ext="urn:extension"><ext:meta/><url><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["declared extension prefix on child", '<urlset><url xmlns:ext="urn:extension"><ext:meta/><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["built-in xml prefix on attribute", '<urlset xml:lang="en"><url><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["default sitemap namespace", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["same local attribute name in distinct namespaces", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:a="urn:one" xmlns:b="urn:two" a:id="1" b:id="2"><url><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["distinct resolved namespace URIs stay distinct", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:a="urn:a&amp;b" xmlns:b="urn:a&amp;c" a:id="1" b:id="2"><url><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["namespace entities are not decoded recursively", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:a="urn:&amp;#65;" xmlns:b="urn:A" a:id="1" b:id="2"><url><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["encoded reserved xml binding retains its predefined meaning", '<urlset xmlns:xml="http://www.w3.org/XML/1998/namesp&#97;ce" xml:lang="en"><url><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["unprefixed attributes remain unnamespaced with a default namespace", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:a="http://www.sitemaps.org/schemas/sitemap/0.9" id="1" a:id="2"><url><loc>https://example.com/allowed</loc></url></urlset>'],
+    ["legal XML whitespace and supplementary characters", "<urlset label=\"tab\tnewline\n\"><url><loc>https://example.com/allowed</loc><lastmod>ok\r\u{1F680}</lastmod></url></urlset>"],
+  ])("accepts well-formed XML sitemap: %s", async (_name, sitemapBody) => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /map.xml\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/map.xml") {
+        return new Response(sitemapBody, { headers: { "content-type": "application/xml" } });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 1, pageOffset: 0 });
+    expect(result).toMatchObject({ discovery: "sitemap", pages_discovered: 2 });
+  });
+
+  it("does not silently fetch a different sitemap when robots advertises a query-bearing source", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: https://example.com/map.xml?token=private\n", {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === "https://example.com/") return htmlResponse();
+      if (url === "https://example.com/map.xml") {
+        return new Response("<urlset><url><loc>https://example.com/wrong</loc></url></urlset>", {
+          headers: { "content-type": "application/xml" },
+        });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 2, pageOffset: 0 });
+    expect(result).toMatchObject({ discovery: "root_only", discovery_error: "sitemap_query_unsupported", pages_discovered: 1 });
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === "https://example.com/map.xml")).toBe(false);
+  });
+
+  it("omits query-bearing sitemap pages while reporting incomplete coverage", async () => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /map.xml\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/map.xml") {
+        return new Response([
+          "<urlset>",
+          "<url><loc>https://example.com/filtered?view=private</loc></url>",
+          "<url><loc>https://example.com/allowed</loc></url>",
+          "</urlset>",
+        ].join(""), { headers: { "content-type": "application/xml" } });
+      }
+      if (url === "https://example.com/" || url === "https://example.com/allowed") return htmlResponse();
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 3, pageOffset: 0 });
+    expect(result).toMatchObject({ discovery: "partial", discovery_error: "sitemap_query_unsupported", pages_discovered: 2, pages_audited: 2 });
+    expect(result.pages.map((page) => page.url)).not.toContain("https://example.com/filtered");
+  });
+
+  it.each([
+    {
+      format: "plaintext page entries",
+      contentType: "text/plain",
+      body: "https://example.com/allowed\nhttps://example.com/filtered?token=private\n",
+      discovery: "partial",
+      discovered: 2,
+    },
+    {
+      format: "nested sitemap sources",
+      contentType: "application/xml",
+      body: "<sitemapindex><sitemap><loc>https://example.com/child.xml?token=private</loc></sitemap></sitemapindex>",
+      discovery: "root_only",
+      discovered: 1,
+    },
+  ])("does not silently rewrite query-bearing $format", async ({ contentType, body, discovery, discovered }) => {
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /map.txt\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/map.txt") {
+        return new Response(body, { headers: { "content-type": contentType } });
+      }
+      if (url === "https://example.com/" || url === "https://example.com/allowed") return htmlResponse();
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 3, pageOffset: 0 });
+    expect(result).toMatchObject({ discovery, discovery_error: "sitemap_query_unsupported", pages_discovered: discovered });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/filtered") || String(url).includes("/child.xml"))).toBe(false);
   });
 
   it("discovers namespace-prefixed sitemap indexes and URL sets without consuming extension namespaces", async () => {
@@ -442,6 +696,8 @@ describe("auditPublicSite", () => {
           '<sm:urlset xmlns:sm="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:ext="https://example.com/extension">',
           "<sm:url><sm:loc>https://example.com/</sm:loc></sm:url>",
           "<sm:url><sm:loc>https://example.com/docs</sm:loc></sm:url>",
+          "<sm:URL><sm:loc>https://example.com/ignored-case-url</sm:loc></sm:URL>",
+          "<sm:url><sm:LOC>https://example.com/ignored-case-loc</sm:LOC></sm:url>",
           "<ext:url><ext:loc>https://example.com/ignored</ext:loc></ext:url>",
           "</sm:urlset>",
         ].join(""), { headers: { "content-type": "application/xml" } });
@@ -869,6 +1125,7 @@ describe("auditPublicSite", () => {
 
   it("uses same-origin sitemap URLs, honors robots exclusions, and returns a continuation offset", async () => {
     const privateMarker = "private-page-marker-that-must-not-leak";
+    let sitemapChanged = false;
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
       const url = String(target);
       if (url === "https://example.com/") return htmlResponse(`<!doctype html><html><head><title>Example page title for audit</title><meta name=description content='A useful description with enough characters to meet the normal metadata target for this focused test page.'><meta name=viewport content='width=device-width'><link rel=canonical href='https://example.com/'></head><body><h1>Example</h1><!--${privateMarker}--></body></html>`);
@@ -882,6 +1139,7 @@ describe("auditPublicSite", () => {
           '<?xml version="1.0"?>',
           "<urlset>",
           "<url><loc>https://example.com/</loc></url>",
+          ...(sitemapChanged ? ["<url><loc>https://example.com/new-page</loc></url>"] : []),
           "<url><loc>https://example.com/allowed#fragment</loc></url>",
           "<url><loc>https://example.com/blocked</loc></url>",
           "<url><loc>https://attacker.example/outside</loc></url>",
@@ -907,6 +1165,7 @@ describe("auditPublicSite", () => {
       pages_skipped_robots: 1,
       truncated: true,
       next_page_offset: 1,
+      discovery_fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
       audit_health_score: expect.any(Number),
       score_coverage_percent: 100,
     });
@@ -914,6 +1173,23 @@ describe("auditPublicSite", () => {
     expect(fetchMock.mock.calls.some(([target]) => String(target).includes("/blocked"))).toBe(false);
     expect(fetchMock.mock.calls.some(([target]) => String(target).includes("attacker.example"))).toBe(false);
     expect(JSON.stringify(result)).not.toContain(privateMarker);
+    await expect(auditPublicSite({ siteUrl: "https://example.com/", maxPages: 1, pageOffset: 1 }))
+      .rejects.toThrow("Stale site audit continuation");
+    const continuation = await auditPublicSite({
+      siteUrl: "https://example.com/", maxPages: 1, pageOffset: 1,
+      expectedDiscoveryFingerprint: result.discovery_fingerprint,
+    });
+    expect(continuation.pages[0]?.url).toBe("https://example.com/allowed");
+    await expect(auditPublicSite({
+      siteUrl: "https://example.com/", maxPages: 1, pageOffset: 99,
+      expectedDiscoveryFingerprint: result.discovery_fingerprint,
+    })).rejects.toThrow("Invalid site audit continuation");
+    sitemapChanged = true;
+    await expect(auditPublicSite({
+      siteUrl: "https://example.com/", maxPages: 1, pageOffset: 1,
+      expectedDiscoveryFingerprint: result.discovery_fingerprint,
+    })).rejects.toThrow("Stale site audit continuation");
+    expect(fetchMock.mock.calls.some(([target]) => String(target) === "https://example.com/new-page")).toBe(false);
   });
 
   it("returns a typed partial result when Nu HTML validation is unavailable", async () => {

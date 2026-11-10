@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { auditSeoMetadata, checkBrokenLinks, toPublicHttpUrl, validateSchemaMarkup } from "./audits";
+import { auditSeoMetadata, checkBrokenLinks, isUnverifiedLinkStatus, toPublicHttpUrl, validateSchemaMarkup } from "./audits";
 import { validateHtml, validateHtmlDetailed } from "./validators";
 
 afterEach(() => {
@@ -23,6 +23,18 @@ describe("validateHtml", () => {
       "content-type": "application/xhtml+xml; charset=utf-8",
     });
   });
+  it("disables automatic redirects for Nu POST requests containing page markup", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ messages: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const markup = "<html><body>Private content</body></html>";
+
+    await validateHtmlDetailed(markup);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://html5.validator.nu/?out=json",
+      expect.objectContaining({ method: "POST", body: markup, redirect: "error" }),
+    );
+  });
   it("preserves Nu errors, warning subtypes, and informational messages", async () => {
     vi.stubGlobal(
       "fetch",
@@ -44,6 +56,22 @@ describe("validateHtml", () => {
     ]);
   });
 
+  it("normalizes whitespace and case in Nu warning subtypes without reclassifying other info", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      messages: [
+        { type: " INFO ", subType: "  WaRnInG  ", message: "Review heading" },
+        { type: "info", subType: "other", message: "Ordinary notice" },
+        { type: "info", subType: "warning-extra", message: "Not a warning" },
+      ],
+    })));
+
+    const result = await validateHtmlDetailed("<html></html>");
+    expect(result.messages.map((message) => message.type)).toEqual(["warning", "info", "info"]);
+    expect(result.counts).toEqual({ error: 0, warning: 1, info: 2 });
+    expect(result.total).toBe(3);
+    expect(result.truncated).toBe(false);
+  });
+
   it("reports the total when Nu diagnostics exceed the returned cap", async () => {
     const messages = Array.from({ length: 205 }, (_, index) => ({
       type: "error",
@@ -59,6 +87,45 @@ describe("validateHtml", () => {
     expect(result.counts).toEqual({ error: 205, warning: 0, info: 0 });
   });
 
+  it("bounds untrusted Nu diagnostic text without changing counts or short messages", async () => {
+    const longMessage = "X".repeat(12_000);
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      messages: [
+        { type: "error", message: longMessage, lastLine: 7 },
+        { type: "info", subType: "warning", message: "Short warning" },
+      ],
+    })));
+
+    const result = await validateHtmlDetailed("<html></html>");
+    expect(result.messages[0]?.message.length).toBeLessThanOrEqual(1_000);
+    expect(result.messages[0]?.message.endsWith("...")).toBe(true);
+    expect(result.messages[0]?.line).toBe(7);
+    expect(result.messages[1]?.message).toBe("Short warning");
+    expect(result.total).toBe(2);
+    expect(result.truncated).toBe(false);
+    expect(result.counts).toEqual({ error: 1, warning: 1, info: 0 });
+  });
+
+  it.each([
+    { label: "negative", line: -1, column: 5, expectedLine: undefined, expectedColumn: 5 },
+    { label: "fractional", line: 3.5, column: 4, expectedLine: undefined, expectedColumn: 4 },
+    { label: "unsafe integer", line: 2 ** 53, column: 6, expectedLine: undefined, expectedColumn: 6 },
+    { label: "string", line: "8", column: "9", expectedLine: undefined, expectedColumn: undefined },
+    { label: "null", line: null, column: null, expectedLine: undefined, expectedColumn: undefined },
+    { label: "negative column", line: 7, column: -2, expectedLine: 7, expectedColumn: undefined },
+    { label: "fractional column", line: 7, column: 2.5, expectedLine: 7, expectedColumn: undefined },
+    { label: "zero", line: 0, column: 0, expectedLine: 0, expectedColumn: 0 },
+  ])("accepts only nonnegative safe integer Nu locations: $label", async ({ line, column, expectedLine, expectedColumn }) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      messages: [{ type: "error", message: "Missing alt", lastLine: line, lastColumn: column }],
+    })));
+
+    const result = await validateHtmlDetailed("<html></html>");
+    expect(result.messages[0]?.line).toBe(expectedLine);
+    expect(result.messages[0]?.column).toBe(expectedColumn);
+    expect(result.counts).toEqual({ error: 1, warning: 0, info: 0 });
+  });
+
   it("rejects a malformed Nu messages payload", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ messages: { type: "error" } })));
 
@@ -69,6 +136,36 @@ describe("validateHtml", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({})));
 
     await expect(validateHtmlDetailed("<html></html>")).rejects.toThrow("invalid messages payload");
+  });
+
+  it.each([
+    { type: "validation-aborted", message: "Checker could not finish" },
+    { type: "info", message: " \t " },
+    { type: "error" },
+  ])("rejects malformed Nu diagnostics instead of inventing a result: %#", async (diagnostic) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ messages: [diagnostic] })));
+
+    await expect(validateHtmlDetailed("<html></html>")).rejects.toThrow("malformed validation message");
+  });
+});
+
+describe("Nu checker failures", () => {
+  it("rejects partial HTTP 206 checker responses instead of treating truncated diagnostics as clean", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ messages: [] }, { status: 206 })));
+
+    await expect(validateHtmlDetailed("<html></html>")).rejects.toThrow("HTTP 206");
+  });
+
+  it("does not classify a Nu checker failure as invalid markup", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      messages: [
+        { type: "error", message: "Missing alt" },
+        { type: "non-document-error", message: "Internal checker failure" },
+      ],
+    })));
+    await expect(validateHtmlDetailed("<html></html>")).rejects.toThrow(
+      "The Nu HTML Checker could not complete validation",
+    );
   });
 });
 
@@ -185,12 +282,30 @@ describe("bounded audits", () => {
     }
   });
 
+  it("accepts xml:lang on XHTML namespace documents but not ordinary HTML", () => {
+    const xhtml = '<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="fr"><head><title>Exemple</title></head><body></body></html>';
+    const issues = auditSeoMetadata(xhtml).issues;
+    expect(issues.find((issue) => issue.code === "accessibility.page_language.missing_or_empty")).toBeUndefined();
+    expect(issues.find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag")).toBeUndefined();
+
+    const html = '<html xml:lang="fr"><head><title>Example</title></head><body></body></html>';
+    expect(auditSeoMetadata(html).issues.some((issue) => issue.code === "accessibility.page_language.missing_or_empty")).toBe(true);
+  });
+
+  it("uses a non-empty XHTML xml:lang when the HTML lang attribute is blank", () => {
+    for (const lang of ["", "   "]) {
+      const xhtml = `<html xmlns="http://www.w3.org/1999/xhtml" lang="${lang}" xml:lang="fr"><head><title>Exemple</title></head></html>`;
+      const issues = auditSeoMetadata(xhtml).issues;
+      expect(issues.find((issue) => issue.code === "accessibility.page_language.missing_or_empty")).toBeUndefined();
+      expect(issues.find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag")).toBeUndefined();
+    }
+  });
+
   it("requires an explicitly authored page language to have a known primary subtag", () => {
     for (const [lang, primary] of [
       ["em-US", "em"],
       ["#1", "#1"],
       ["eng", "eng"],
-      ["i-lux", "i"],
     ]) {
       expect(auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head><body></body></html>`).issues
         .find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"))
@@ -211,6 +326,44 @@ describe("bounded audits", () => {
     expect(auditSeoMetadata("<title>HTML fragment</title><p>Fragment content</p>").issues
       .find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"))
       .toBeUndefined();
+  });
+
+  it("bounds untrusted page language diagnostic messages without changing issue counts", () => {
+    const invalidLanguage = "z".repeat(12_000);
+    const result = auditSeoMetadata(`<html lang="${invalidLanguage}"><head><title>Example</title></head><body></body></html>`);
+    const issue = result.issues.find((entry) => entry.code === "accessibility.page_language.invalid_primary_subtag");
+    expect(issue).toBeDefined();
+    expect(issue?.message.length).toBeLessThanOrEqual(1_000);
+    expect(issue?.message.endsWith("...")).toBe(true);
+    expect(result.total).toBe(result.counts.error + result.counts.warning + result.counts.info);
+    expect(result.truncated).toBe(false);
+  });
+
+  it("accepts only registered i-* grandfathered tags, regardless of case", () => {
+    for (const lang of [
+      "i-ami", "i-bnn", "i-default", "i-enochian", "i-hak", "i-klingon",
+      "i-lux", "i-mingo", "i-navajo", "i-pwn", "i-tao", "i-tay", "i-tsu",
+      "I-KLINGON",
+    ]) {
+      const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`).issues;
+      expect(issues.some((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), lang).toBe(false);
+    }
+    for (const lang of ["i", "i-", "i-unknown", "i-default-extra", "i-klingon-x-foo"]) {
+      const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`).issues;
+      expect(issues.some((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), lang).toBe(true);
+    }
+  });
+
+  it("treats syntactically valid BCP 47 private-use language tags as advisory", () => {
+    for (const lang of ["x-foo", "X-Foo-12345678"]) {
+      const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`).issues;
+      expect(issues.find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag")).toBeUndefined();
+      expect(issues.find((issue) => issue.code === "accessibility.page_language.private_use")?.severity).toBe("info");
+    }
+    for (const lang of ["x", "x-", "x-foo--bar", "x-123456789"]) {
+      const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`).issues;
+      expect(issues.some((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag")).toBe(true);
+    }
   });
 
   it("image submit buttons require a non-empty accessible name", () => {
@@ -299,7 +452,7 @@ describe("bounded audits", () => {
       .toBe("error");
     expect(auditSeoMetadata('<img src="blank.png" alt="   ">').issues
       .find((issue) => issue.code === "accessibility.image_alt.empty")?.severity)
-      .toBe("info");
+      .toBe("error");
   });
 
   it("requires a non-empty accessible name when an empty-alt image keeps an explicit semantic image role", () => {
@@ -451,6 +604,18 @@ describe("bounded audits", () => {
       .find((issue) => issue.code === "accessibility.input_image_alt.missing_or_empty")?.severity)
       .toBe("error");
   });
+  it("does not require names for statically hidden images and image buttons", () => {
+    for (const html of [
+      '<img hidden src="hidden.png">',
+      '<section hidden><img src="nested.png"></section>',
+      '<div style="display:none"><img src="hidden-by-css.png"></div>',
+      '<div style="DISPLAY : none !important"><input type="image" src="hidden-action.png"></div>',
+    ]) {
+      const issues = auditSeoMetadata(html).issues;
+      expect(issues.some((issue) => ["accessibility.image_alt.missing", "accessibility.input_image_alt.missing_or_empty"].includes(issue.code))).toBe(false);
+    }
+    expect(auditSeoMetadata('<img src="visible.png" style="display:block">').issues.some((issue) => issue.code === "accessibility.image_alt.missing")).toBe(true);
+  });
   it("image-map links require usable alt text", () => {
     for (const html of [
       '<map name="nav"><area href="/docs"></map>',
@@ -515,6 +680,23 @@ describe("bounded audits", () => {
       expect(auditSeoMetadata(`<link rel="canonical" href="${href}">`).issues
         .find((issue) => issue.code === "seo.canonical.invalid_url"))
         .toBeUndefined();
+    }
+  });
+
+  it("warns when canonical URLs contain embedded credentials", () => {
+    for (const href of ["https://user:password@example.com/page", "https://user@example.com/page"]) {
+      const issues = auditSeoMetadata(`<link rel="canonical" href="${href}">`).issues;
+      expect(issues.find((issue) => issue.code === "seo.canonical.embedded_credentials")).toEqual({
+        code: "seo.canonical.embedded_credentials",
+        severity: "warning",
+        category: "SEO",
+        message: "Canonical URL embeds user credentials. Remove the username and password to avoid exposing secrets or relying on authenticated canonical targets.",
+      });
+    }
+
+    for (const href of ["https://example.com/page", "/page", "https://example.com/page#section"]) {
+      expect(auditSeoMetadata(`<link rel="canonical" href="${href}">`).issues
+        .find((issue) => issue.code === "seo.canonical.embedded_credentials")).toBeUndefined();
     }
   });
 
@@ -875,9 +1057,90 @@ describe("bounded audits", () => {
     ].join(""));
     expect(valid.total).toBe(0);
   });
+  it("rejects invalid top-level @graph values and accepts valid graph nodes", () => {
+    const bad = [
+      { "@graph": "not nodes" },
+      { "@graph": null },
+      { "@graph": [{ "@type": "Thing" }, 42] },
+      { "@graph": [[{ "@type": "Thing" }]] },
+    ];
+    const invalid = validateSchemaMarkup(bad.map((value) =>
+      `<script type="application/ld+json">${JSON.stringify(value)}</script>`,
+    ).join(""));
+    expect(invalid.total).toBe(bad.length);
+    expect(invalid.issues.map((issue) => issue.code)).toEqual(
+      bad.map(() => "schema.jsonld.invalid_document"),
+    );
+
+    const good = [
+      { "@graph": { "@id": "https://example.com/a" } },
+      { "@graph": [{ "@type": "Thing" }, {}] },
+      { "@graph": [] },
+      { "@context": "https://schema.org", "@type": "Thing" },
+    ];
+    const valid = validateSchemaMarkup(good.map((value) =>
+      `<script type="application/ld+json">${JSON.stringify(value)}</script>`,
+    ).join(""));
+    expect(valid.total).toBe(0);
+  });
 });
 
 describe("link checks", () => {
+  it("confirms a HEAD 500 failure with GET before marking a public link broken", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 500 }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks('<a href="https://example.com/error">Error</a>', undefined, 1)).resolves.toEqual([
+      { url: "https://example.com/error", status: 200, ok: true, message: undefined },
+    ]);
+    expect(fetchMock.mock.calls.map(([, options]) => options?.method)).toEqual(["HEAD", "GET"]);
+  });
+
+  it.each([404, 410])("confirms a HEAD %i with GET before declaring a public link broken", async (headStatus) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: headStatus }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks('<a href="https://example.com/page">Page</a>', undefined, 1)).resolves.toEqual([
+      { url: "https://example.com/page", status: 200, ok: true, message: undefined },
+    ]);
+    expect(fetchMock.mock.calls.map(([, options]) => options?.method)).toEqual(["HEAD", "GET"]);
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ redirect: "manual" });
+  });
+
+  it("keeps a confirmed HEAD 404 / GET 404 link broken", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks('<a href="https://example.com/missing">Missing</a>', undefined, 1)).resolves.toEqual([
+      { url: "https://example.com/missing", status: 404, ok: false, message: undefined },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    [300, "Multiple choices without a selected destination; availability not verified."],
+    [304, "Not modified without a conditional request; destination availability not verified."],
+  ])("does not report an unselected HEAD %i as a healthy link", async (status, message) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks('<a href="https://example.com/page">Page</a>', undefined, 1)).resolves.toEqual([
+      { url: "https://example.com/page", status, ok: false, message },
+    ]);
+    expect(isUnverifiedLinkStatus(status)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([406, 407, 408, 451, 502, 503, 504])("classifies inconclusive HTTP %i as unverified", (status) => {
+    expect(isUnverifiedLinkStatus(status)).toBe(true);
+  });
+
   it("falls back from a rejected HEAD request to a bounded GET request", async () => {
     const fetchMock = vi
       .fn()
@@ -894,6 +1157,61 @@ describe("link checks", () => {
     expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
       "user-agent": expect.stringContaining("DigestSEO-Web-Validator"),
     });
+  });
+
+  it("checks public link freshness without forwarding ambient credentials on HEAD and fallback GET", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 405 }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks('<a href="https://example.com/status">Status</a>', undefined, 1)).resolves.toEqual([
+      { url: "https://example.com/status", status: 200, ok: true, message: undefined },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(([, options]) => options?.method)).toEqual(["HEAD", "GET"]);
+    for (const [, options] of fetchMock.mock.calls) {
+      expect(options).toMatchObject({
+        redirect: "manual",
+        credentials: "omit",
+        cache: "no-store",
+      });
+    }
+  });
+
+  it("tries a bounded GET when a HEAD network request throws before returning status", async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError("HEAD method blocked by origin"))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks('<a href="https://example.com/online">Online</a>', undefined, 1)).resolves.toEqual([
+      { url: "https://example.com/online", status: 200, ok: true, message: undefined },
+    ]);
+    expect(fetchMock.mock.calls.map(([, options]) => options?.method)).toEqual(["HEAD", "GET"]);
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ redirect: "manual" });
+  });
+
+  it("does not issue a third request when GET confirms a transport-failed HEAD link is missing", async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError("HEAD refused"))
+      .mockResolvedValueOnce(new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks('<a href="https://example.com/missing">Missing</a>', undefined, 1)).resolves.toEqual([
+      { url: "https://example.com/missing", status: 404, ok: false, message: undefined },
+    ]);
+    expect(fetchMock.mock.calls.map(([, options]) => options?.method)).toEqual(["HEAD", "GET"]);
+  });
+
+  it("does not retry GET after a timed-out HEAD attempt", async () => {
+    const fetchMock = vi.fn().mockRejectedValueOnce(new DOMException("Timed out", "AbortError"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks('<a href="https://example.com/slow">Slow</a>', undefined, 1)).resolves.toEqual([
+      { url: "https://example.com/slow", status: "failed", ok: false, message: "Connection failed or timed out." },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("resolves relative links from the first document base instead of base_url", async () => {

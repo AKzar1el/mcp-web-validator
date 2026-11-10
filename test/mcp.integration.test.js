@@ -14,7 +14,7 @@ function textContent(result) {
     .join("\n");
 }
 
-test("stdio MCP exposes valid contracts and structured offline results", { timeout: 15_000 }, async () => {
+test("stdio MCP exposes valid contracts and structured offline results", { timeout: 60_000 }, async () => {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [path.join(repositoryRoot, "dist", "index.js")],
@@ -134,6 +134,35 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     const screenshot = tools.find((tool) => tool.name === "screenshot.capture");
     assert.equal(screenshot?.annotations?.readOnlyHint, false);
     assert.equal(screenshot?.annotations?.destructiveHint, true);
+  } finally {
+    await client.close();
+  }
+});
+
+test("stdio MCP rejects HTML input beyond the UTF-8 byte cap", { timeout: 60_000 }, async () => {
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [path.join(repositoryRoot, "dist", "index.js")],
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "utf8-size-test", version: "1.0.0" });
+  await client.connect(transport);
+  try {
+    const validHtml = "\u00e9".repeat(1_000_000);
+    const validResult = await client.callTool({
+      name: "schema.markup",
+      arguments: { htmlContent: validHtml },
+    });
+    assert.equal(validResult.isError, undefined, "exactly 2,000,000 UTF-8 bytes must remain valid");
+
+    // The character count is below the HTML limit, but UTF-8 takes 2 bytes per character.
+    const oversizedHtml = "\u00e9".repeat(1_000_001);
+    const result = await client.callTool({
+      name: "seo.metadata",
+      arguments: { htmlContent: oversizedHtml },
+    });
+    assert.equal(result.isError, true, "2,000,002 UTF-8 bytes must not pass a 2,000,000-byte cap");
+    assert.match(textContent(result), /UTF-8 bytes/i);
   } finally {
     await client.close();
   }

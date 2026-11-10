@@ -12,6 +12,20 @@ function lengthIssue(html, prefix) {
   return auditSeoMetadata(html).find((issue) => issue.message.startsWith(prefix));
 }
 
+test("SEO editorial length diagnostics count visible graphemes instead of UTF-16 units", () => {
+  const symbol = String.fromCodePoint(0x1f680);
+  const shortPage = `<title>${symbol.repeat(20)}</title><meta name="description" content="${symbol.repeat(75)}">`;
+  assert.match(lengthIssue(shortPage, "Title is")?.message ?? "", /^Title is 20 characters\. This is shorter/);
+  assert.match(lengthIssue(shortPage, "Meta description is")?.message ?? "", /^Meta description is 75 characters\. This is shorter/);
+
+  const ordinaryPage = `<title>${symbol.repeat(40)}</title><meta name="description" content="${symbol.repeat(140)}">`;
+  assert.equal(lengthIssue(ordinaryPage, "Title is"), undefined);
+  assert.equal(lengthIssue(ordinaryPage, "Meta description is"), undefined);
+
+  const combiningMarkPage = `<title>${"e\u0301".repeat(20)}</title>`;
+  assert.match(lengthIssue(combiningMarkPage, "Title is")?.message ?? "", /^Title is 20 characters\. This is shorter/);
+});
+
 test("SEO audit reports the full total while bounding returned findings", () => {
   const images = Array.from(
     { length: MAX_AUDIT_ISSUES + 5 },
@@ -28,6 +42,32 @@ test("SEO audit reports the full total while bounding returned findings", () => 
     detailed.totalIssues,
   );
   assert.equal(auditSeoMetadata(html).length, MAX_AUDIT_ISSUES);
+});
+
+test("SEO audit bounds diagnostic element snippets from oversized page metadata", () => {
+  const oversized = "A".repeat(10_000);
+  const html = `<html><head><title>${oversized}</title><meta name="description" content="${oversized}"></head></html>`;
+  const detailed = auditSeoMetadataDetailed(html);
+  const titleIssue = detailed.issues.find((issue) => issue.code === "seo.title.length");
+  const descriptionIssue = detailed.issues.find((issue) => issue.code === "seo.meta_description.length");
+
+  assert.ok(titleIssue?.element && titleIssue.element.length <= 500);
+  assert.ok(descriptionIssue?.element && descriptionIssue.element.length <= 500);
+  assert.ok(titleIssue.element.endsWith("..."));
+  assert.ok(descriptionIssue.element.endsWith("..."));
+  assert.match(titleIssue.message, /Title is 10000 characters/);
+  assert.match(descriptionIssue.message, /Meta description is 10000 characters/);
+});
+
+test("SEO audit bounds diagnostic messages containing oversized untrusted language tags", () => {
+  const oversizedTag = "z".repeat(12_000);
+  const detailed = auditSeoMetadataDetailed(`<html lang="${oversizedTag}"><head></head><body></body></html>`);
+  const issue = detailed.issues.find((entry) => entry.code === "accessibility.page_language.invalid_primary_subtag");
+
+  assert.equal(issue?.severity, "error");
+  assert.ok(issue.message.length <= 1_000);
+  assert.ok(issue.message.endsWith("..."));
+  assert.equal(detailed.counts.error >= 1, true);
 });
 
 test("JSON-LD audit reports the full total while bounding returned findings", () => {
@@ -72,6 +112,31 @@ test("JSON-LD audit rejects non-document top-level JSON shapes", () => {
     '<script type="application/ld+json">{}</script>',
     '<script type="application/ld+json">[{}]</script>',
   ].join(""));
+  assert.equal(valid.totalIssues, 0);
+});
+test("JSON-LD audit rejects invalid top-level @graph entries without rejecting valid graphs", () => {
+  const badGraphs = [
+    { "@graph": "not nodes" },
+    { "@graph": null },
+    { "@graph": [{ "@type": "Thing" }, 42] },
+    { "@graph": [[{ "@type": "Thing" }]] },
+  ];
+  const invalid = validateSchemaMarkupDetailed(badGraphs.map((value) =>
+    `<script type="application/ld+json">${JSON.stringify(value)}</script>`,
+  ).join(""));
+  assert.equal(invalid.totalIssues, badGraphs.length);
+  assert.deepEqual(invalid.issues.map((issue) => issue.code),
+    badGraphs.map(() => "schema.jsonld.invalid_document"));
+
+  const goodGraphs = [
+    { "@graph": { "@id": "https://example.com/a" } },
+    { "@graph": [{ "@type": "Thing" }, {}] },
+    { "@graph": [] },
+    { "@context": "https://schema.org", "@type": "Thing" },
+  ];
+  const valid = validateSchemaMarkupDetailed(goodGraphs.map((value) =>
+    `<script type="application/ld+json">${JSON.stringify(value)}</script>`,
+  ).join(""));
   assert.equal(valid.totalIssues, 0);
 });
 test("audit findings expose stable machine-readable rule codes", () => {
@@ -149,12 +214,30 @@ test("explicit HTML documents require a non-empty page language", () => {
   }
 });
 
+test("XHTML namespace permits xml:lang without requiring HTML lang", () => {
+  const xhtml = '<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="fr"><head><title>Exemple</title></head><body></body></html>';
+  const issues = auditSeoMetadata(xhtml);
+  assert.equal(issues.find((issue) => issue.code === "accessibility.page_language.missing_or_empty"), undefined);
+  assert.equal(issues.find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), undefined);
+
+  const html = '<html xml:lang="fr"><head><title>Example</title></head><body></body></html>';
+  assert.ok(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.page_language.missing_or_empty"));
+});
+
+test("XHTML namespace uses xml:lang when HTML lang is blank", () => {
+  for (const lang of ["", "   "]) {
+    const xhtml = `<html xmlns="http://www.w3.org/1999/xhtml" lang="${lang}" xml:lang="fr"><head><title>Exemple</title></head></html>`;
+    const issues = auditSeoMetadata(xhtml);
+    assert.equal(issues.find((issue) => issue.code === "accessibility.page_language.missing_or_empty"), undefined);
+    assert.equal(issues.find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), undefined);
+  }
+});
+
 test("explicit HTML documents require a known primary language subtag", () => {
   for (const [lang, primary] of [
     ["em-US", "em"],
     ["#1", "#1"],
     ["eng", "eng"],
-    ["i-lux", "i"],
   ]) {
     assert.deepEqual(
       auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head><body></body></html>`)
@@ -181,6 +264,34 @@ test("explicit HTML documents require a known primary language subtag", () => {
       .find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"),
     undefined,
   );
+});
+
+test("RFC 5646 registered i-* grandfathered page languages are valid exact tags", () => {
+  for (const lang of [
+    "i-ami", "i-bnn", "i-default", "i-enochian", "i-hak", "i-klingon",
+    "i-lux", "i-mingo", "i-navajo", "i-pwn", "i-tao", "i-tay", "i-tsu",
+    "I-KLINGON",
+  ]) {
+    const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`);
+    assert.equal(issues.some((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), false, lang);
+  }
+
+  for (const lang of ["i", "i-", "i-unknown", "i-default-extra", "i-klingon-x-foo"]) {
+    const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`);
+    assert.equal(issues.some((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), true, lang);
+  }
+});
+
+test("well-formed private-use BCP 47 page languages are advisory, not invalid", () => {
+  for (const lang of ["x-foo", "X-Foo-12345678"]) {
+    const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head><body></body></html>`);
+    assert.equal(issues.some((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), false);
+    assert.equal(issues.find((issue) => issue.code === "accessibility.page_language.private_use")?.severity, "info");
+  }
+  for (const lang of ["x", "x-", "x-foo--bar", "x-123456789"]) {
+    const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head><body></body></html>`);
+    assert.ok(issues.some((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), lang);
+  }
 });
 
 test("image submit buttons require a non-empty accessible name", () => {
@@ -224,6 +335,8 @@ test("iframes exposed to accessibility require a non-empty accessible name", () 
     '<iframe src="/account" name="Account settings"></iframe>',
     '<iframe src="/account" title="   "></iframe>',
     '<iframe src="/account" aria-label="   "></iframe>',
+    '<iframe src="/account" tabindex="-1"></iframe>',
+    '<iframe src="/account" tabindex="-2"></iframe>',
     '<span id="blank-frame-label">   </span><iframe src="/account" aria-labelledby="blank-frame-label"></iframe>',
   ]) {
     assert.deepEqual(
@@ -239,11 +352,11 @@ test("iframes exposed to accessibility require a non-empty accessible name", () 
 
   for (const html of [
     '<iframe src="/account" title="Account settings"></iframe>',
+    '<iframe src="/account" tabindex="-1" title="Account settings"></iframe>',
     '<iframe src="/account" aria-label="Account settings"></iframe>',
     '<span id="frame-label">Account settings</span><iframe src="/account" aria-labelledby="frame-label"></iframe>',
     '<iframe src="/account" aria-hidden="true"></iframe>',
     '<div aria-hidden="true"><iframe src="/account"></iframe></div>',
-    '<iframe src="/account" tabindex="-1"></iframe>',
     '<iframe src="/account" role="none"></iframe>',
     '<iframe src="/account" role="presentation"></iframe>',
     '<template><iframe src="/account"></iframe></template>',
@@ -252,6 +365,28 @@ test("iframes exposed to accessibility require a non-empty accessible name", () 
       auditSeoMetadata(html).find((issue) => issue.code === "accessibility.iframe_name.missing_or_empty"),
       undefined,
     );
+  }
+});
+
+test("presentational iframe roles do not suppress naming when they conflict with focus or global ARIA", () => {
+  for (const html of [
+    '<iframe src="/account" role="none" tabindex="0"></iframe>',
+    '<iframe src="/account" role="presentation" tabindex="-1"></iframe>',
+    '<iframe src="/account" role="none" contenteditable="true"></iframe>',
+    '<iframe src="/account" role="presentation" aria-describedby="context"></iframe>',
+    '<iframe src="/account" role="none" aria-label="   "></iframe>',
+  ]) {
+    const issue = auditSeoMetadata(html).find((entry) => entry.code === "accessibility.iframe_name.missing_or_empty");
+    assert.equal(issue?.severity, "error", html);
+  }
+
+  for (const html of [
+    '<iframe src="/account" role="none" contenteditable="false"></iframe>',
+    '<iframe src="/account" role="presentation" tabindex="0" title="Account settings"></iframe>',
+    '<iframe src="/account" role="presentation" aria-describedby="context" aria-label="Account settings"></iframe>',
+  ]) {
+    const issue = auditSeoMetadata(html).find((entry) => entry.code === "accessibility.iframe_name.missing_or_empty");
+    assert.equal(issue, undefined, html);
   }
 });
 
@@ -288,6 +423,190 @@ test("visible aria-labelledby targets exclude hidden descendant-only text", () =
     assert.equal(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.image_alt.missing"), false, html);
   }
 });
+test("aria-labelledby does not use text from non-rendered descendants", () => {
+  for (const [control, code] of [
+    ['<img src="chart.png" aria-labelledby="ref">', "accessibility.image_alt.missing"],
+    ['<iframe src="/account" aria-labelledby="ref"></iframe>', "accessibility.iframe_name.missing_or_empty"],
+    ['<input type="image" src="submit.png" aria-labelledby="ref">', "accessibility.input_image_alt.missing_or_empty"],
+    ['<span role="img" aria-labelledby="ref"></span>', "accessibility.image_alt.missing"],
+  ]) {
+    for (const descendant of [
+      '<script>Invisible label</script>',
+      '<style>Invisible label</style>',
+      '<template>Invisible label</template>',
+    ]) {
+      const html = `<span id="ref">${descendant}</span>${control}`;
+      assert.equal(auditSeoMetadata(html).some((issue) => issue.code === code), true, html);
+      const mixed = `<span id="ref">${descendant}<b>Visible label</b></span>${control}`;
+      assert.equal(auditSeoMetadata(mixed).some((issue) => issue.code === code), false, mixed);
+    }
+  }
+});
+test("visible aria-labelledby targets exclude inert descendant-only text", () => {
+  for (const [control, code] of [
+    ['<img src="chart.png" aria-labelledby="ref">', "accessibility.image_alt.missing"],
+    ['<iframe src="/account" aria-labelledby="ref"></iframe>', "accessibility.iframe_name.missing_or_empty"],
+    ['<input type="image" src="search.png" aria-labelledby="ref">', "accessibility.input_image_alt.missing_or_empty"],
+    ['<span role="img" aria-labelledby="ref"></span>', "accessibility.image_alt.missing"],
+  ]) {
+    const html = `<span id="ref"><b inert>Excluded label</b></span>${control}`;
+    assert.equal(auditSeoMetadata(html).some((issue) => issue.code === code), true, html);
+    const mixed = `<span id="ref"><b inert>Excluded</b><b>Visible label</b></span>${control}`;
+    assert.equal(auditSeoMetadata(mixed).some((issue) => issue.code === code), false, mixed);
+  }
+  const hiddenRoot = '<span id="ref" inert><b>Directly referenced inert label</b></span><img src="chart.png" aria-labelledby="ref">';
+  assert.equal(auditSeoMetadata(hiddenRoot).some((issue) => issue.code === "accessibility.image_alt.missing"), false);
+});
+test("referenced label text honors winning inline CSS declarations and visibility inheritance", () => {
+  for (const label of [
+    '<b style="display: none; display: block">Visible label</b>',
+    '<b style="display: block !important; display: none">Visible label</b>',
+    '<b style="display: block ! important; display: none">Visible label</b>',
+    '<b style="visibility: hidden; visibility: visible">Visible label</b>',
+    '<b style="visibility: visible !important; visibility: hidden">Visible label</b>',
+    '<b style="content-visibility: hidden; content-visibility: visible">Visible label</b>',
+    '<span style="visibility: hidden"><b style="visibility: visible">Visible label</b></span>',
+  ]) {
+    const html = `<span id="ref">${label}</span><img src="chart.png" aria-labelledby="ref">`;
+    assert.equal(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.image_alt.missing"), false, html);
+  }
+  for (const label of [
+    '<b style="display: block; display: none">Hidden label</b>',
+    '<b style="display: none !important; display: block">Hidden label</b>',
+    '<b style="display: none ! important; display: block">Hidden label</b>',
+    '<b style="visibility: visible; visibility: hidden">Hidden label</b>',
+    '<b style="visibility: hidden !important; visibility: visible">Hidden label</b>',
+    '<b style="content-visibility: visible; content-visibility: hidden">Hidden label</b>',
+    '<span style="visibility: hidden"><b>Hidden label</b></span>',
+  ]) {
+    const html = `<span id="ref">${label}</span><img src="chart.png" aria-labelledby="ref">`;
+    assert.equal(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.image_alt.missing"), true, html);
+  }
+});
+test("inline CSS-hidden elements and subtrees do not produce accessibility naming errors", () => {
+  for (const [html, code] of [
+    ['<img src="hidden.png" style="visibility: hidden">', "accessibility.image_alt.missing"],
+    ['<div style="visibility: collapse"><img src="hidden.png"></div>', "accessibility.image_alt.missing"],
+    ['<div style="content-visibility: hidden"><iframe src="/private"></iframe></div>', "accessibility.iframe_name.missing_or_empty"],
+    ['<input type="image" src="hidden.png" style="content-visibility: hidden">', "accessibility.input_image_alt.missing_or_empty"],
+    ['<img src="hidden.png" style="visibility: hidden !important; visibility: visible">', "accessibility.image_alt.missing"],
+    ['<img src="hidden.png" style="visibility: hidden ! important; visibility: visible">', "accessibility.image_alt.missing"],
+    ['<div style="content-visibility: hidden"><img src="hidden.png" style="content-visibility: visible"></div>', "accessibility.image_alt.missing"],
+    ['<img src="hidden.png" style="visibility: visible; visibility: hidden">', "accessibility.image_alt.missing"],
+  ]) {
+    assert.equal(auditSeoMetadata(html).some((issue) => issue.code === code), false, html);
+  }
+});
+
+test("inline visibility overrides and later declarations keep exposed images auditable", () => {
+  for (const html of [
+    '<div style="visibility: hidden"><img src="visible.png" style="visibility: visible"></div>',
+    '<div style="visibility: hidden"><div style="visibility: visible"><img src="visible.png"></div></div>',
+    '<img src="visible.png" style="visibility: hidden; visibility: visible">',
+    '<img src="visible.png" style="display: none; display: block">',
+    '<img src="visible.png" style="content-visibility: hidden; content-visibility: visible">',
+  ]) {
+    assert.equal(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.image_alt.missing"), true, html);
+  }
+});
+
+test("inert elements and descendants are excluded from accessible-name checks", () => {
+  for (const [html, code] of [
+    ['<img src="hidden.png" inert>', "accessibility.image_alt.missing"],
+    ['<section inert><img src="hidden.png"></section>', "accessibility.image_alt.missing"],
+    ['<section inert=""><iframe src="/private"></iframe></section>', "accessibility.iframe_name.missing_or_empty"],
+    ['<div inert="false"><input type="image" src="submit.png"></div>', "accessibility.input_image_alt.missing_or_empty"],
+    ['<div inert><div aria-hidden="false"><img src="hidden.png"></div></div>', "accessibility.image_alt.missing"],
+    ['<div inert><span role="img"></span></div>', "accessibility.image_alt.missing"],
+  ]) {
+    assert.equal(auditSeoMetadata(html).some((issue) => issue.code === code), false, html);
+  }
+
+  for (const [html, code] of [
+    ['<div inert><img src="hidden.png"></div><img src="visible.png">', "accessibility.image_alt.missing"],
+    ['<div inert><iframe src="/private"></iframe></div><iframe src="/public"></iframe>', "accessibility.iframe_name.missing_or_empty"],
+    ['<div inert><input type="image" src="hidden.png"></div><input type="image" src="visible.png">', "accessibility.input_image_alt.missing_or_empty"],
+  ]) {
+    assert.equal(auditSeoMetadata(html).some((issue) => issue.code === code), true, html);
+  }
+});
+
+test("closed dialogs exclude their content from accessibility naming checks", () => {
+  const imageNamesMissing = (html) => auditSeoMetadata(html)
+    .filter((issue) => issue.code === "accessibility.image_alt.missing").length;
+
+  for (const html of [
+    '<dialog><img src="closed.png"></dialog>',
+    '<dialog aria-modal="true"><div role="img"></div></dialog>',
+    '<dialog><section><img src="nested.png"></section></dialog>',
+    '<dialog open><dialog><img src="closed-inner.png"></dialog></dialog>',
+  ]) {
+    assert.equal(imageNamesMissing(html), 0, html);
+  }
+
+  for (const html of [
+    '<dialog open><img src="open.png"></dialog>',
+    '<dialog open="false"><img src="open.png"></dialog>',
+    '<dialog><img src="closed.png"></dialog><img src="outside.png">',
+  ]) {
+    assert.equal(imageNamesMissing(html), 1, html);
+  }
+  assert.equal(auditSeoMetadata('<dialog><iframe src="/closed"></iframe></dialog>')
+    .some((issue) => issue.code === "accessibility.iframe_name.missing_or_empty"), false);
+  assert.equal(auditSeoMetadata('<dialog open><iframe src="/open"></iframe></dialog>')
+    .some((issue) => issue.code === "accessibility.iframe_name.missing_or_empty"), true);
+});
+
+test("initially hidden popovers exclude descendants from accessible-name checks", () => {
+  const missingImageNames = (html) => auditSeoMetadata(html)
+    .filter((issue) => issue.code === "accessibility.image_alt.missing").length;
+
+  for (const html of [
+    '<div popover><img src="auto.png"></div>',
+    '<div popover="manual"><img src="manual.png"></div>',
+    '<div popover="hint"><section><img src="hint.png"></section></div>',
+    '<div popover="invalid"><img src="fallback-manual.png"></div>',
+    '<div popover><span aria-hidden="false" role="img"></span></div>',
+  ]) {
+    assert.equal(missingImageNames(html), 0, html);
+  }
+
+  for (const html of [
+    '<div popover><img src="hidden.png"></div><img src="visible.png">',
+    '<button popovertarget="panel"><img src="trigger.png"></button><div popover id="panel"></div>',
+    '<div data-popover="manual"><img src="ordinary.png"></div>',
+  ]) {
+    assert.equal(missingImageNames(html), 1, html);
+  }
+  assert.equal(auditSeoMetadata('<div popover><iframe src="/hidden"></iframe></div>')
+    .some((issue) => issue.code === "accessibility.iframe_name.missing_or_empty"), false);
+  assert.equal(auditSeoMetadata('<iframe src="/visible"></iframe>')
+    .some((issue) => issue.code === "accessibility.iframe_name.missing_or_empty"), true);
+});
+
+test("closed details expose only their first summary to accessible-name checks", () => {
+  const missingImageNames = (html) => auditSeoMetadata(html)
+    .filter((issue) => issue.code === "accessibility.image_alt.missing").length;
+
+  for (const html of [
+    '<details><summary>More</summary><img src="hidden.png"></details>',
+    '<details><img src="no-summary.png"></details>',
+    '<details><summary>First</summary><summary><img src="second.png"></summary></details>',
+    '<details open><summary>Outer</summary><details><summary>Inner</summary><img src="nested.png"></details></details>',
+  ]) {
+    assert.equal(missingImageNames(html), 0, html);
+  }
+
+  for (const html of [
+    '<details open><summary>More</summary><img src="visible.png"></details>',
+    '<details open="false"><summary>More</summary><img src="visible.png"></details>',
+    '<details><summary><img src="summary.png"></summary><img src="hidden.png"></details>',
+    '<details><p>Before</p><summary><img src="summary.png"></summary><img src="hidden.png"></details>',
+  ]) {
+    assert.equal(missingImageNames(html), 1, html);
+  }
+});
+
 test("ordinary images accept an explicit empty alt as decorative", () => {
   const decorative = auditSeoMetadata('<img src="divider.png" alt="">');
   assert.equal(
@@ -303,8 +622,35 @@ test("ordinary images accept an explicit empty alt as decorative", () => {
   assert.equal(
     auditSeoMetadata('<img src="blank.png" alt="   ">')
       .find((issue) => issue.code === "accessibility.image_alt.empty")?.severity,
-    "info",
+    "error",
   );
+});
+
+test("whitespace-only alt text is an error only when no other accessible name exists", () => {
+  for (const html of [
+    '<img src="blank.png" alt=" \t ">',
+    '<img src="blank.png" alt="   " role="img">',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.empty")?.severity,
+      "error",
+      html,
+    );
+  }
+
+  for (const html of [
+    '<img src="logo.png" alt="   " aria-label="Company logo">',
+    '<span id="label">Company logo</span><img src="logo.png" alt="   " aria-labelledby="label">',
+    '<img src="logo.png" alt="   " title="Company logo">',
+    '<img src="divider.png" alt=" " aria-hidden="true">',
+    '<img src="divider.png" alt="">',
+  ]) {
+    assert.equal(
+      auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.empty"),
+      undefined,
+      html,
+    );
+  }
 });
 
 test("explicit semantic image roles require a non-empty accessible name even with empty alt", () => {
@@ -355,6 +701,9 @@ test("generic elements with semantic image roles require a non-empty accessible 
   for (const html of [
     '<div role="img"></div>',
     '<span role="image"></span>',
+    '<section role="img"></section>',
+    '<p role="img"></p>',
+    '<i role="image"></i>',
   ]) {
     assert.equal(
       auditSeoMetadata(html).find((issue) => issue.code === "accessibility.image_alt.missing")?.severity,
@@ -366,6 +715,10 @@ test("generic elements with semantic image roles require a non-empty accessible 
     '<div role="img" aria-label="Company logo"></div>',
     '<span id="chart-label">Revenue chart</span><div role="image" aria-labelledby="chart-label"></div>',
     '<span role="img" title="Status icon"></span>',
+    '<section role="img" aria-label="Network diagram"></section>',
+    '<p id="name">Regional sales</p><i role="img" aria-labelledby="name"></i>',
+    '<article role="img" hidden></article>',
+    '<section role="img" aria-hidden="true"></section>',
     '<div role="img" aria-hidden="true"></div>',
     '<div aria-hidden="true"><span role="image"></span></div>',
     '<template><div role="img"></div></template>',
@@ -488,6 +841,18 @@ test("aria-hidden images and image submit buttons are outside accessible-name ap
     "error",
   );
 });
+test("statically hidden images and image buttons do not require an accessible name", () => {
+  for (const html of [
+    '<img hidden src="hidden.png">',
+    '<section hidden><img src="nested.png"></section>',
+    '<div style="display:none"><img src="hidden-by-css.png"></div>',
+    '<div style="DISPLAY : none !important"><input type="image" src="hidden-action.png"></div>',
+  ]) {
+    const issues = auditSeoMetadata(html);
+    assert.equal(issues.some((issue) => ["accessibility.image_alt.missing", "accessibility.input_image_alt.missing_or_empty"].includes(issue.code)), false);
+  }
+  assert.ok(auditSeoMetadata('<img src="visible.png" style="display:block">').some((issue) => issue.code === "accessibility.image_alt.missing"));
+});
 test("image-map links require usable alt text", () => {
   for (const html of [
     '<map name="nav"><area href="/docs"></map>',
@@ -514,12 +879,22 @@ test("image-map links require usable alt text", () => {
     '<div aria-hidden="true"><map name="nav"><area href="/docs"></map></div>',
     '<map name="nav"><area shape="default"></map>',
     '<map name="nav"><area href="/docs" alt=""><area href="/docs" alt="Documentation"></map>',
+    '<map name="nav"><area href="/docs" alt=""><area href="/docs" aria-label="Documentation"></map>',
+    '<span id="docs-label">Documentation</span><map name="nav"><area href="/docs" alt=""><area href="/docs" aria-labelledby="docs-label"></map>',
+    '<map name="nav"><area href="/docs" alt=""><area href="/docs" title="Documentation"></map>',
     '<template><map name="nav"><area href="/docs"></map></template>',
   ]) {
     assert.equal(
       auditSeoMetadata(html).find((issue) => issue.code === "accessibility.area_alt.missing_or_empty"),
       undefined,
     );
+  }
+  for (const html of [
+    '<map name="nav"><area href="/docs" alt=""><area href="/other" aria-label="Other"></map>',
+    '<map name="nav"><area href="/docs" alt=""><area href="/docs" aria-hidden="true" aria-label="Hidden"></map>',
+    '<map name="nav"><area href="/docs" alt=""><area href="/docs" title=" "></map>',
+  ]) {
+    assert.ok(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.area_alt.missing_or_empty"));
   }
 });
 
@@ -563,6 +938,18 @@ test("canonical audit reports non-empty href values that cannot be parsed as URL
         .find((issue) => issue.code === "seo.canonical.invalid_url"),
       undefined,
     );
+  }
+});
+
+test("canonical audit warns about credentials embedded in HTTP URLs", () => {
+  for (const href of ["https://user:pass@example.com/page", "https://user@example.com/page"]) {
+    const issues = auditSeoMetadata(`<link rel="canonical" href="${href}">`);
+    assert.deepEqual(issues.find((issue) => issue.code === "seo.canonical.embedded_credentials"), {
+      code: "seo.canonical.embedded_credentials",
+      severity: "warning",
+      category: "SEO",
+      message: "Canonical URL embeds user credentials. Remove the username and password to avoid exposing secrets or relying on authenticated canonical targets.",
+    });
   }
 });
 
@@ -643,6 +1030,65 @@ test("robots meta audit reports noindex-equivalent directives that affect Google
 
   const allowed = auditSeoMetadata('<meta name="robots" content="index, follow, max-image-preview:none">');
   assert.equal(allowed.find((issue) => issue.code === "seo.robots.noindex"), undefined);
+});
+
+test("robots audit uses supplied X-Robots-Tag headers without assuming a network fetch", () => {
+  const html = '<meta name="robots" content="index, follow">';
+  const expected = {
+    code: "seo.robots.noindex",
+    severity: "warning",
+    category: "SEO",
+    message: "A robots directive prevents Google from indexing this page. Confirm that noindex is intentional.",
+  };
+  for (const header of [
+    "noindex",
+    "FOLLOW, NONE",
+    "googlebot: noindex, follow",
+    "bingbot: noindex\ngooglebot: noindex",
+    "max-snippet: 120, noindex",
+    "max-image-preview: large, noindex",
+    "max-video-preview: 30, noindex",
+    "unavailable_after: 25 Jun 2027 15:00:00 GMT, noindex",
+  ]) {
+    assert.deepEqual(auditSeoMetadata(html, header).find((issue) => issue.code === "seo.robots.noindex"), expected);
+  }
+  for (const header of [
+    "",
+    "index, follow",
+    "bingbot: noindex",
+    "bingbot: noindex, follow",
+    "bingbot: max-snippet: 20, noindex",
+    "googlebot-image: noindex",
+    "noindex-something",
+  ]) {
+    assert.equal(auditSeoMetadata(html, header).find((issue) => issue.code === "seo.robots.noindex"), undefined);
+  }
+  assert.equal(auditSeoMetadata(html).find((issue) => issue.code === "seo.robots.noindex"), undefined);
+  const both = auditSeoMetadataDetailed('<meta name="robots" content="noindex">', "googlebot: noindex");
+  assert.equal(both.issues.filter((issue) => issue.code === "seo.robots.noindex").length, 1);
+});
+
+test("folded X-Robots-Tag scopes are reported as ambiguous without inventing Google noindex", () => {
+  const folded = new Headers();
+  folded.append("X-Robots-Tag", "bingbot: noindex");
+  folded.append("X-Robots-Tag", "noindex");
+  assert.equal(folded.get("X-Robots-Tag"), "bingbot: noindex, noindex");
+
+  const expected = {
+    code: "seo.robots.x_robots_tag.scope_ambiguous",
+    severity: "info",
+    category: "SEO",
+    message: "X-Robots-Tag contains a potentially ambiguous noindex after a non-Googlebot scope. Combined HTTP header fields may hide a separate global directive; inspect the origin response headers.",
+  };
+  for (const header of [folded.get("X-Robots-Tag"), "bingbot: nofollow, none", "bingbot: none, none"]) {
+    const issues = auditSeoMetadata("<title>Page</title>", header);
+    assert.equal(issues.find((issue) => issue.code === "seo.robots.noindex"), undefined);
+    assert.deepEqual(issues.find((issue) => issue.code === expected.code), expected);
+  }
+  for (const header of ["bingbot: noindex, follow", "bingbot: noindex\nnoindex", "googlebot: noindex, follow", "noindex", "max-image-preview:none, follow"]) {
+    assert.equal(auditSeoMetadata("<title>Page</title>", header)
+      .find((issue) => issue.code === expected.code), undefined);
+  }
 });
 
 test("SEO and JSON-LD audits ignore inert template contents", () => {

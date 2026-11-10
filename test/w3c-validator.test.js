@@ -13,6 +13,24 @@ test("Nu non-document-error messages retain error severity", () => {
   );
 });
 
+test("Nu non-document-error makes HTML validation indeterminate even alongside document errors", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    messages: [
+      { type: "error", message: "Missing alt" },
+      { type: "non-document-error", message: "Internal checker failure" },
+    ],
+  });
+  try {
+    await assert.rejects(
+      validateHtmlContent("<html><body><img></body></html>"),
+      /HTML validation failed: W3C HTML validator could not complete validation/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("missing HTML validator messages fail instead of producing a clean result", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify({}), { status: 200 });
@@ -21,6 +39,19 @@ test("missing HTML validator messages fail instead of producing a clean result",
     await assert.rejects(
       validateHtmlContent("<!doctype html><html><title>Example</title></html>"),
       /HTML validation failed: W3C HTML validator returned an invalid response shape/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("partial Nu responses cannot certify HTML validation as clean", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ messages: [] }, { status: 206 });
+  try {
+    await assert.rejects(
+      validateHtmlContent("<!doctype html><html><title>Example</title></html>"),
+      /HTML validation failed: W3C HTML validator returned HTTP status 206/,
     );
   } finally {
     globalThis.fetch = originalFetch;
@@ -42,6 +73,38 @@ test("malformed HTML validator messages fail instead of being silently dropped",
   try {
     await assert.rejects(
       validateHtmlContent("<!doctype html><html><body></body></html>"),
+      /HTML validation failed: W3C HTML validator returned a malformed message/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("empty Nu diagnostic messages fail closed instead of producing unhelpful success output", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const message of ["", "  \n \t"]) {
+      globalThis.fetch = async () => Response.json({
+        messages: [{ type: "info", message }],
+      });
+      await assert.rejects(
+        validateHtmlContent("<!doctype html><html><title>Example</title></html>"),
+        /HTML validation failed: W3C HTML validator returned a malformed message/,
+      );
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("unknown Nu message types fail closed instead of being counted as informational", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    messages: [{ type: "validation-aborted", message: "The checker could not finish" }],
+  });
+  try {
+    await assert.rejects(
+      validateHtmlContent("<!doctype html><html><title>Example</title></html>"),
       /HTML validation failed: W3C HTML validator returned a malformed message/,
     );
   } finally {
@@ -87,6 +150,76 @@ test("HTML validator normalizes upstream messages to the advertised contract", a
         subType: "warning",
       },
     ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("HTML validator omits unsafe and negative upstream source locations", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    messages: [
+      {
+        type: "error",
+        message: "Invalid heading",
+        firstLine: -2,
+        firstColumn: 3,
+        lastLine: Number.MAX_SAFE_INTEGER + 1,
+        lastColumn: -1,
+      },
+    ],
+  });
+
+  try {
+    const messages = await validateHtmlContent("<!doctype html><title>Test</title>");
+    assert.deepEqual(messages, [{ type: "error", message: "Invalid heading", firstColumn: 3 }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("HTML validator bounds oversized source extracts without losing diagnostic counts", async () => {
+  const originalFetch = globalThis.fetch;
+  const longExtract = `<main>${"x".repeat(10_000)}</main>`;
+  globalThis.fetch = async () => Response.json({
+    messages: [
+      { type: "error", message: "Missing required attribute", extract: longExtract },
+      { type: "warning", message: "Review this element", extract: "<img>" },
+    ],
+  });
+
+  try {
+    const { validateHtmlContentDetailed } = await import("../dist/w3c-validator.js");
+    const result = await validateHtmlContentDetailed("<!doctype html><title>Test</title>");
+    assert.equal(result.messages[0].extract?.length, 500);
+    assert.equal(result.messages[0].extract?.endsWith("..."), true);
+    assert.equal(result.messages[1].extract, "<img>");
+    assert.equal(result.messages[0].message, "Missing required attribute");
+    assert.equal(result.total, 2);
+    assert.deepEqual(result.counts, { error: 1, warning: 1, info: 0 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("HTML validator bounds oversized diagnostic text and normalizes accepted type tokens", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    messages: [{
+      type: `  ${" ".repeat(3_000)}ERROR `,
+      message: "M".repeat(10_000),
+      subType: "W".repeat(1_000),
+    }],
+  });
+
+  try {
+    const { validateHtmlContentDetailed } = await import("../dist/w3c-validator.js");
+    const result = await validateHtmlContentDetailed("<!doctype html><title>Test</title>");
+    assert.equal(result.messages[0].type, "error");
+    assert.equal(result.messages[0].message.length, 1_000);
+    assert.equal(result.messages[0].message.endsWith("..."), true);
+    assert.equal(result.messages[0].subType.length, 64);
+    assert.deepEqual(result.counts, { error: 1, warning: 0, info: 0 });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -148,6 +281,22 @@ test("empty CSS validator responses fail instead of producing a clean result", a
   }
 });
 
+test("partial Jigsaw responses cannot certify CSS validation as clean", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json(
+    { cssvalidation: { validity: true, errors: [], warnings: [] } },
+    { status: 206 },
+  );
+  try {
+    await assert.rejects(
+      validateCssContent("body { color: black; }"),
+      /CSS validation failed: W3C CSS validator returned HTTP status 206/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("missing CSS validator envelope fails instead of producing a clean result", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify({}), { status: 200 });
@@ -176,6 +325,55 @@ test("CSS validator rejects an empty diagnostics object instead of reporting suc
   }
 });
 
+test("CSS validator rejects null diagnostic arrays instead of hiding indeterminate results", async () => {
+  const originalFetch = globalThis.fetch;
+
+  try {
+    for (const field of ["errors", "warnings"]) {
+      globalThis.fetch = async () => Response.json({
+        cssvalidation: { validity: true, errors: [], warnings: [], [field]: null },
+      });
+      await assert.rejects(
+        validateCssContent("body { color: black; }"),
+        /CSS validation failed: W3C CSS validator returned an invalid response shape/,
+      );
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("CSS validator refuses to report clean when the upstream validity verdict is missing or malformed", async () => {
+  const originalFetch = globalThis.fetch;
+
+  try {
+    for (const validity of [undefined, "true", 0, null]) {
+      globalThis.fetch = async () => Response.json({
+        cssvalidation: { validity, errors: [], warnings: [] },
+      });
+      await assert.rejects(
+        validateCssContent("body { color: black; }"),
+        /CSS validation failed: W3C CSS validator returned an invalid response shape/,
+      );
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("CSS validator preserves a genuine clean upstream verdict", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    cssvalidation: { validity: true, errors: [], warnings: [] },
+  });
+
+  try {
+    assert.deepEqual(await validateCssContent("body { color: black; }"), []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("Jigsaw invalid status with no reported errors must not be scored clean", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => Response.json({
@@ -195,6 +393,7 @@ test("CSS validator reports full totals when structured diagnostics are capped",
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => Response.json({
     cssvalidation: {
+      validity: false,
       errors: Array.from({ length: 205 }, (_, index) => ({
         line: index + 1,
         type: "property",
@@ -217,6 +416,32 @@ test("CSS validator reports full totals when structured diagnostics are capped",
   }
 });
 
+test("CSS validator bounds diagnostic messages and source contexts without hiding counts", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    cssvalidation: {
+      validity: false,
+      errors: [{ line: 2, type: "property", message: "E".repeat(10_000), context: "C".repeat(10_000) }],
+      warnings: [{ line: 3, message: "W".repeat(10_000), context: "S".repeat(10_000) }],
+    },
+  });
+
+  try {
+    const { validateCssContentDetailed } = await import("../dist/w3c-validator.js");
+    const result = await validateCssContentDetailed("body { color: invalid; }");
+    assert.equal(result.messages.length, 2);
+    for (const diagnostic of result.messages) {
+      assert.equal(diagnostic.message.length, 1_000);
+      assert.equal(diagnostic.message.endsWith("..."), true);
+      assert.equal(diagnostic.context.length, 500);
+      assert.equal(diagnostic.context.endsWith("..."), true);
+    }
+    assert.deepEqual(result.counts, { error: 1, warning: 1, compatibilityLimitation: 0 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("CSS validator requests and preserves Jigsaw warnings without reclassifying them as errors", async () => {
   const originalFetch = globalThis.fetch;
   let observedWarningLevel;
@@ -224,6 +449,7 @@ test("CSS validator requests and preserves Jigsaw warnings without reclassifying
     observedWarningLevel = init?.body?.get?.("warning");
     return Response.json({
       cssvalidation: {
+        validity: true,
         errors: [],
         warnings: [
           {
@@ -255,11 +481,63 @@ test("CSS validator requests and preserves Jigsaw warnings without reclassifying
   }
 });
 
+test("CSS validator supplies readable fallback text for blank upstream diagnostics", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    cssvalidation: {
+      validity: false,
+      errors: [{ line: 3, type: "property", message: " \n\t " }],
+      warnings: [{ line: 4, message: " \t " }],
+    },
+  });
+
+  try {
+    const messages = await validateCssContent("p { color: invalid; }");
+    assert.deepEqual(messages.map(({ line, type, message }) => ({ line, type, message })), [
+      { line: 3, type: "error", message: "Unknown CSS validation error" },
+      { line: 4, type: "warning", message: "Unknown CSS validation warning" },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("CSS validator normalizes untrusted diagnostic line numbers for errors and warnings", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    cssvalidation: {
+      validity: false,
+      errors: [
+        { line: -7, message: "Negative" },
+        { line: "9", message: "String" },
+        { line: 2.5, message: "Fractional" },
+        { line: Number.MAX_SAFE_INTEGER + 1, message: "Unsafe" },
+        { line: 12, message: "Valid" },
+      ],
+      warnings: [
+        { line: -1, message: "Negative warning" },
+        { line: "4", message: "String warning" },
+        { line: null, message: "Null warning" },
+        { line: 5, message: "Valid warning" },
+      ],
+    },
+  });
+
+  try {
+    const diagnostics = await validateCssContent("p { invalid: yes; }");
+    assert.deepEqual(diagnostics.map(({ line }) => line), [0, 0, 0, 0, 12, 0, 0, 0, 5]);
+    assert.equal(diagnostics.every(({ line }) => Number.isSafeInteger(line) && line >= 0), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("CSS validator marks Jigsaw's known @container parser gap without hiding the upstream diagnostic", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(
     JSON.stringify({
       cssvalidation: {
+        validity: false,
         errors: [
           {
             line: 1,

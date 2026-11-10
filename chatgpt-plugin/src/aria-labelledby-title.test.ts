@@ -66,6 +66,31 @@ describe("aria-labelledby referenced title", () => {
   });
 });
 
+describe("whitespace-only image alternatives", () => {
+  it("reports a real error without an accessible-name override", () => {
+    for (const html of [
+      '<img src="chart.png" alt=" \t ">',
+      '<img src="chart.png" alt=" " role="img">',
+    ]) {
+      const issues = auditSeoMetadata(html).issues;
+      expect(issues.find((issue) => issue.code === "accessibility.image_alt.empty")?.severity, html).toBe("error");
+    }
+  });
+
+  it("does not flag valid accessible-name overrides or decorative images", () => {
+    for (const html of [
+      '<img src="logo.png" alt=" " aria-label="Company logo">',
+      '<span id="label">Company logo</span><img src="logo.png" alt=" " aria-labelledby="label">',
+      '<img src="logo.png" alt=" " title="Company logo">',
+      '<img src="divider.png" alt=" " aria-hidden="true">',
+      '<img src="divider.png" alt="">',
+    ]) {
+      expect(auditSeoMetadata(html).issues.find((issue) => issue.code === "accessibility.image_alt.empty"), html)
+        .toBeUndefined();
+    }
+  });
+});
+
 
 describe("aria-labelledby directly referenced editable text input value", () => {
   it("uses nonblank current values and excludes hidden, password and nontext input values", () => {

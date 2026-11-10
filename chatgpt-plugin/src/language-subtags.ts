@@ -13,6 +13,17 @@ export function getPrimaryLanguageSubtag(languageTag: string): string {
   return languageTag.trim().split("-", 1)[0].toLowerCase();
 }
 
+// RFC 5646 permits an entire tag of private-use subtags, without a registered primary.
+export function isWellFormedPrivateUseLanguageTag(languageTag: string): boolean {
+  return /^x(?:-[a-z0-9]{1,8})+$/i.test(languageTag);
+}
+
+// RFC 5646 section 2.1 registers these fixed irregular tags as whole tags.
+// A bare "i" or unregistered extension of one of these tags is not valid.
+export function isRegisteredGrandfatheredILanguageTag(languageTag: string): boolean {
+  return /^i-(?:ami|bnn|default|enochian|hak|klingon|lux|mingo|navajo|pwn|tao|tay|tsu)$/i.test(languageTag);
+}
+
 export function isKnownPrimaryLanguageSubtag(primarySubtag: string): boolean {
   if (!/^[a-z]{2,3}$/.test(primarySubtag)) return false;
 

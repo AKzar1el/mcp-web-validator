@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import dns from "node:dns";
 import { syncBuiltinESMExports } from "node:module";
 import * as fs from "node:fs/promises";
+import fsPromisesDefault from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as net from "node:net";
@@ -9,7 +10,7 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { assertPublicHttpUrl, fetchPublicText, readResponseText, readTextFile } from "../dist/network.js";
 import { captureScreenshots } from "../dist/screenshot.js";
-import { checkBrokenLinks } from "../dist/seo-auditor.js";
+import { checkBrokenLinks, isUnverifiedLinkStatus } from "../dist/seo-auditor.js";
 import { validateCssContent, validateHtmlContent } from "../dist/w3c-validator.js";
 
 const screenshotViewport = [{ name: "test", width: 800, height: 600 }];
@@ -253,6 +254,34 @@ test("manual redirects keep same-origin headers but strip credentials after a cr
         Cookie: "fixture-cookie",
         "Proxy-Authorization": "fixture-proxy",
         Cookie2: "fixture-cookie2",
+        "X-API-Key": "fixture-api-key",
+        "Api-Key": "fixture-alternate-key",
+        "X-Access-Key": "fixture-access-key",
+        "X-Client-Key": "fixture-client-key",
+        "Ocp-Apim-Subscription-Key": "fixture-azure-subscription-key",
+        "X-Functions-Key": "fixture-azure-functions-key",
+        XPrivateKey: "fixture-private-key",
+        "X-Auth-Token": "fixture-auth-token",
+        "X-Access-Token": "fixture-access-token",
+        "X-Amz-Security-Token": "fixture-aws-token",
+        "X-Client-Secret": "fixture-client-secret",
+        "X-Session-ID": "fixture-session",
+        XApiKey: "fixture-compact-api-key",
+        XAuthToken: "fixture-compact-auth-token",
+        XClientSecret: "fixture-compact-client-secret",
+        XSessionId: "fixture-compact-session-id",
+        "X-Authentication": "fixture-custom-authentication",
+        XAuthentication: "fixture-compact-authentication",
+        "X-JWT": "fixture-jwt",
+        XJwt: "fixture-compact-jwt",
+        "X-CSRF": "fixture-csrf",
+        XCsrf: "fixture-compact-csrf",
+        "Signature": "fixture-http-message-signature",
+        "Signature-Input": "fixture-signature-metadata",
+        "X-Hub-Signature-256": "fixture-webhook-hmac",
+        XWebhookSignature: "fixture-compact-webhook-signature",
+        Referer: "https://1.1.1.1/private?access_token=fixture-referer-token",
+        hOsT: "private.internal",
         "X-Trace": "safe",
       },
       acceptedContentTypes: ["text/plain"],
@@ -269,13 +298,43 @@ test("manual redirects keep same-origin headers but strip credentials after a cr
     for (const request of requests) {
       assert.equal(request.redirect, "manual");
       assert.equal(request.headers.get("X-Trace"), "safe");
+      assert.equal(request.headers.get("Host"), null, "caller must not override validated URL authority");
     }
     for (const request of requests.slice(0, 2)) {
       assert.equal(request.headers.get("Authorization"), "fixture-auth");
       assert.equal(request.headers.get("Cookie"), "fixture-cookie");
+      assert.equal(request.headers.get("X-API-Key"), "fixture-api-key");
+      assert.equal(request.headers.get("X-Access-Key"), "fixture-access-key");
+      assert.equal(request.headers.get("X-Client-Key"), "fixture-client-key");
+      assert.equal(request.headers.get("Ocp-Apim-Subscription-Key"), "fixture-azure-subscription-key");
+      assert.equal(request.headers.get("X-Functions-Key"), "fixture-azure-functions-key");
+      assert.equal(request.headers.get("XPrivateKey"), "fixture-private-key");
+      assert.equal(request.headers.get("X-Amz-Security-Token"), "fixture-aws-token");
+      assert.equal(request.headers.get("XApiKey"), "fixture-compact-api-key");
+      assert.equal(request.headers.get("XAuthToken"), "fixture-compact-auth-token");
+      assert.equal(request.headers.get("XClientSecret"), "fixture-compact-client-secret");
+      assert.equal(request.headers.get("XSessionId"), "fixture-compact-session-id");
+      assert.equal(request.headers.get("X-Authentication"), "fixture-custom-authentication");
+      assert.equal(request.headers.get("XAuthentication"), "fixture-compact-authentication");
+      assert.equal(request.headers.get("X-JWT"), "fixture-jwt");
+      assert.equal(request.headers.get("XJwt"), "fixture-compact-jwt");
+      assert.equal(request.headers.get("X-CSRF"), "fixture-csrf");
+      assert.equal(request.headers.get("XCsrf"), "fixture-compact-csrf");
+      assert.equal(request.headers.get("Signature"), "fixture-http-message-signature");
+      assert.equal(request.headers.get("XWebhookSignature"), "fixture-compact-webhook-signature");
+      assert.equal(request.headers.get("Referer"), "https://1.1.1.1/private?access_token=fixture-referer-token");
     }
     for (const request of requests.slice(2)) {
-      for (const name of ["Authorization", "Cookie", "Proxy-Authorization", "Cookie2"]) {
+      for (const name of [
+        "Authorization", "Cookie", "Proxy-Authorization", "Cookie2",
+        "X-API-Key", "Api-Key", "X-Access-Key", "X-Client-Key", "X-Auth-Token", "X-Access-Token",
+        "Ocp-Apim-Subscription-Key", "X-Functions-Key", "XPrivateKey",
+        "X-Amz-Security-Token", "X-Client-Secret", "X-Session-ID",
+        "XApiKey", "XAuthToken", "XClientSecret", "XSessionId",
+        "X-Authentication", "XAuthentication", "X-JWT", "XJwt", "X-CSRF", "XCsrf",
+        "Signature", "Signature-Input", "X-Hub-Signature-256", "XWebhookSignature",
+        "Referer",
+      ]) {
         assert.equal(request.headers.get(name), null, name);
       }
     }
@@ -284,10 +343,150 @@ test("manual redirects keep same-origin headers but strip credentials after a cr
   }
 });
 
+test("redirect hops share one request timeout instead of resetting the budget", async () => {
+  const originalFetch = globalThis.fetch;
+  const signals = [];
+  let calls = 0;
+
+  globalThis.fetch = async (_input, init) => {
+    calls += 1;
+    const signal = init?.signal;
+    signals.push(signal);
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, 240);
+      function onAbort() {
+        clearTimeout(timer);
+        reject(signal.reason);
+      }
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) onAbort();
+    });
+    return calls === 1
+      ? new Response(null, { status: 302, headers: { location: "https://8.8.8.8/next" } })
+      : new Response("ok", { status: 200 });
+  };
+
+  try {
+    await assert.rejects(
+      fetchPublicText("https://1.1.1.1/start", { timeoutMs: 350 }),
+      /timeout|timed out/i,
+    );
+    assert.equal(signals.length, 2, "the second hop should consume only the remaining budget");
+    assert.strictEqual(signals[0], signals[1], "all hops must share the same deadline signal");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("public fetch deadline includes initial DNS validation", async () => {
+  const originalLookup = dns.promises.lookup;
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+
+  dns.promises.lookup = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    return [{ address: "1.1.1.1", family: 4 }];
+  };
+  syncBuiltinESMExports();
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    return new Response("ok", { status: 200 });
+  };
+
+  try {
+    const started = Date.now();
+    await assert.rejects(
+      fetchPublicText("https://slow-dns.example.org/", { timeoutMs: 60 }),
+      { name: "TimeoutError" },
+    );
+    assert.ok(Date.now() - started < 450, "DNS resolution must not exceed the request deadline");
+    assert.equal(fetchCalls, 0, "a timed-out DNS result must not start HTTP transport");
+  } finally {
+    globalThis.fetch = originalFetch;
+    dns.promises.lookup = originalLookup;
+    syncBuiltinESMExports();
+  }
+});
+
+test("public fetch deadline includes redirect-target DNS validation", async () => {
+  const originalLookup = dns.promises.lookup;
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+
+  dns.promises.lookup = async (hostname) => {
+    if (hostname === "slow-redirect.example.org") {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    }
+    return [{ address: "1.1.1.1", family: 4 }];
+  };
+  syncBuiltinESMExports();
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    return new Response(null, { status: 302, headers: { location: "https://slow-redirect.example.org/" } });
+  };
+
+  try {
+    const started = Date.now();
+    await assert.rejects(
+      fetchPublicText("https://fast-dns.example.org/", { timeoutMs: 60 }),
+      { name: "TimeoutError" },
+    );
+    assert.ok(Date.now() - started < 450, "redirect DNS resolution must share the request deadline");
+    assert.equal(fetchCalls, 1, "a timed-out redirect target must not start a second HTTP request");
+  } finally {
+    globalThis.fetch = originalFetch;
+    dns.promises.lookup = originalLookup;
+    syncBuiltinESMExports();
+  }
+});
+
 test("bounded response reader rejects a body beyond the configured cap", async () => {
   await assert.rejects(
     readResponseText(new Response("123456", { headers: { "content-length": "6" } }), 5),
     /exceeds the 5-byte limit/,
+  );
+});
+
+test("bounded response reader caps decoded compressed bodies without trusting wire length", async () => {
+  for (const encoding of ["gzip", "br"]) {
+    const headers = { "content-encoding": encoding, "content-length": "9999" };
+    assert.equal(await readResponseText(new Response("hello", { headers }), 5), "hello");
+    await assert.rejects(
+      readResponseText(new Response("123456", { headers }), 5),
+      /exceeds the 5-byte limit/,
+    );
+  }
+});
+
+test("bounded response reader rejects mismatched exact identity lengths", async () => {
+  for (const [body, declaredLength] of [["ok", "10"], ["too long", "2"]]) {
+    await assert.rejects(
+      readResponseText(new Response(body, { headers: { "content-length": declaredLength } }), 1024),
+      /does not match Content-Length/i,
+    );
+  }
+  assert.equal(await readResponseText(new Response("ok", { headers: { "content-length": "2" } }), 1024), "ok");
+  await assert.rejects(
+    readResponseText(new Response(null, { headers: { "content-length": "2" } }), 1024),
+    /does not match Content-Length/i,
+  );
+});
+
+test("bounded response reader does not compare compressed or chunked lengths", async () => {
+  assert.equal(
+    await readResponseText(new Response("decoded", {
+      headers: { "content-length": "55", "content-encoding": "gzip" },
+    }), 1024),
+    "decoded",
+  );
+  assert.equal(
+    await readResponseText(new Response("chunked", {
+      headers: { "content-length": "9999", "transfer-encoding": "chunked" },
+    }), 7),
+    "chunked",
   );
 });
 
@@ -304,6 +503,70 @@ test("bounded public text fetch rejects disallowed response content types", asyn
         acceptedContentTypes: ["text/html", "application/xhtml+xml"],
       }),
       /unsupported content type application\/json/i,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("bounded public text fetch rejects HTTP 206 partial HTML and sitemap responses", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const isSitemap = String(input).includes("sitemap.xml");
+    return new Response(isSitemap ? "<urlset>" : "<!doctype html><title>Partial", {
+      status: 206,
+      headers: {
+        "content-type": isSitemap ? "application/xml" : "text/html",
+        "content-range": "bytes 0-15/100",
+      },
+    });
+  };
+
+  try {
+    await assert.rejects(
+      fetchPublicText("https://1.1.1.1/page", { acceptedContentTypes: ["text/html"] }),
+      /HTTP status 206/,
+    );
+    await assert.rejects(
+      fetchPublicText("https://1.1.1.1/sitemap.xml", { acceptedContentTypes: ["application/xml"] }),
+      /HTTP status 206/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("bounded public text fetch rejects HTTP 204/205 responses without a document", async () => {
+  const originalFetch = globalThis.fetch;
+  let status = 204;
+  globalThis.fetch = async () => new Response(null, {
+    status,
+    headers: { "content-type": "text/html" },
+  });
+
+  try {
+    for (status of [204, 205]) {
+      await assert.rejects(
+        fetchPublicText("https://1.1.1.1/page", { acceptedContentTypes: ["text/html"] }),
+        new RegExp(`HTTP status ${status}`),
+      );
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("bounded public text fetch rejects blank HTML instead of reporting a valid page", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(" \n\t ", {
+    status: 200,
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
+
+  try {
+    await assert.rejects(
+      fetchPublicText("https://1.1.1.1/page", { acceptedContentTypes: ["text/html"] }),
+      /empty HTML document/i,
     );
   } finally {
     globalThis.fetch = originalFetch;
@@ -560,6 +823,60 @@ test("unsupported charset remains an error for non-HTML text", async () => {
   }
 });
 
+test("local file reads use a bounded reader instead of an unbounded whole-file read", async (t) => {
+  const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-local-bounded-read-"));
+  t.after(() => fs.rm(temporaryDirectory, { recursive: true, force: true }));
+  const filePath = path.join(temporaryDirectory, "sample.txt");
+  await fs.writeFile(filePath, "bounded text");
+
+  const originalReadFile = fsPromisesDefault.readFile;
+  fsPromisesDefault.readFile = async () => {
+    throw new Error("Unbounded fs.readFile must not be used for local inputs");
+  };
+  syncBuiltinESMExports();
+  try {
+    assert.equal(await readTextFile(filePath, 20), "bounded text");
+    await assert.rejects(readTextFile(filePath, 5), /File exceeds the 5-byte limit/);
+  } finally {
+    fsPromisesDefault.readFile = originalReadFile;
+    syncBuiltinESMExports();
+  }
+});
+
+test("configured local file root confines reads without changing in-root access", async (t) => {
+  const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-local-root-"));
+  t.after(() => fs.rm(temporaryDirectory, { recursive: true, force: true }));
+  const workspace = path.join(temporaryDirectory, "workspace");
+  const outside = path.join(temporaryDirectory, "outside");
+  await fs.mkdir(workspace);
+  await fs.mkdir(outside);
+  const allowedFile = path.join(workspace, "page.html");
+  const outsideFile = path.join(outside, "private.html");
+  await fs.writeFile(allowedFile, "allowed");
+  await fs.writeFile(outsideFile, "private");
+
+  const oldRoot = process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
+  process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT = workspace;
+  try {
+    assert.equal(await readTextFile(allowedFile, 64), "allowed");
+    await assert.rejects(readTextFile(outsideFile, 64), /outside MCP_WEB_VALIDATOR_WORKSPACE_ROOT/);
+    await assert.rejects(
+      readTextFile(path.join(workspace, "..", "outside", "private.html"), 64),
+      /outside MCP_WEB_VALIDATOR_WORKSPACE_ROOT/,
+    );
+    const symlink = path.join(workspace, "escape.html");
+    try {
+      await fs.symlink(outsideFile, symlink, "file");
+      await assert.rejects(readTextFile(symlink, 64), /outside MCP_WEB_VALIDATOR_WORKSPACE_ROOT/);
+    } catch (error) {
+      if (!["EPERM", "EACCES", "ENOSYS"].includes(error?.code)) throw error;
+    }
+  } finally {
+    if (oldRoot === undefined) delete process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
+    else process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT = oldRoot;
+  }
+});
+
 test("local HTML file decoding honors an early meta charset", async (t) => {
   const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-local-html-encoding-"));
   t.after(() => fs.rm(temporaryDirectory, { recursive: true, force: true }));
@@ -592,6 +909,65 @@ test("local XHTML file decoding honors its XML encoding declaration", async (t) 
     await readTextFile(filePath, 10_000, "application/xhtml+xml"),
     '<?xml version="1.0" encoding="windows-1252"?><html><head><title>Café</title></head></html>',
   );
+});
+
+test("public CSS without an HTTP charset honors its leading @charset declaration", async () => {
+  const originalFetch = globalThis.fetch;
+  const body = Buffer.concat([
+    Buffer.from('@charset "windows-1252"; .label::before { content: "Caf', "ascii"),
+    Buffer.from([0xe9]),
+    Buffer.from('"; }', "ascii"),
+  ]);
+  globalThis.fetch = async () => new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/css" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/legacy.css", {
+      acceptedContentTypes: ["text/css"],
+    });
+    assert.equal(result.text, '@charset "windows-1252"; .label::before { content: "Caf\u00e9"; }');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("public CSS HTTP charset overrides conflicting @charset without a BOM", async () => {
+  const originalFetch = globalThis.fetch;
+  const css = '@charset "windows-1252"; .label::before { content: "Caf\u00e9"; }';
+  globalThis.fetch = async () => new Response(Buffer.from(css, "utf8"), {
+    status: 200,
+    headers: { "content-type": "text/css; charset=utf-8" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/http-charset.css", {
+      acceptedContentTypes: ["text/css"],
+    });
+    assert.equal(result.text, css);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("public CSS BOM overrides a conflicting HTTP charset", async () => {
+  const originalFetch = globalThis.fetch;
+  const css = '.label::before { content: "Caf\u00e9"; }';
+  const body = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(css, "utf16le")]);
+  globalThis.fetch = async () => new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/css; charset=windows-1252" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/bom.css", {
+      acceptedContentTypes: ["text/css"],
+    });
+    assert.equal(result.text, css);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("local CSS file decoding honors an exact leading @charset declaration", async (t) => {
@@ -693,7 +1069,10 @@ test("link checker visits fragment-only anchors when the public document base is
     assert.deepEqual(await checkBrokenLinks('<a href="#local">Same page</a>', "https://1.1.1.1/docs/page", 1), []);
     assert.deepEqual(await checkBrokenLinks('<base href="/docs/page"><a href="#local">Same page</a>', "https://1.1.1.1/docs/page", 1), []);
     assert.deepEqual(await checkBrokenLinks('<base href="http://127.0.0.1/private"><a href="#local">Unsafe base</a>', "https://1.1.1.1/docs/page", 1), []);
-    assert.deepEqual(requested, [{ url: "https://8.8.8.8/docs/", method: "HEAD" }]);
+    assert.deepEqual(requested, [
+      { url: "https://8.8.8.8/docs/", method: "HEAD" },
+      { url: "https://8.8.8.8/docs/", method: "GET" },
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -887,6 +1266,9 @@ test("link checker classifies HTTP response classes without following redirects"
     [302, true],
     [307, true],
     [308, true],
+    [401, false],
+    [403, false],
+    [429, false],
     [404, false],
     [410, false],
     [500, false],
@@ -903,9 +1285,585 @@ test("link checker classifies HTTP response classes without following redirects"
       const links = await checkBrokenLinks(`<a href="https://1.1.1.1/${status}">Link</a>`, undefined, 1);
       assert.equal(links[0].status, status);
       assert.equal(links[0].ok, ok);
-      assert.equal(links[0].message, status >= 300 && status < 400 ? "Redirect not followed" : undefined);
+      assert.equal(links[0].message, status === 401 || status === 403
+        ? "Access restricted; destination availability not verified"
+        : status === 429
+          ? "Rate limited; destination availability not verified"
+          : status >= 300 && status < 400 ? "Redirect not followed" : undefined);
     }
-    assert.deepEqual(requested.map((request) => request.method), cases.map(() => "HEAD"));
+    assert.deepEqual(requested.map((request) => request.method), cases.flatMap(([status]) =>
+      [401, 403, 404, 410, 500].includes(status) ? ["HEAD", "GET"] : ["HEAD"]));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker does not claim HTTP 300 Multiple Choices is a verified destination", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: 300 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/choices">Link</a>', undefined, 1);
+    assert.equal(links.length, 1);
+    assert.equal(links[0].status, 300);
+    assert.equal(links[0].ok, false);
+    assert.match(links[0].message, /availability not verified/i);
+    assert.deepEqual(methods, ["HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker treats HTTP 408 as unverified after a bounded GET confirmation", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: 408 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/slow">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 408);
+    assert.equal(links[0].ok, false);
+    assert.match(links[0].message, /availability not verified/i);
+    assert.deepEqual(methods, ["HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker treats HTTP 425 Too Early as unverified without replaying the request", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: 425 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/too-early">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 425);
+    assert.equal(links[0].ok, false);
+    assert.match(links[0].message, /availability not verified/i);
+    assert.deepEqual(methods, ["HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker does not mark temporary HTTP 502/503/504 outages as broken or retry HEAD", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: Number(new URL(String(input)).pathname.slice(1)) });
+  };
+  try {
+    for (const status of [502, 503, 504]) {
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/${status}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, status);
+      assert.equal(links[0].ok, false);
+      assert.match(links[0].message, /availability not verified/i);
+    }
+    assert.deepEqual(methods, ["HEAD", "HEAD", "HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker leaves other server-side 5xx failures unverified without retrying", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: Number(new URL(String(input)).pathname.slice(1)) });
+  };
+  try {
+    for (const status of [507, 508, 509, 510, 530]) {
+      methods.length = 0;
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/${status}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, status);
+      assert.equal(links[0].ok, false);
+      assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+      assert.match(links[0].message, /availability not verified/i);
+      assert.deepEqual(methods, ["HEAD"]);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker leaves HTTP 407 proxy challenges and 421 misdirected requests unverified without retrying", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: Number(new URL(String(input)).pathname.slice(1)) });
+  };
+  try {
+    for (const status of [407, 421]) {
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/${status}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, status);
+      assert.equal(links[0].ok, false);
+      assert.match(links[0].message, /availability not verified/i);
+    }
+    assert.deepEqual(methods, ["HEAD", "HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker leaves HTTP 511 network authentication challenges unverified without retry or credentials", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: 511 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/network-login">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 511);
+    assert.equal(links[0].ok, false);
+    assert.match(links[0].message, /Network authentication required; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker treats a HEAD HTTP 428 precondition challenge as unverified without retry", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: 428 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/conditional">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 428);
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+    assert.match(links[0].message, /Precondition required; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker preserves GET HTTP 428 after a misleading HEAD 404", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: init?.method === "HEAD" ? 404 : 428 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/conditional">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 428);
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+    assert.match(links[0].message, /Precondition required; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker treats HTTP 431 header rejection as unverified without retrying", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: 431 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/large-headers">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 431);
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+    assert.match(links[0].message, /Request headers too large; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker reports GET HTTP 431 after HEAD 404 without a false broken result", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: init?.method === "HEAD" ? 404 : 431 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/large-headers">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 431);
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+    assert.match(links[0].message, /Request headers too large; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker treats HTTP 451 legal restrictions as unverified without retrying", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: 451 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/legal">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 451);
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+    assert.match(links[0].message, /Unavailable for legal reasons; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker preserves GET HTTP 451 following a misleading HEAD 404", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: init?.method === "HEAD" ? 404 : 451 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/legal">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 451);
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+    assert.match(links[0].message, /Unavailable for legal reasons; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker treats HTTP 426 upgrade requirements as unverified without negotiating protocols", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: 426, headers: { Upgrade: "HTTP/3.0" } });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/protocol">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 426);
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+    assert.match(links[0].message, /Protocol upgrade required; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker retains an HTTP 426 GET upgrade requirement after a HEAD 404", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: init?.method === "HEAD" ? 404 : 426 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/protocol">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 426);
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+    assert.match(links[0].message, /Protocol upgrade required; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+for (const [status, diagnostic] of [
+  [406, /Not acceptable.*availability not verified/i],
+  [412, /Precondition failed.*availability not verified/i],
+  [423, /Resource locked.*availability not verified/i],
+]) {
+  test(`link checker does not mark HTTP ${status} as a confirmed broken destination`, async () => {
+    const originalFetch = globalThis.fetch;
+    const methods = [];
+    globalThis.fetch = async (_input, init) => {
+      methods.push(init?.method);
+      return new Response(null, { status });
+    };
+    try {
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/status-${status}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, status);
+      assert.equal(links[0].ok, false);
+      assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+      assert.match(links[0].message, diagnostic);
+      assert.deepEqual(methods, status === 423 ? ["HEAD"] : ["HEAD", "GET"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test(`link checker retains GET HTTP ${status} after an inconclusive HEAD 404`, async () => {
+    const originalFetch = globalThis.fetch;
+    const methods = [];
+    globalThis.fetch = async (_input, init) => {
+      methods.push(init?.method);
+      return new Response(null, { status: init?.method === "HEAD" ? 404 : status });
+    };
+    try {
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/status-${status}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, status);
+      assert.equal(links[0].ok, false);
+      assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+      assert.match(links[0].message, diagnostic);
+      assert.deepEqual(methods, ["HEAD", "GET"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+}
+
+test("link checker treats Cloudflare 520-524 edge and origin failures as unverified without retry", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: Number(new URL(String(input)).pathname.slice(1)) });
+  };
+  try {
+    for (const status of [520, 521, 522, 523, 524]) {
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/${status}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, status);
+      assert.equal(links[0].ok, false);
+      assert.match(links[0].message, /availability not verified/i);
+    }
+    assert.deepEqual(methods, Array(5).fill("HEAD"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker leaves a GET HTTP 511 challenge unverified after a HEAD 404", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: init?.method === "HEAD" ? 404 : 511 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/network-login">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 511);
+    assert.equal(links[0].ok, false);
+    assert.match(links[0].message, /Network authentication required; destination availability not verified/i);
+    assert.deepEqual(methods, ["HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker explains Cloudflare 525/526 origin TLS failures without retrying", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: Number(new URL(String(input)).pathname.slice(1)) });
+  };
+  try {
+    for (const [status, explanation] of [[525, /Cloudflare.*TLS handshake.*origin/i], [526, /Cloudflare.*origin.*certificate/i]]) {
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/${status}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, status);
+      assert.equal(links[0].ok, false);
+      assert.match(links[0].message, explanation);
+    }
+    assert.deepEqual(methods, ["HEAD", "HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker preserves Cloudflare TLS error provenance after a misleading HEAD 404", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: init?.method === "HEAD" ? 404 : Number(new URL(String(input)).pathname.slice(1)) });
+  };
+  try {
+    for (const [status, explanation] of [[525, /Cloudflare.*TLS handshake.*origin/i], [526, /Cloudflare.*origin.*certificate/i]]) {
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/${status}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, status);
+      assert.equal(links[0].ok, false);
+      assert.match(links[0].message, explanation);
+    }
+    assert.deepEqual(methods, ["HEAD", "GET", "HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker verifies a successful GET after a transient HEAD HTTP 408", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: init?.method === "HEAD" ? 408 : 200 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/recovered">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 200);
+    assert.equal(links[0].ok, true);
+    assert.deepEqual(methods, ["HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker retries a transport-rejected HEAD with a bounded GET", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (_input, init) => {
+    requests.push({ method: init?.method, range: init?.headers?.Range });
+    if (init?.method === "HEAD") throw new TypeError("HEAD rejected by origin");
+    return new Response(null, { status: 200 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/head-transport-rejected">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 200);
+    assert.equal(links[0].ok, true);
+    assert.deepEqual(requests, [
+      { method: "HEAD", range: undefined },
+      { method: "GET", range: "bytes=0-0" },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker does not retry a non-transport HEAD failure", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (_input, init) => {
+    requests.push(init?.method);
+    throw new Error("Explicit HEAD failure");
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/head-error">Link</a>', undefined, 1);
+    assert.equal(links[0].status, "failed");
+    assert.match(links[0].message, /Explicit HEAD failure/);
+    assert.deepEqual(requests, ["HEAD"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker cannot verify an unconditional 304 and retries HEAD with a bounded GET", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: 304 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/uncertain">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 304);
+    assert.equal(links[0].ok, false);
+    assert.match(links[0].message, /availability not verified/i);
+    assert.deepEqual(methods, ["HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker accepts a successful GET after an inconclusive HEAD 304", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: init?.method === "HEAD" ? 304 : 200 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/recovered">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 200);
+    assert.equal(links[0].ok, true);
+    assert.deepEqual(methods, ["HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker confirms a HEAD 401 with a bounded GET before reporting availability", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (_input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: init?.method === "HEAD" ? 401 : 200 });
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/restricted">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 200);
+    assert.equal(links[0].ok, true);
+    assert.deepEqual(methods, ["HEAD", "GET"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker confirms a HEAD 400 with GET before marking a live target broken", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    requests.push({ url, method: init?.method, range: init?.headers?.Range });
+    if (init?.method === "HEAD") return new Response(null, { status: 400 });
+    return new Response(null, { status: url.endsWith("/live") ? 200 : 400 });
+  };
+  try {
+    const links = await checkBrokenLinks(
+      '<a href="https://1.1.1.1/live">Live</a><a href="https://1.1.1.1/broken">Broken</a>',
+      undefined,
+      2,
+    );
+    assert.deepEqual(links.map(({ status, ok }) => ({ status, ok })), [
+      { status: 200, ok: true },
+      { status: 400, ok: false },
+    ]);
+    for (const path of ["live", "broken"]) {
+      const url = `https://1.1.1.1/${path}`;
+      assert.deepEqual(requests.filter((request) => request.url === url), [
+        { url, method: "HEAD", range: undefined },
+        { url, method: "GET", range: "bytes=0-0" },
+        ...(path === "broken" ? [{ url, method: "GET", range: undefined }] : []),
+      ]);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker retries a plain GET when a server rejects the Range header with 400", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (_url, init) => {
+    const range = init?.headers?.Range;
+    requests.push({ method: init?.method, range });
+    return new Response(null, { status: init?.method === "HEAD" ? 405 : range ? 400 : 200 });
+  };
+
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/range-rejected">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 200);
+    assert.equal(links[0].ok, true);
+    assert.deepEqual(requests, [
+      { method: "HEAD", range: undefined },
+      { method: "GET", range: "bytes=0-0" },
+      { method: "GET", range: undefined },
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -930,6 +1888,57 @@ test("link checker reports blocked targets and network failures as unreachable",
         { status: "failed", ok: false },
       ],
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker confirms negative HEAD responses before marking links broken", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input, init) => {
+    const method = init?.method;
+    const path = new URL(String(input)).pathname;
+    requested.push({ path, method, range: init?.headers?.Range });
+    if (method === "HEAD") return new Response(null, { status: path === "/gone" ? 410 : 404 });
+    return new Response(null, { status: path === "/gone" ? 410 : 200 });
+  };
+
+  try {
+    const links = await checkBrokenLinks(
+      '<a href="https://1.1.1.1/available">Available</a><a href="https://1.1.1.1/gone">Gone</a>',
+      undefined,
+      2,
+    );
+    assert.deepEqual(links.map(({ status, ok }) => ({ status, ok })), [
+      { status: 200, ok: true },
+      { status: 410, ok: false },
+    ]);
+    for (const path of ["/available", "/gone"]) {
+      assert.deepEqual(requested.filter((r) => r.path === path), [
+        { path, method: "HEAD", range: undefined },
+        { path, method: "GET", range: "bytes=0-0" },
+      ]);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker reports unverified instead of broken when negative HEAD fallback fails", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_input, init) => {
+    if (init?.method === "HEAD") return new Response(null, { status: 404 });
+    throw new Error("GET confirmation unavailable");
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/head-only-404">Link</a>', undefined, 1);
+    assert.deepEqual(links, [{
+      url: "https://1.1.1.1/head-only-404",
+      status: "failed",
+      ok: false,
+      message: "GET confirmation unavailable",
+    }]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -999,6 +2008,117 @@ test("link checker retries without Range when the bounded GET returns 416", asyn
   }
 });
 
+for (const scenario of [
+  { name: "GET succeeds", rangedStatus: 200, expectedStatus: 200, expectedOk: true, methods: ["HEAD", "GET"] },
+  { name: "GET confirms missing", rangedStatus: 404, expectedStatus: 404, expectedOk: false, methods: ["HEAD", "GET"] },
+  { name: "full GET recovers after rejected range", rangedStatus: 416, fullStatus: 200, expectedStatus: 200, expectedOk: true, methods: ["HEAD", "GET", "GET"] },
+  { name: "both GET attempts reject range", rangedStatus: 416, expectedStatus: 416, expectedOk: false, methods: ["HEAD", "GET", "GET"] },
+  { name: "GET fails", throwGet: true, expectedStatus: "failed", expectedOk: false, methods: ["HEAD", "GET"] },
+]) {
+  test(`link checker confirms a 416 HEAD response with bounded GET: ${scenario.name}`, async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (_input, init) => {
+      requests.push({ method: init?.method, range: init?.headers?.Range });
+      if (init?.method === "HEAD") return new Response(null, { status: 416 });
+      if (scenario.throwGet) throw new Error("GET confirmation failed");
+      if (!init?.headers?.Range && scenario.fullStatus !== undefined) {
+        return new Response(null, { status: scenario.fullStatus });
+      }
+      return new Response(null, { status: scenario.rangedStatus });
+    };
+
+    try {
+      const links = await checkBrokenLinks('<a href="https://1.1.1.1/head-416">Link</a>', undefined, 1);
+      assert.equal(links[0].status, scenario.expectedStatus);
+      assert.equal(links[0].ok, scenario.expectedOk);
+      assert.deepEqual(requests.map((request) => request.method), scenario.methods);
+      assert.equal(requests[0].range, undefined);
+      assert.equal(requests[1].range, "bytes=0-0");
+      if (scenario.rangedStatus === 416) {
+        assert.equal(requests[2].range, undefined);
+        if (scenario.expectedStatus === 416) {
+          assert.match(links[0].message, /availability not verified/i);
+          assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+        }
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+}
+
+for (const headStatus of [406, 409, 411, 412, 415, 417, 422, 424]) {
+  test(`link checker confirms HEAD ${headStatus} request refusal with bounded GET`, async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (_input, init) => {
+      requests.push({ method: init?.method, range: init?.headers?.Range });
+      return new Response(null, { status: init?.method === "HEAD" ? headStatus : 200 });
+    };
+    try {
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/refusal-${headStatus}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, 200);
+      assert.equal(links[0].ok, true);
+      assert.deepEqual(requests, [
+        { method: "HEAD", range: undefined },
+        { method: "GET", range: "bytes=0-0" },
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test(`link checker leaves HTTP ${headStatus} unverified when GET also refuses`, async () => {
+    const originalFetch = globalThis.fetch;
+    const methods = [];
+    globalThis.fetch = async (_input, init) => {
+      methods.push(init?.method);
+      return new Response(null, { status: headStatus });
+    };
+    try {
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/refusal-${headStatus}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, headStatus);
+      assert.equal(links[0].ok, false);
+      assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+      assert.match(links[0].message, /destination availability not verified/i);
+      assert.deepEqual(methods, ["HEAD", "GET"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+}
+
+test("link checker honors a definitive GET 404 after HEAD 409 conflict", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_input, init) =>
+    new Response(null, { status: init?.method === "HEAD" ? 409 : 404 });
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/conflict">Link</a>', undefined, 1);
+    assert.equal(links[0].status, 404);
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker reports failed confirmation after HEAD 422 without claiming a broken URL", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_input, init) => {
+    if (init?.method === "HEAD") return new Response(null, { status: 422 });
+    throw new Error("GET confirmation failed");
+  };
+  try {
+    const links = await checkBrokenLinks('<a href="https://1.1.1.1/unprocessable">Link</a>', undefined, 1);
+    assert.equal(links[0].status, "failed");
+    assert.equal(links[0].ok, false);
+    assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker reports the bounded GET result after a 501 HEAD response", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];
@@ -1050,12 +2170,12 @@ test("link checker preserves failure handling when the 501 GET fallback fails", 
   }
 });
 
-test("link checker does not retry a 500 HEAD response", async () => {
+test("link checker confirms a HEAD 500 with bounded GET before declaring the link broken", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];
   globalThis.fetch = async (input, init) => {
-    requested.push({ url: String(input), method: init?.method });
-    return new Response(null, { status: 500 });
+    requested.push({ url: String(input), method: init?.method, range: init?.headers?.Range });
+    return new Response(null, { status: init?.method === "HEAD" ? 500 : 200 });
   };
 
   try {
@@ -1063,12 +2183,15 @@ test("link checker does not retry a 500 HEAD response", async () => {
     assert.deepEqual(links, [
       {
         url: "https://1.1.1.1/head-500",
-        status: 500,
-        ok: false,
+        status: 200,
+        ok: true,
         message: undefined,
       },
     ]);
-    assert.deepEqual(requested.map((request) => request.method), ["HEAD"]);
+    assert.deepEqual(requested.map(({ method, range }) => ({ method, range })), [
+      { method: "HEAD", range: undefined },
+      { method: "GET", range: "bytes=0-0" },
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1099,7 +2222,7 @@ test("CSS validation uses a multipart POST instead of an oversized query URL", a
     assert.equal(init?.method, "POST");
     assert.ok(init?.body instanceof FormData);
     assert.equal(init.body.get("text"), "body { color: red; }");
-    return Response.json({ cssvalidation: { errors: [] } });
+    return Response.json({ cssvalidation: { validity: true, errors: [] } });
   };
 
   try {
@@ -1148,6 +2271,26 @@ test("local screenshot rendering permits only contained files and public network
   assert.equal(state.requests[9].resolution.continued, 1, "data URL is allowed");
   assert.equal(state.requests[10].resolution.continued, 1, "blob URL is allowed");
   assert.equal(state.requests[11].resolution.aborted, 1, "unsupported scheme is blocked");
+});
+
+test("local screenshot rendering permits contained paths starting with two dots", async (t) => {
+  const fixture = await createScreenshotFixture(t);
+  const assetDirectory = path.join(fixture.localDirectory, "..assets");
+  const containedAsset = path.join(assetDirectory, "icon.png");
+  await fs.mkdir(assetDirectory);
+  await fs.writeFile(containedAsset, "image");
+
+  const { state } = await withMockedScreenshotBrowser(
+    [pathToFileURL(containedAsset).href],
+    undefined,
+    async (browserState, browserRuntime) => {
+      await captureScreenshots(fixture.selectedFile, fixture.outputDirectory, screenshotViewport, browserRuntime);
+      return { state: browserState };
+    },
+  );
+
+  assert.equal(state.requests[1].resolution.continued, 1);
+  assertResolvedOnce(state.requests[1]);
 });
 
 test("local screenshot rendering blocks symlinked files outside the selected directory", async (t) => {

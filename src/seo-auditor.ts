@@ -39,9 +39,9 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
 }
 
 function isUnverifiedServerError(status: number): boolean {
-  // Other 5xx server failures do not establish a missing target. Preserve the
-  // existing bounded GET-confirmation semantics for 500/501 and origin-TLS failures.
-  return status >= 502 && status <= 599 && status !== 525 && status !== 526;
+  // Even a persistent server failure does not prove the destination is missing.
+  // Keep the bounded GET confirmation for HEAD 500/501 and the distinct TLS diagnostics.
+  return status >= 500 && status <= 599 && status !== 525 && status !== 526;
 }
 
 /** Ambiguous responses, access restrictions and network errors cannot establish destination health. */

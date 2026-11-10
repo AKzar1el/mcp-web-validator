@@ -1289,6 +1289,8 @@ test("link checker classifies HTTP response classes without following redirects"
         ? "Access restricted; destination availability not verified"
         : status === 429
           ? "Rate limited; destination availability not verified"
+          : status === 500
+            ? "Server error; destination availability not verified"
           : status >= 300 && status < 400 ? "Redirect not followed" : undefined);
     }
     assert.deepEqual(requested.map((request) => request.method), cases.flatMap(([status]) =>
@@ -1389,6 +1391,28 @@ test("link checker leaves other server-side 5xx failures unverified without retr
       assert.equal(isUnverifiedLinkStatus(links[0].status), true);
       assert.match(links[0].message, /availability not verified/i);
       assert.deepEqual(methods, ["HEAD"]);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker treats persistent HTTP 500/501 failures as unverified after bounded GET confirmation", async () => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (input, init) => {
+    methods.push(init?.method);
+    return new Response(null, { status: Number(new URL(String(input)).pathname.slice(1)) });
+  };
+  try {
+    for (const status of [500, 501]) {
+      methods.length = 0;
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/${status}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, status);
+      assert.equal(links[0].ok, false);
+      assert.equal(isUnverifiedLinkStatus(links[0].status), true);
+      assert.match(links[0].message, /availability not verified/i);
+      assert.deepEqual(methods, ["HEAD", "GET"]);
     }
   } finally {
     globalThis.fetch = originalFetch;

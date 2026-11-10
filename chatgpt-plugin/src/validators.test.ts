@@ -44,6 +44,22 @@ describe("validateHtml", () => {
     ]);
   });
 
+  it("normalizes whitespace and case in Nu warning subtypes without reclassifying other info", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      messages: [
+        { type: " INFO ", subType: "  WaRnInG  ", message: "Review heading" },
+        { type: "info", subType: "other", message: "Ordinary notice" },
+        { type: "info", subType: "warning-extra", message: "Not a warning" },
+      ],
+    })));
+
+    const result = await validateHtmlDetailed("<html></html>");
+    expect(result.messages.map((message) => message.type)).toEqual(["warning", "info", "info"]);
+    expect(result.counts).toEqual({ error: 0, warning: 1, info: 2 });
+    expect(result.total).toBe(3);
+    expect(result.truncated).toBe(false);
+  });
+
   it("reports the total when Nu diagnostics exceed the returned cap", async () => {
     const messages = Array.from({ length: 205 }, (_, index) => ({
       type: "error",

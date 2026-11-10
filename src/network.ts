@@ -742,7 +742,26 @@ export async function readTextFile(
 ): Promise<string> {
   assertPositiveInteger(maxBytes, "maxBytes");
   const resolvedPath = path.resolve(filePath);
-  const file = await fs.open(resolvedPath, "r");
+  let openedPath = resolvedPath;
+  const configuredRoot = process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
+  if (configuredRoot !== undefined) {
+    if (!path.isAbsolute(configuredRoot)) {
+      throw new Error("MCP_WEB_VALIDATOR_WORKSPACE_ROOT must be an absolute directory path");
+    }
+    const root = await fs.realpath(configuredRoot);
+    if (!(await fs.stat(root)).isDirectory()) {
+      throw new Error("MCP_WEB_VALIDATOR_WORKSPACE_ROOT must refer to a directory");
+    }
+    // Resolve symlinks before enforcing an opt-in local file scope. The default
+    // remains unrestricted for clients that intentionally select files elsewhere.
+    const candidate = await fs.realpath(resolvedPath);
+    const relative = path.relative(root, candidate);
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error("Local file path is outside MCP_WEB_VALIDATOR_WORKSPACE_ROOT");
+    }
+    openedPath = candidate;
+  }
+  const file = await fs.open(openedPath, "r");
   let contents: Buffer;
   try {
     // Check the opened file itself; a path can change between stat and read.

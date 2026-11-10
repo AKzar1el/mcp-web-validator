@@ -843,6 +843,40 @@ test("local file reads use a bounded reader instead of an unbounded whole-file r
   }
 });
 
+test("configured local file root confines reads without changing in-root access", async (t) => {
+  const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-local-root-"));
+  t.after(() => fs.rm(temporaryDirectory, { recursive: true, force: true }));
+  const workspace = path.join(temporaryDirectory, "workspace");
+  const outside = path.join(temporaryDirectory, "outside");
+  await fs.mkdir(workspace);
+  await fs.mkdir(outside);
+  const allowedFile = path.join(workspace, "page.html");
+  const outsideFile = path.join(outside, "private.html");
+  await fs.writeFile(allowedFile, "allowed");
+  await fs.writeFile(outsideFile, "private");
+
+  const oldRoot = process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
+  process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT = workspace;
+  try {
+    assert.equal(await readTextFile(allowedFile, 64), "allowed");
+    await assert.rejects(readTextFile(outsideFile, 64), /outside MCP_WEB_VALIDATOR_WORKSPACE_ROOT/);
+    await assert.rejects(
+      readTextFile(path.join(workspace, "..", "outside", "private.html"), 64),
+      /outside MCP_WEB_VALIDATOR_WORKSPACE_ROOT/,
+    );
+    const symlink = path.join(workspace, "escape.html");
+    try {
+      await fs.symlink(outsideFile, symlink, "file");
+      await assert.rejects(readTextFile(symlink, 64), /outside MCP_WEB_VALIDATOR_WORKSPACE_ROOT/);
+    } catch (error) {
+      if (!["EPERM", "EACCES", "ENOSYS"].includes(error?.code)) throw error;
+    }
+  } finally {
+    if (oldRoot === undefined) delete process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
+    else process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT = oldRoot;
+  }
+});
+
 test("local HTML file decoding honors an early meta charset", async (t) => {
   const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-local-html-encoding-"));
   t.after(() => fs.rm(temporaryDirectory, { recursive: true, force: true }));

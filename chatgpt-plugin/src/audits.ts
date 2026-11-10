@@ -965,6 +965,8 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
           "user-agent": SERVICE_USER_AGENT,
         },
         redirect: "manual",
+        credentials: "omit",
+        cache: "no-store",
         signal: controller.signal,
       });
       await response.body?.cancel();

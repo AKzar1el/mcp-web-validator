@@ -25,6 +25,7 @@ export interface HtmlValidationResult {
 const VALIDATOR_TIMEOUT_MS = 15_000;
 const MAX_VALIDATION_MESSAGES = 200;
 const MAX_VALIDATOR_RESPONSE_BYTES = 2 * 1024 * 1024;
+const MAX_DIAGNOSTIC_MESSAGE_CHARS = 1_000;
 
 async function withValidatorTimeout<T>(action: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const controller = new AbortController();
@@ -113,7 +114,9 @@ async function validateHtmlDetailedWithSignal(
 
     messages.push({
       type,
-      message: item.message,
+      message: item.message.length > MAX_DIAGNOSTIC_MESSAGE_CHARS
+        ? `${item.message.slice(0, MAX_DIAGNOSTIC_MESSAGE_CHARS - 3)}...`
+        : item.message,
       line: typeof item.lastLine === "number" && Number.isFinite(item.lastLine)
         ? item.lastLine
         : undefined,

@@ -267,6 +267,36 @@ describe("fetchPublicHtml", () => {
     await expect(fetchPublicHtml("https://example.com/large")).rejects.toMatchObject({ code: "too_large" });
   });
 
+  it("accepts small transparently decoded compressed HTML despite its larger wire length", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => htmlResponse("<title>Small</title>", {
+      headers: { "content-encoding": "gzip", "content-length": String(1024 * 1024 + 1) },
+    })));
+
+    await expect(fetchPublicHtml("https://example.com/compressed")).resolves.toMatchObject({
+      html: "<title>Small</title>",
+    });
+  });
+
+  it("keeps the declared-length early rejection for identity-encoded HTML", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => htmlResponse("<title>Small</title>", {
+      headers: { "content-encoding": "identity", "content-length": String(1024 * 1024 + 1) },
+    })));
+
+    await expect(fetchPublicHtml("https://example.com/identity")).rejects.toMatchObject({
+      code: "too_large",
+    });
+  });
+
+  it("still enforces the streamed byte cap for decoded compressed HTML", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => htmlResponse("x".repeat(1024 * 1024 + 1), {
+      headers: { "content-encoding": "gzip", "content-length": "20" },
+    })));
+
+    await expect(fetchPublicHtml("https://example.com/large-compressed")).rejects.toMatchObject({
+      code: "too_large",
+    });
+  });
+
   it.each([true, false])("rejects partial HTTP 206 HTML with content-range header present=%s", async (hasRange) => {
     const headers: Record<string, string> = { "content-type": "text/html" };
     if (hasRange) headers["content-range"] = "bytes 0-39/100";
@@ -399,11 +429,27 @@ describe("fetchPublicText", () => {
     expect(result.text).toBe(xml);
   });
 
+  it("accepts a small decoded gzip sitemap despite a larger retained wire content length", async () => {
+    const xml = "<urlset><url><loc>https://example.com/page</loc></url></urlset>";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(xml, {
+      headers: {
+        "content-type": "application/gzip",
+        "content-encoding": "gzip",
+        "content-length": "4096",
+      },
+    })));
+
+    const result = await fetchPublicText("https://example.com/map.xml.gz", {
+      ...textOptions, acceptedContentTypes: ["application/xml"], allowGzipSitemap: true,
+    });
+    expect(result.text).toBe(xml);
+  });
+
   it("still rejects oversized already decoded gzip transport bodies", async () => {
     const xml = "<urlset>" + " ".repeat(1100) + "</urlset>";
     vi.stubGlobal("fetch", vi.fn(async () =>
       new Response(xml, {
-        headers: { "content-type": "application/gzip", "content-encoding": "gzip" },
+        headers: { "content-type": "application/gzip", "content-encoding": "gzip", "content-length": "12" },
       }),
     ));
     await expect(fetchPublicText("https://example.com/map.xml.gz", {

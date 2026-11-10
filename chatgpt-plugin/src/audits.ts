@@ -451,12 +451,25 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
   const usableCanonical = parseableCanonical.filter(
     (_, element) => !["hreflang", "lang", "media", "type"].some((attribute) => $(element).attr(attribute) !== undefined),
   );
+  const credentialedCanonical = parseableCanonical.filter((_, element) => {
+    const href = ($(element).attr("href") ?? "").trim();
+    const url = new URL(href, "https://example.invalid/");
+    return Boolean(url.username || url.password);
+  });
   if (invalidCanonical.length > 0) {
     collector.add({
       code: "seo.canonical.invalid_url",
       severity: "warning",
       category: "SEO",
       message: "Canonical link href is not a usable HTTP(S) URL. Provide an HTTP(S) canonical target or remove the declaration.",
+    });
+  }
+  if (credentialedCanonical.length > 0) {
+    collector.add({
+      code: "seo.canonical.embedded_credentials",
+      severity: "warning",
+      category: "SEO",
+      message: "Canonical URL embeds user credentials. Remove the username and password to avoid exposing secrets or relying on authenticated canonical targets.",
     });
   }
   if (usableCanonical.filter((_, element) => ($(element).attr("href") ?? "").includes("#")).length > 0) {

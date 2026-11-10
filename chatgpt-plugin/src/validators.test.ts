@@ -23,6 +23,18 @@ describe("validateHtml", () => {
       "content-type": "application/xhtml+xml; charset=utf-8",
     });
   });
+  it("disables automatic redirects for Nu POST requests containing page markup", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ messages: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const markup = "<html><body>Private content</body></html>";
+
+    await validateHtmlDetailed(markup);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://html5.validator.nu/?out=json",
+      expect.objectContaining({ method: "POST", body: markup, redirect: "error" }),
+    );
+  });
   it("preserves Nu errors, warning subtypes, and informational messages", async () => {
     vi.stubGlobal(
       "fetch",

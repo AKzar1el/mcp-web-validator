@@ -51,6 +51,7 @@ async function validateHtmlDetailedWithSignal(
       "user-agent": SERVICE_USER_AGENT,
     },
     body: html,
+    redirect: "error",
     signal,
   });
   // A partial Nu response may omit diagnostics and must not yield a clean verdict.

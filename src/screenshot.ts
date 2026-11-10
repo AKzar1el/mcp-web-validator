@@ -11,7 +11,7 @@ import * as path from "path";
 import * as fs from "fs/promises";
 import * as os from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { assertPublicHttpUrl, getErrorMessage } from "./network.js";
+import { assertPublicHttpUrl, getErrorMessage, resolveLocalFileWithinWorkspaceRoot } from "./network.js";
 import { startScreenshotTransportProxy } from "./screenshot-proxy.js";
 
 export interface ViewportConfig {
@@ -314,7 +314,7 @@ export async function captureScreenshots(
   if (/^https?:\/\//i.test(targetPath)) {
     targetUrl = (await assertPublicHttpUrl(targetPath)).href;
   } else {
-    const absolutePath = path.resolve(targetPath);
+    const absolutePath = await resolveLocalFileWithinWorkspaceRoot(targetPath);
     const resolvedPath = await fs.realpath(absolutePath);
     const stats = await fs.stat(resolvedPath);
     if (!stats.isFile()) {

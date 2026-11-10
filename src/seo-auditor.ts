@@ -417,6 +417,16 @@ function canParseCanonicalHref(href: string): boolean {
   }
 }
 
+function isUsableOpenGraphUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:")
+      && Boolean(url.hostname) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
 const editorialGraphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 function countEditorialCharacters(text: string): number {
@@ -950,9 +960,7 @@ export function auditSeoMetadataDetailed(htmlContent: string, xRobotsTag?: strin
   // --- Open Graph / Social Tags ---
   const requiredOpenGraphProperties = ["og:title", "og:type", "og:image", "og:url"] as const;
   const hasCompleteOpenGraphMetadata = requiredOpenGraphProperties.every((property) =>
-    $(`head > meta[property="${property}"]`).filter(
-      (_, element) => Boolean($(element).attr("content")?.trim()),
-    ).length > 0
+    Boolean($(`head > meta[property="${property}"]`).first().attr("content")?.trim())
   );
   if (!hasCompleteOpenGraphMetadata) {
     add({
@@ -961,6 +969,19 @@ export function auditSeoMetadataDetailed(htmlContent: string, xRobotsTag?: strin
       category: "SEO",
       message: "Open Graph basic metadata is incomplete or empty. Provide non-empty og:title, og:type, og:image, and og:url values.",
     });
+  }
+  // Open Graph gives the first declaration precedence; a later valid URL
+  // cannot reliably repair an invalid first image or canonical identity.
+  for (const property of ["og:image", "og:url"] as const) {
+    const value = $(`head > meta[property="${property}"]`).first().attr("content")?.trim();
+    if (value && !isUsableOpenGraphUrl(value)) {
+      add({
+        code: "seo.open_graph.invalid_url",
+        severity: "warning",
+        category: "SEO",
+        message: `Open Graph ${property} needs an absolute HTTP(S) URL without embedded credentials for reliable social previews.`,
+      });
+    }
   }
 
   return collector.details();

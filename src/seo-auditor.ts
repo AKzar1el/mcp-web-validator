@@ -6,7 +6,7 @@ import {
   getErrorMessage,
   PublicUrlError,
 } from "./network.js";
-import { getPrimaryLanguageSubtag, isKnownPrimaryLanguageSubtag, isWellFormedPrivateUseLanguageTag } from "./language-subtags.js";
+import { getPrimaryLanguageSubtag, isKnownPrimaryLanguageSubtag, isRegisteredGrandfatheredILanguageTag, isWellFormedPrivateUseLanguageTag } from "./language-subtags.js";
 import { PACKAGE_VERSION } from "./version.js";
 
 export const MAX_AUDIT_ISSUES = 200;
@@ -929,7 +929,7 @@ export function auditSeoMetadataDetailed(htmlContent: string, xRobotsTag?: strin
           category: "Accessibility",
           message: "This is a valid private-use BCP 47 language tag, but assistive technologies may not recognize it. Prefer a registered language tag when one applies.",
         });
-      } else if (!isKnownPrimaryLanguageSubtag(primaryLanguageSubtag)) {
+      } else if (!isRegisteredGrandfatheredILanguageTag(pageLanguage) && !isKnownPrimaryLanguageSubtag(primaryLanguageSubtag)) {
         add({
           code: "accessibility.page_language.invalid_primary_subtag",
           severity: "error",

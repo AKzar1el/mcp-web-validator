@@ -59,6 +59,17 @@ test("SEO audit bounds diagnostic element snippets from oversized page metadata"
   assert.match(descriptionIssue.message, /Meta description is 10000 characters/);
 });
 
+test("SEO audit bounds diagnostic messages containing oversized untrusted language tags", () => {
+  const oversizedTag = "z".repeat(12_000);
+  const detailed = auditSeoMetadataDetailed(`<html lang="${oversizedTag}"><head></head><body></body></html>`);
+  const issue = detailed.issues.find((entry) => entry.code === "accessibility.page_language.invalid_primary_subtag");
+
+  assert.equal(issue?.severity, "error");
+  assert.ok(issue.message.length <= 1_000);
+  assert.ok(issue.message.endsWith("..."));
+  assert.equal(detailed.counts.error >= 1, true);
+});
+
 test("JSON-LD audit reports the full total while bounding returned findings", () => {
   const blockCount = MAX_AUDIT_ISSUES + 5;
   const html = Array.from(

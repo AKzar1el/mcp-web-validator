@@ -96,6 +96,7 @@ async function validateHtmlDetailedWithSignal(
       lastColumn?: unknown;
     };
     const normalizedType = typeof item.type === "string" ? item.type.trim().toLowerCase() : "";
+    const normalizedSubType = typeof item.subType === "string" ? item.subType.trim().toLowerCase() : "";
     if (normalizedType === "non-document-error") {
       throw new Error("The Nu HTML Checker could not complete validation (non-document-error).");
     }
@@ -106,7 +107,7 @@ async function validateHtmlDetailedWithSignal(
     const type: ValidationMessage["type"] =
       normalizedType === "error"
         ? "error"
-        : normalizedType === "warning" || (normalizedType === "info" && item.subType === "warning")
+        : normalizedType === "warning" || (normalizedType === "info" && normalizedSubType === "warning")
           ? "warning"
           : "info";
     counts[type] += 1;

@@ -233,7 +233,6 @@ describe("bounded audits", () => {
       ["em-US", "em"],
       ["#1", "#1"],
       ["eng", "eng"],
-      ["i-lux", "i"],
     ]) {
       expect(auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head><body></body></html>`).issues
         .find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"))
@@ -254,6 +253,21 @@ describe("bounded audits", () => {
     expect(auditSeoMetadata("<title>HTML fragment</title><p>Fragment content</p>").issues
       .find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"))
       .toBeUndefined();
+  });
+
+  it("accepts only registered i-* grandfathered tags, regardless of case", () => {
+    for (const lang of [
+      "i-ami", "i-bnn", "i-default", "i-enochian", "i-hak", "i-klingon",
+      "i-lux", "i-mingo", "i-navajo", "i-pwn", "i-tao", "i-tay", "i-tsu",
+      "I-KLINGON",
+    ]) {
+      const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`).issues;
+      expect(issues.some((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), lang).toBe(false);
+    }
+    for (const lang of ["i", "i-", "i-unknown", "i-default-extra", "i-klingon-x-foo"]) {
+      const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`).issues;
+      expect(issues.some((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), lang).toBe(true);
+    }
   });
 
   it("treats syntactically valid BCP 47 private-use language tags as advisory", () => {

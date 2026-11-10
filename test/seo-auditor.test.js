@@ -238,7 +238,6 @@ test("explicit HTML documents require a known primary language subtag", () => {
     ["em-US", "em"],
     ["#1", "#1"],
     ["eng", "eng"],
-    ["i-lux", "i"],
   ]) {
     assert.deepEqual(
       auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head><body></body></html>`)
@@ -265,6 +264,22 @@ test("explicit HTML documents require a known primary language subtag", () => {
       .find((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"),
     undefined,
   );
+});
+
+test("RFC 5646 registered i-* grandfathered page languages are valid exact tags", () => {
+  for (const lang of [
+    "i-ami", "i-bnn", "i-default", "i-enochian", "i-hak", "i-klingon",
+    "i-lux", "i-mingo", "i-navajo", "i-pwn", "i-tao", "i-tay", "i-tsu",
+    "I-KLINGON",
+  ]) {
+    const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`);
+    assert.equal(issues.some((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), false, lang);
+  }
+
+  for (const lang of ["i", "i-", "i-unknown", "i-default-extra", "i-klingon-x-foo"]) {
+    const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`);
+    assert.equal(issues.some((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), true, lang);
+  }
 });
 
 test("well-formed private-use BCP 47 page languages are advisory, not invalid", () => {

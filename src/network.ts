@@ -742,17 +742,33 @@ export async function readTextFile(
 ): Promise<string> {
   assertPositiveInteger(maxBytes, "maxBytes");
   const resolvedPath = path.resolve(filePath);
-  const stats = await fs.stat(resolvedPath);
-  if (!stats.isFile()) {
-    throw new Error(`Path is not a regular file: ${resolvedPath}`);
-  }
-  if (stats.size > maxBytes) {
-    throw new Error(`File exceeds the ${maxBytes}-byte limit: ${resolvedPath}`);
-  }
+  const file = await fs.open(resolvedPath, "r");
+  let contents: Buffer;
+  try {
+    // Check the opened file itself; a path can change between stat and read.
+    const stats = await file.stat();
+    if (!stats.isFile()) {
+      throw new Error(`Path is not a regular file: ${resolvedPath}`);
+    }
+    if (stats.size > maxBytes) {
+      throw new Error(`File exceeds the ${maxBytes}-byte limit: ${resolvedPath}`);
+    }
 
-  const contents = await fs.readFile(resolvedPath);
-  if (contents.byteLength > maxBytes) {
-    throw new Error(`File exceeds the ${maxBytes}-byte limit: ${resolvedPath}`);
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    while (totalBytes <= maxBytes) {
+      const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, maxBytes - totalBytes + 1));
+      const { bytesRead } = await file.read(chunk, 0, chunk.length, null);
+      if (bytesRead === 0) break;
+      totalBytes += bytesRead;
+      if (totalBytes > maxBytes) {
+        throw new Error(`File exceeds the ${maxBytes}-byte limit: ${resolvedPath}`);
+      }
+      chunks.push(chunk.subarray(0, bytesRead));
+    }
+    contents = Buffer.concat(chunks, totalBytes);
+  } finally {
+    await file.close();
   }
 
   if (markupMediaType === undefined) {

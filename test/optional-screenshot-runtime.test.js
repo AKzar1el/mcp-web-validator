@@ -36,6 +36,48 @@ test("screenshot browser pin matches puppeteer-core's supported headless shell",
   assert.equal(SCREENSHOT_BROWSER_BUILD_ID, PUPPETEER_REVISIONS["chrome-headless-shell"]);
 });
 
+test("opt-in workspace root confines local screenshot targets, including symlink escapes", async (t) => {
+  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-screenshot-file-root-"));
+  t.after(() => fs.rm(scratch, { recursive: true, force: true }));
+  const workspace = path.join(scratch, "workspace");
+  await fs.mkdir(workspace);
+  const allowed = path.join(workspace, "allowed.html");
+  const outside = path.join(scratch, "outside.html");
+  await fs.writeFile(allowed, "<title>Allowed</title>");
+  await fs.writeFile(outside, "<title>Outside</title>");
+  const output = path.join(workspace, "screenshots");
+  const viewports = [{ name: "test", width: 375, height: 812 }];
+  let launches = 0;
+  const runtime = {
+    async launch() {
+      launches += 1;
+      throw new Error("Reached browser launch");
+    },
+  };
+  const previousRoot = process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
+  process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT = workspace;
+  try {
+    await assert.rejects(captureScreenshots(outside, output, viewports, runtime),
+      /outside MCP_WEB_VALIDATOR_WORKSPACE_ROOT/);
+    assert.equal(launches, 0);
+    const escapedLink = path.join(workspace, "escaped.html");
+    try {
+      await fs.symlink(outside, escapedLink, "file");
+      await assert.rejects(captureScreenshots(escapedLink, output, viewports, runtime),
+        /outside MCP_WEB_VALIDATOR_WORKSPACE_ROOT/);
+      assert.equal(launches, 0);
+    } catch (error) {
+      if (!["EPERM", "EACCES", "ENOSYS"].includes(error?.code)) throw error;
+    }
+    await assert.rejects(captureScreenshots(allowed, output, viewports, runtime),
+      /Reached browser launch/);
+    assert.equal(launches, 1);
+  } finally {
+    if (previousRoot === undefined) delete process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
+    else process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT = previousRoot;
+  }
+});
+
 test("explicitly empty screenshot viewports fail instead of silently taking default captures", async () => {
   let browserLaunched = false;
   await assert.rejects(

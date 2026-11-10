@@ -1159,6 +1159,26 @@ describe("link checks", () => {
     });
   });
 
+  it("checks public link freshness without forwarding ambient credentials on HEAD and fallback GET", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 405 }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks('<a href="https://example.com/status">Status</a>', undefined, 1)).resolves.toEqual([
+      { url: "https://example.com/status", status: 200, ok: true, message: undefined },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(([, options]) => options?.method)).toEqual(["HEAD", "GET"]);
+    for (const [, options] of fetchMock.mock.calls) {
+      expect(options).toMatchObject({
+        redirect: "manual",
+        credentials: "omit",
+        cache: "no-store",
+      });
+    }
+  });
+
   it("tries a bounded GET when a HEAD network request throws before returning status", async () => {
     const fetchMock = vi.fn()
       .mockRejectedValueOnce(new TypeError("HEAD method blocked by origin"))

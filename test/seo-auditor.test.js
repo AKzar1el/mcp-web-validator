@@ -294,6 +294,21 @@ test("well-formed private-use BCP 47 page languages are advisory, not invalid", 
   }
 });
 
+test("page languages reject malformed BCP 47 subtag structure", () => {
+  for (const lang of ["en--US", "en-", "en-US_Latn", "en-abcdefghi", "en-\u00fc"]) {
+    const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`);
+    assert.equal(
+      issues.find((issue) => issue.code === "accessibility.page_language.malformed_subtag")?.severity,
+      "error",
+      lang,
+    );
+  }
+  for (const lang of ["en-US", "sl-SI", "zh-Hant-TW", "de-1996", "x-example", "i-klingon"]) {
+    const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`);
+    assert.equal(issues.some((issue) => issue.code === "accessibility.page_language.malformed_subtag"), false, lang);
+  }
+});
+
 test("image submit buttons require a non-empty accessible name", () => {
   for (const html of [
     '<input type="image" src="search.png">',

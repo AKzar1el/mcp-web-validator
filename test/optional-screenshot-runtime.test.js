@@ -78,6 +78,64 @@ test("opt-in workspace root confines local screenshot targets, including symlink
   }
 });
 
+test("opt-in workspace root confines screenshot output directories before creating them", async (t) => {
+  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-screenshot-output-root-"));
+  t.after(() => fs.rm(scratch, { recursive: true, force: true }));
+  const workspace = path.join(scratch, "workspace");
+  const outsideDir = path.join(scratch, "outside");
+  await fs.mkdir(workspace);
+  await fs.mkdir(outsideDir);
+  const htmlFile = path.join(workspace, "page.html");
+  await fs.writeFile(htmlFile, "<title>Safe</title>");
+  const viewports = [{ name: "test", width: 375, height: 812 }];
+  let launches = 0;
+  const runtime = {
+    async launch() {
+      launches += 1;
+      throw new Error("Reached browser launch");
+    },
+  };
+  const previousRoot = process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
+  process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT = workspace;
+  try {
+    const escapedOutput = path.join(scratch, "uncreated-outside");
+    await assert.rejects(captureScreenshots(htmlFile, escapedOutput, viewports, runtime),
+      /outside MCP_WEB_VALIDATOR_WORKSPACE_ROOT/);
+    await assert.rejects(fs.stat(escapedOutput), { code: "ENOENT" });
+    assert.equal(launches, 0);
+
+    const escapedLink = path.join(workspace, "escaped-output");
+    try {
+      await fs.symlink(outsideDir, escapedLink, process.platform === "win32" ? "junction" : "dir");
+      await assert.rejects(captureScreenshots(htmlFile, escapedLink, viewports, runtime),
+        /outside MCP_WEB_VALIDATOR_WORKSPACE_ROOT/);
+      assert.equal(launches, 0);
+      const escapedNested = path.join(escapedLink, "new-child");
+      await assert.rejects(captureScreenshots(htmlFile, escapedNested, viewports, runtime),
+        /outside MCP_WEB_VALIDATOR_WORKSPACE_ROOT/);
+      await assert.rejects(fs.stat(path.join(outsideDir, "new-child")), { code: "ENOENT" });
+      assert.equal(launches, 0);
+    } catch (error) {
+      if (!["EPERM", "EACCES", "ENOSYS"].includes(error?.code)) throw error;
+    }
+
+    const nestedOutput = path.join(workspace, "new", "screenshots");
+    await assert.rejects(captureScreenshots(htmlFile, nestedOutput, viewports, runtime),
+      /Reached browser launch/);
+    assert.ok((await fs.stat(nestedOutput)).isDirectory());
+    assert.equal(launches, 1);
+
+    delete process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
+    await assert.rejects(captureScreenshots(htmlFile, escapedOutput, viewports, runtime),
+      /Reached browser launch/);
+    assert.ok((await fs.stat(escapedOutput)).isDirectory());
+    assert.equal(launches, 2);
+  } finally {
+    if (previousRoot === undefined) delete process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT;
+    else process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT = previousRoot;
+  }
+});
+
 test("explicitly empty screenshot viewports fail instead of silently taking default captures", async () => {
   let browserLaunched = false;
   await assert.rejects(

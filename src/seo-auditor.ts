@@ -254,6 +254,12 @@ function referencedTextContent(element: unknown): string {
     if (node.type === "text") {
       return !hiddenReference && isHiddenFromAccessibilityTree(node) ? "" : (node.data ?? "");
     }
+    // Accessible name-from-content includes an embedded image's text alternative,
+    // not just literal text nodes in the referenced label.
+    if (node.name?.toLowerCase() === "img" && !isUnambiguouslyPresentationalElement(node)) {
+      if (!hiddenReference && isHiddenFromAccessibilityTree(node)) return "";
+      return node.attribs?.alt?.trim() ?? "";
+    }
     return (node.children ?? []).map(traverse).join("");
   };
   return traverse(root).trim();

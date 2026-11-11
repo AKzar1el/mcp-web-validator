@@ -260,11 +260,11 @@ test("report keeps redirects visible without counting them as broken links", () 
   });
 
   assert.equal(result.summary.linksChecked, 11);
-  assert.equal(result.summary.brokenLinks, 3);
-  assert.equal(result.summary.unverifiedLinks, 2);
+  assert.equal(result.summary.brokenLinks, 2);
+  assert.equal(result.summary.unverifiedLinks, 3);
   assert.equal(result.summary.linkScore, null);
   assert.equal(result.summary.overallScore, null);
-  assert.match(result.report, /3 confirmed HTTP failures, 2 unverified, 4 redirects to review of 11 checked/);
+  assert.match(result.report, /2 confirmed HTTP failures, 3 unverified, 4 redirects to review of 11 checked/);
   assert.match(result.report, /Link integrity \| Incomplete \| N\/A/);
   assert.match(result.report, /\| https:\/\/example\.test\/blocked \| blocked \| Unverified \|/);
   assert.match(result.report, /\| https:\/\/example\.test\/301 \| 301 \| Redirect \| Redirect not followed \|/);
@@ -335,7 +335,7 @@ test("report link details never default to Accessible for failures or unverified
   assert.match(result.report, /\| https:\/\/example\.test\/ok \| 200 \| Yes \| Accessible \|/);
   assert.match(result.report, /\| https:\/\/example\.test\/redirect \| 301 \| Redirect \| Redirect not followed \|/);
   assert.match(result.report, /\| https:\/\/example\.test\/missing \| 404 \| No \| HTTP response indicated failure \|/);
-  assert.match(result.report, /\| https:\/\/example\.test\/error \| 500 \| No \| HTTP response indicated failure \|/);
+  assert.match(result.report, /\| https:\/\/example\.test\/error \| 500 \| Unverified \| Destination availability not verified \|/);
   assert.match(result.report, /\| https:\/\/example\.test\/limited \| 429 \| Unverified \| Destination availability not verified \|/);
   assert.match(result.report, /\| https:\/\/example\.test\/blocked \| blocked \| Unverified \| Destination availability not verified \|/);
   assert.match(result.report, /\| https:\/\/example\.test\/failed \| failed \| Unverified \| Destination availability not verified \|/);
@@ -478,6 +478,26 @@ test("report treats ambiguous HTTP 300 as incomplete verification rather than a 
   assert.match(result.report, /0 redirects to review of 1 checked/);
 });
 
+test("report withholds link health for unrecognized 3xx responses", () => {
+  for (const status of [305, 306, 399]) {
+    const result = createValidationReport({
+      htmlFilePath: "unknown-redirect.html",
+      cssAudited: false,
+      htmlMessages: [],
+      cssMessages: [],
+      seoIssues: [],
+      schemaIssues: [],
+      links: [{ url: "https://example.test/unknown", status, ok: false }],
+    });
+    assert.equal(result.summary.brokenLinks, 0);
+    assert.equal(result.summary.unverifiedLinks, 1);
+    assert.equal(result.summary.linkScore, null);
+    assert.equal(result.summary.overallScore, null);
+    assert.match(result.report, /Incomplete link verification/);
+    assert.match(result.report, /0 redirects to review of 1 checked/);
+  }
+});
+
 test("report withholds link score on HTTP 408 instead of claiming a broken URL", () => {
   const result = createValidationReport({
     htmlFilePath: "request-timeout.html",
@@ -538,7 +558,7 @@ test("report withholds link and overall scores for negotiation, precondition and
     cssMessages: [],
     seoIssues: [],
     schemaIssues: [],
-    links: [406, 412, 423, 500].map((status) => ({
+    links: [406, 412, 423, 404].map((status) => ({
       url: `https://example.test/${status}`, status, ok: false,
     })),
   });
@@ -579,7 +599,7 @@ test("report withholds scores when request-condition refusals cannot establish m
   assert.match(result.report, /Incomplete link verification/);
 });
 
-test("report withholds link score for temporary HTTP gateway/service outages while retaining confirmed failures", () => {
+test("report withholds link score for HTTP server outages while retaining confirmed missing links", () => {
   const result = createValidationReport({
     htmlFilePath: "temporary-outages.html",
     cssAudited: false,
@@ -590,13 +610,14 @@ test("report withholds link score for temporary HTTP gateway/service outages whi
     links: [
       ...[502, 503, 504].map((status) => ({ url: `https://example.test/${status}`, status, ok: false })),
       { url: "https://example.test/500", status: 500, ok: false },
+      { url: "https://example.test/missing", status: 404, ok: false },
     ],
   });
   assert.equal(result.summary.brokenLinks, 1);
-  assert.equal(result.summary.unverifiedLinks, 3);
+  assert.equal(result.summary.unverifiedLinks, 4);
   assert.equal(result.summary.linkScore, null);
   assert.equal(result.summary.overallScore, null);
-  assert.match(result.report, /1 confirmed HTTP failures, 3 unverified/i);
+  assert.match(result.report, /1 confirmed HTTP failures, 4 unverified/i);
   assert.match(result.report, /Incomplete link verification/);
 });
 
@@ -611,7 +632,7 @@ test("report does not call proxy-auth or misdirected responses confirmed broken 
     links: [
       { url: "https://example.test/407", status: 407, ok: false },
       { url: "https://example.test/421", status: 421, ok: false },
-      { url: "https://example.test/500", status: 500, ok: false },
+      { url: "https://example.test/404", status: 404, ok: false },
     ],
   });
   assert.equal(result.summary.brokenLinks, 1);
@@ -632,7 +653,7 @@ test("report withholds broken-link scoring for network authentication challenges
     schemaIssues: [],
     links: [
       { url: "https://example.test/network-login", status: 511, ok: false },
-      { url: "https://example.test/server-failure", status: 500, ok: false },
+      { url: "https://example.test/missing", status: 404, ok: false },
     ],
   });
   assert.equal(result.summary.brokenLinks, 1);
@@ -643,7 +664,7 @@ test("report withholds broken-link scoring for network authentication challenges
   assert.match(result.report, /\| Unverified \| Destination availability not verified/);
 });
 
-test("report keeps Cloudflare 520-524 unverified but treats 500 and 525-526 as failures", () => {
+test("report keeps 500 and Cloudflare 520-524 unverified but treats 525-526 as TLS failures", () => {
   const result = createValidationReport({
     htmlFilePath: "edge-failures.html", cssAudited: false,
     htmlMessages: [], cssMessages: [], seoIssues: [], schemaIssues: [],
@@ -651,10 +672,10 @@ test("report keeps Cloudflare 520-524 unverified but treats 500 and 525-526 as f
       url: `https://example.test/${status}`, status, ok: false,
     })),
   });
-  assert.equal(result.summary.brokenLinks, 3);
-  assert.equal(result.summary.unverifiedLinks, 5);
+  assert.equal(result.summary.brokenLinks, 2);
+  assert.equal(result.summary.unverifiedLinks, 6);
   assert.equal(result.summary.linkScore, null);
-  assert.match(result.report, /3 confirmed HTTP failures, 5 unverified/i);
+  assert.match(result.report, /2 confirmed HTTP failures, 6 unverified/i);
 });
 
 test("report surfaces CSS warnings without counting them as CSS errors", () => {

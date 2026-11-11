@@ -186,6 +186,40 @@ test("Open Graph audit requires all basic properties to have usable content", ()
   }
 });
 
+test("Open Graph URL audit warns about non-absolute URLs and respects the first tag", () => {
+  const invalid = auditSeoMetadata([
+    '<meta property="og:image" content="/share.png">',
+    '<meta property="og:image" content="https://example.com/later.png">',
+    '<meta property="og:url" content="//example.com/page">',
+    '<meta property="og:url" content="https://example.com/later">',
+  ].join(""));
+  assert.equal(invalid.filter((issue) => issue.code === "seo.open_graph.invalid_url").length, 2);
+  assert.ok(invalid.some((issue) => issue.code === "seo.open_graph.invalid_url" && issue.message.includes("og:image")));
+  assert.ok(invalid.some((issue) => issue.code === "seo.open_graph.invalid_url" && issue.message.includes("og:url")));
+
+  for (const bad of ["javascript:alert(1)", "data:image/png;base64,abc", "https://user:pass@example.com/img.png"]) {
+    const issues = auditSeoMetadata(`<meta property="og:image" content="${bad}">`);
+    assert.equal(issues.some((issue) => issue.code === "seo.open_graph.invalid_url"), true);
+  }
+
+  const valid = auditSeoMetadata([
+    '<meta property="og:image" content="https://example.com/first.png">',
+    '<meta property="og:image" content="relative-second.png">',
+    '<meta property="og:url" content="http://example.com/first">',
+    '<meta property="og:url" content="not a URL">',
+  ].join(""));
+  assert.equal(valid.some((issue) => issue.code === "seo.open_graph.invalid_url"), false);
+
+  const emptyFirst = auditSeoMetadata([
+    '<meta property="og:title" content="Example">',
+    '<meta property="og:type" content="website">',
+    '<meta property="og:image" content="">',
+    '<meta property="og:image" content="https://example.com/later.png">',
+    '<meta property="og:url" content="https://example.com/page">',
+  ].join(""));
+  assert.equal(emptyFirst.some((issue) => issue.code === "seo.open_graph.missing"), true);
+});
+
 test("explicit HTML documents require a non-empty page language", () => {
   for (const html of [
     "<html><head><title>Example</title></head><body></body></html>",
@@ -291,6 +325,21 @@ test("well-formed private-use BCP 47 page languages are advisory, not invalid", 
   for (const lang of ["x", "x-", "x-foo--bar", "x-123456789"]) {
     const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head><body></body></html>`);
     assert.ok(issues.some((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag"), lang);
+  }
+});
+
+test("page languages reject malformed BCP 47 subtag structure", () => {
+  for (const lang of ["en--US", "en-", "en-US_Latn", "en-abcdefghi", "en-\u00fc"]) {
+    const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`);
+    assert.equal(
+      issues.find((issue) => issue.code === "accessibility.page_language.malformed_subtag")?.severity,
+      "error",
+      lang,
+    );
+  }
+  for (const lang of ["en-US", "sl-SI", "zh-Hant-TW", "de-1996", "x-example", "i-klingon"]) {
+    const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`);
+    assert.equal(issues.some((issue) => issue.code === "accessibility.page_language.malformed_subtag"), false, lang);
   }
 });
 

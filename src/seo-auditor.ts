@@ -39,14 +39,17 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
 }
 
 function isUnverifiedServerError(status: number): boolean {
-  // Other 5xx server failures do not establish a missing target. Preserve the
-  // existing bounded GET-confirmation semantics for 500/501 and origin-TLS failures.
-  return status >= 502 && status <= 599 && status !== 525 && status !== 526;
+  // Even a persistent server failure does not prove the destination is missing.
+  // Keep the bounded GET confirmation for HEAD 500/501 and the distinct TLS diagnostics.
+  return status >= 500 && status <= 599 && status !== 525 && status !== 526;
 }
 
 /** Ambiguous responses, access restrictions and network errors cannot establish destination health. */
 export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
-  return typeof status !== "number" || isUnverifiedServerError(status) || [300, 304, 401, 403, 406, 407, 408, 409, 411, 412, 415, 416, 417, 421, 422, 423, 424, 425, 426, 428, 429, 431, 451].includes(status);
+  return typeof status !== "number"
+    || (status >= 300 && status < 400 && !isHttpRedirectStatus(status))
+    || isUnverifiedServerError(status)
+    || [401, 403, 406, 407, 408, 409, 411, 412, 415, 416, 417, 421, 422, 423, 424, 425, 426, 428, 429, 431, 451].includes(status);
 }
 
 export interface AuditCounts {
@@ -412,6 +415,16 @@ function canParseCanonicalHref(href: string): boolean {
   try {
     const url = new URL(href, "https://example.invalid/");
     return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isUsableOpenGraphUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:")
+      && Boolean(url.hostname) && !url.username && !url.password;
   } catch {
     return false;
   }
@@ -936,6 +949,13 @@ export function auditSeoMetadataDetailed(htmlContent: string, xRobotsTag?: strin
           category: "Accessibility",
           message: `The document <html> lang attribute uses unknown primary language subtag "${primaryLanguageSubtag}". Use a primary language subtag registered by IANA.`,
         });
+      } else if (!pageLanguage.split("-").every((subtag) => /^[a-z0-9]{1,8}$/i.test(subtag))) {
+        add({
+          code: "accessibility.page_language.malformed_subtag",
+          severity: "error",
+          category: "Accessibility",
+          message: "The document <html> lang attribute has a malformed BCP 47 subtag. Use hyphen-separated ASCII letters or digits, with 1-8 characters per subtag.",
+        });
       }
     }
   }
@@ -943,9 +963,7 @@ export function auditSeoMetadataDetailed(htmlContent: string, xRobotsTag?: strin
   // --- Open Graph / Social Tags ---
   const requiredOpenGraphProperties = ["og:title", "og:type", "og:image", "og:url"] as const;
   const hasCompleteOpenGraphMetadata = requiredOpenGraphProperties.every((property) =>
-    $(`head > meta[property="${property}"]`).filter(
-      (_, element) => Boolean($(element).attr("content")?.trim()),
-    ).length > 0
+    Boolean($(`head > meta[property="${property}"]`).first().attr("content")?.trim())
   );
   if (!hasCompleteOpenGraphMetadata) {
     add({
@@ -954,6 +972,19 @@ export function auditSeoMetadataDetailed(htmlContent: string, xRobotsTag?: strin
       category: "SEO",
       message: "Open Graph basic metadata is incomplete or empty. Provide non-empty og:title, og:type, og:image, and og:url values.",
     });
+  }
+  // Open Graph gives the first declaration precedence; a later valid URL
+  // cannot reliably repair an invalid first image or canonical identity.
+  for (const property of ["og:image", "og:url"] as const) {
+    const value = $(`head > meta[property="${property}"]`).first().attr("content")?.trim();
+    if (value && !isUsableOpenGraphUrl(value)) {
+      add({
+        code: "seo.open_graph.invalid_url",
+        severity: "warning",
+        category: "SEO",
+        message: `Open Graph ${property} needs an absolute HTTP(S) URL without embedded credentials for reliable social previews.`,
+      });
+    }
   }
 
   return collector.details();

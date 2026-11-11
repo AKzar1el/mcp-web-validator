@@ -416,29 +416,52 @@ export async function captureScreenshots(
     page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
 
     const incompleteAssetUrls = new Set<string>();
-    const pendingAssetUrls = new Set<string>();
+    const pendingAssetUrls = new Map<string, number>();
+    // Request objects survive viewport changes; late completion events must
+    // not consume a newer viewport's pending request for the same URL.
+    const requestViewportGeneration = new WeakMap<object, number>();
+    const pendingVisualRequests = new WeakSet<object>();
+    let viewportGeneration = 0;
     const visualAsset = (kind: string): boolean => ["image", "stylesheet", "font", "script"].includes(kind);
     const isVisualRequest = (request: { resourceType?: () => string }): boolean =>
       typeof request.resourceType === "function" && visualAsset(request.resourceType());
+    const belongsToCurrentViewport = (request: object): boolean => {
+      const generation = requestViewportGeneration.get(request);
+      return generation === undefined || generation === viewportGeneration;
+    };
+    const finishVisualRequest = (request: { url(): string }): void => {
+      if (requestViewportGeneration.get(request) !== viewportGeneration
+        || !pendingVisualRequests.has(request)) return;
+      pendingVisualRequests.delete(request);
+      const url = request.url();
+      const count = pendingAssetUrls.get(url) ?? 0;
+      if (count <= 1) pendingAssetUrls.delete(url);
+      else pendingAssetUrls.set(url, count - 1);
+    };
     page.on("requestfailed", (request) => {
-      if (isVisualRequest(request)) {
-        pendingAssetUrls.delete(request.url());
+      if (isVisualRequest(request) && belongsToCurrentViewport(request)) {
+        finishVisualRequest(request);
         incompleteAssetUrls.add(request.url());
       }
     });
     page.on("requestfinished", (request) => {
-      if (isVisualRequest(request)) pendingAssetUrls.delete(request.url());
+      if (isVisualRequest(request)) finishVisualRequest(request);
     });
     page.on("response", (response) => {
       const request = response.request();
-      if (isVisualRequest(request) && response.status() >= 400) {
+      if (isVisualRequest(request) && belongsToCurrentViewport(request) && response.status() >= 400) {
         incompleteAssetUrls.add(request.url());
       }
     });
 
     await page.setRequestInterception(true);
     page.on("request", (request) => {
-      if (isVisualRequest(request)) pendingAssetUrls.add(request.url());
+      if (isVisualRequest(request)) {
+        const url = request.url();
+        requestViewportGeneration.set(request, viewportGeneration);
+        pendingVisualRequests.add(request);
+        pendingAssetUrls.set(url, (pendingAssetUrls.get(url) ?? 0) + 1);
+      }
       void resolveScreenshotRequest(request, localDirectory, (message) => {
         blockedRequestMessage ??= message;
       }).catch(() => {
@@ -447,6 +470,7 @@ export async function captureScreenshots(
     });
 
     for (const vp of viewports) {
+      viewportGeneration += 1;
       blockedRequestMessage = undefined;
       incompleteAssetUrls.clear();
       pendingAssetUrls.clear();
@@ -491,7 +515,7 @@ export async function captureScreenshots(
         height: vp.height,
         outputPath,
         ...((incompleteAssetUrls.size + pendingAssetUrls.size) > 0
-          ? { incompleteAssetCount: new Set([...incompleteAssetUrls, ...pendingAssetUrls]).size }
+          ? { incompleteAssetCount: new Set([...incompleteAssetUrls, ...pendingAssetUrls.keys()]).size }
           : {}),
       });
     }

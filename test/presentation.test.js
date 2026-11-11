@@ -339,7 +339,7 @@ test("link narration treats HTTP 425 Too Early as partial verification, not a br
   assert.doesNotMatch(output, /1 link returned an HTTP failure/i);
 });
 
-test("link narration keeps temporary HTTP 502/503/504 outages unverified without hiding HTTP 500", () => {
+test("link narration keeps server outages unverified without hiding confirmed missing links", () => {
   const outageOnly = linkCheckContent(
     [502, 503, 504].map((status) => ({ url: `https://example.test/${status}`, status, ok: false })),
   );
@@ -348,7 +348,7 @@ test("link narration keeps temporary HTTP 502/503/504 outages unverified without
   assert.doesNotMatch(outageOnly, /links? returned an HTTP failure/i);
 
   const mixed = linkCheckContent([
-    { url: "https://example.test/500", status: 500, ok: false },
+    { url: "https://example.test/404", status: 404, ok: false },
     { url: "https://example.test/503", status: 503, ok: false },
   ]);
   assert.match(mixed, /1 link returned an HTTP failure; 1 check unverified/i);
@@ -362,7 +362,7 @@ test("link narration distinguishes proxy challenges and misdirected requests fro
   assert.match(partial, /2 checks unverified/i);
   assert.doesNotMatch(partial, /links? returned an HTTP failure/i);
   const mixed = linkCheckContent([
-    { url: "https://example.test/500", status: 500, ok: false },
+    { url: "https://example.test/404", status: 404, ok: false },
     { url: "https://example.test/407", status: 407, ok: false },
   ]);
   assert.match(mixed, /1 link returned an HTTP failure; 1 check unverified/i);
@@ -375,7 +375,7 @@ test("link narration treats HTTP 511 network authentication as unverified, not a
   assert.doesNotMatch(partial, /1 link returned an HTTP failure/i);
   const mixed = linkCheckContent([
     { url: "https://example.test/network-login", status: 511, ok: false },
-    { url: "https://example.test/server-failure", status: 500, ok: false },
+    { url: "https://example.test/missing", status: 404, ok: false },
   ]);
   assert.match(mixed, /1 link returned an HTTP failure; 1 check unverified/i);
 });
@@ -385,7 +385,7 @@ test("link narration distinguishes Cloudflare edge failures from origin and TLS 
     url: `https://example.test/${status}`, status, ok: false,
   }));
   const output = linkCheckContent(links);
-  assert.match(output, /3 links returned HTTP failures; 5 checks unverified/i);
+  assert.match(output, /2 links returned HTTP failures; 6 checks unverified/i);
 });
 
 test("link narration treats HTTP 429 as a partial check instead of a broken URL", () => {

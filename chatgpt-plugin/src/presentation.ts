@@ -47,6 +47,7 @@ const SEVERITY_ORDER = { error: 0, warning: 1, info: 2 } as const;
 const MAX_FINDINGS_IN_CONTENT = 3;
 const MAX_MESSAGE_LENGTH = 220;
 const MAX_LOCATION_LENGTH = 120;
+const MAX_OVERVIEW_LENGTH = 1200;
 
 export function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : pluralForm}`;
@@ -67,6 +68,19 @@ function markdownText(value: string, maxLength = MAX_MESSAGE_LENGTH): string {
     .replace(/>/g, "&gt;")
     .replace(/\\/g, "\\\\")
     .replace(/([`*_[\]{}()#+\-.!|~])/g, "\\$1");
+}
+
+/** Keep ordinary prose/URLs readable while neutralizing Markdown constructs. */
+function markdownOverviewText(value: string): string {
+  return collapseWhitespace(value, MAX_OVERVIEW_LENGTH)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\\/g, "\\\\")
+    .replace(/([`*_[\]{}()!|~])/g, "\\$1")
+    .replace(/^(#{1,6})(?=\s)/, "\\$1")
+    .replace(/^([+-])(?=\s)/, "\\$1")
+    .replace(/^(\d+)([.)])(?=\s)/, (_match, number: string, mark: string) => `${number}\\${mark}`);
 }
 
 /** Wraps untrusted locations in a code span that embedded backticks cannot close. */
@@ -96,8 +110,11 @@ export function contentForOverview(
   overview: ResultOverview,
   findings: PresentableFinding[] = [],
 ) {
-  const sections = [overview.headline];
-  if (overview.detail && overview.detail !== overview.headline) sections.push(overview.detail);
+  // Overview prose can contain a fetched URL, so escape it just like findings.
+  const sections = [markdownOverviewText(overview.headline)];
+  if (overview.detail && overview.detail !== overview.headline) {
+    sections.push(markdownOverviewText(overview.detail));
+  }
 
   const actionable = findings
     .map((finding, index) => ({ finding, index }))
@@ -116,7 +133,7 @@ export function contentForOverview(
     });
 
   if (actionable.length > 0) sections.push(`**Fix first**\n${actionable.join("\n")}`);
-  if (overview.next_action) sections.push(`**Next step:** ${overview.next_action}`);
+  if (overview.next_action) sections.push(`**Next step:** ${markdownOverviewText(overview.next_action)}`);
 
   return [{ type: "text" as const, text: sections.join("\n\n") }];
 }

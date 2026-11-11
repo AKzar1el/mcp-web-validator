@@ -115,6 +115,8 @@ const siteAuditOutputSchema = {
   discovery: z.enum(["sitemap", "root_only", "partial"]),
   discovery_error: z.enum(["robots_unavailable", "sitemap_unavailable", "sitemap_invalid", "sitemap_query_unsupported"]).optional(),
   pages_discovered: z.number().int().nonnegative(),
+  pages_eligible: z.number().int().nonnegative(),
+  pages_remaining: z.number().int().nonnegative(),
   pages_selected: z.number().int().nonnegative(),
   pages_audited: z.number().int().nonnegative(),
   pages_partial: z.number().int().nonnegative(),
@@ -728,7 +730,10 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     : result.discovery_error
       ? `Discovery was incomplete (${result.discovery_error}); selected-page coverage is not site-wide coverage. `
       : "";
-  const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_selected, "page")} were selected. ${discoveryDetail}${scoreDetail} Link checks are intentionally not run by this bounded site tool.`;
+  const remainingDetail = result.pages_remaining === 0
+    ? "No discovered crawlable pages remain for later batches."
+    : `${plural(result.pages_remaining, "discovered crawlable page")} ${result.pages_remaining === 1 ? "remains" : "remain"} for later batches.`;
+  const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_eligible, "discovered crawlable page")} ${result.pages_eligible === 1 ? "is" : "are"} eligible, and ${plural(result.pages_selected, "page")} ${result.pages_selected === 1 ? "was" : "were"} selected in this batch. ${remainingDetail} ${discoveryDetail}${scoreDetail} Link checks are intentionally not run by this bounded site tool.`;
   const nextAction = result.next_page_offset !== undefined
     ? `Continue with page_offset ${result.next_page_offset} and expected_discovery_fingerprint ${result.discovery_fingerprint} to audit the same sitemap snapshot; restart at offset 0 if discovery changes.`
     : result.discovery_error === "sitemap_query_unsupported"
@@ -755,6 +760,7 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     truncated: result.truncated || result.issue_groups_truncated,
     counts: [
       metric("pages_audited", "Pages audited", result.pages_audited, "success"),
+      metric("pages_remaining", "Discovered pages remaining", result.pages_remaining, "info"),
       metric("pages_partial", "Pages partial", result.pages_partial, "warning"),
       metric("pages_failed", "Pages failed", result.pages_failed, "error"),
       metric("pages_skipped_robots", "Pages excluded by robots", result.pages_skipped_robots, "warning"),
@@ -780,6 +786,8 @@ function failedPublicSiteAudit(error: string) {
       site_url: "",
       discovery: "root_only" as const,
       pages_discovered: 0,
+      pages_eligible: 0,
+      pages_remaining: 0,
       pages_selected: 0,
       pages_audited: 0,
       pages_partial: 0,

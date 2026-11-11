@@ -79,6 +79,8 @@ export interface PublicSiteAuditResult {
   discovery: SiteDiscovery;
   discovery_error?: "robots_unavailable" | "sitemap_unavailable" | "sitemap_invalid" | "sitemap_query_unsupported";
   pages_discovered: number;
+  pages_eligible: number;
+  pages_remaining: number;
   pages_selected: number;
   pages_audited: number;
   pages_partial: number;
@@ -1084,6 +1086,8 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
     discovery: discovery.discovery,
     ...(discovery.discoveryError ? { discovery_error: discovery.discoveryError } : {}),
     pages_discovered: candidates.length,
+    pages_eligible: eligible.length,
+    pages_remaining: eligible.length - pageOffset - selected.length,
     pages_selected: selected.length,
     pages_audited: pagesAudited,
     pages_partial: pagesPartial,

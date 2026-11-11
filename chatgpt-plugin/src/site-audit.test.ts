@@ -271,6 +271,8 @@ describe("auditPublicSite", () => {
       discovery: "sitemap",
       sitemap_url: "https://example.com/sitemap.xml",
       pages_discovered: 3,
+      pages_eligible: 2,
+      pages_remaining: 0,
       pages_selected: 2,
       pages_audited: 2,
       pages_skipped_robots: 1,
@@ -1160,6 +1162,8 @@ describe("auditPublicSite", () => {
       sitemap_url: "https://example.com/sitemap.xml",
       discovery: "sitemap",
       pages_discovered: 3,
+      pages_eligible: 2,
+      pages_remaining: 1,
       pages_selected: 1,
       pages_audited: 1,
       pages_skipped_robots: 1,
@@ -1180,6 +1184,8 @@ describe("auditPublicSite", () => {
       expectedDiscoveryFingerprint: result.discovery_fingerprint,
     });
     expect(continuation.pages[0]?.url).toBe("https://example.com/allowed");
+    expect(continuation.pages_eligible).toBe(2);
+    expect(continuation.pages_remaining).toBe(0);
     await expect(auditPublicSite({
       siteUrl: "https://example.com/", maxPages: 1, pageOffset: 99,
       expectedDiscoveryFingerprint: result.discovery_fingerprint,

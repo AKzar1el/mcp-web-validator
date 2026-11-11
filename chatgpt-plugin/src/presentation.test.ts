@@ -60,4 +60,33 @@ describe("contentForOverview", () => {
     expect(text).toContain(escaped);
     expect(text.match(/^- \*\*Error/gm)).toHaveLength(1);
   });
+
+  it.each([
+    ["[click](https://evil.example)", "\\[click\\]\\(https://evil.example\\)"],
+    ["![image](https://evil.example/x)", "\\!\\[image\\]\\(https://evil.example/x\\)"],
+    ["`inline code`", "\\`inline code\\`"],
+    ["**bold**", "\\*\\*bold\\*\\*"],
+    ["<script>alert(1)</script>", "&lt;script&gt;alert\\(1\\)&lt;/script&gt;"],
+    ["multiline\ntext", "multiline text"],
+  ] as const)("escapes %s in overview prose", (message, escaped) => {
+    const text = contentForOverview({
+      ...overview,
+      headline: `Scan ${message}`,
+      detail: `Audited https://example.test/?q=${message}.`,
+      next_action: `Review ${message}`,
+    })[0]?.text ?? "";
+
+    expect(text).toContain(`Scan ${escaped}`);
+    expect(text).toContain(`?q=${escaped}`);
+    expect(text).toContain(`**Next step:** Review ${escaped}`);
+  });
+
+  it.each([
+    ["# fake heading", "\\# fake heading"],
+    ["- fake list", "\\- fake list"],
+    ["1. fake list", "1\\. fake list"],
+  ] as const)("escapes block syntax at the start of overview text: %s", (message, escaped) => {
+    const text = contentForOverview({ ...overview, headline: message })[0]?.text ?? "";
+    expect(text.startsWith(escaped)).toBe(true);
+  });
 });

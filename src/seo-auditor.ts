@@ -46,7 +46,10 @@ function isUnverifiedServerError(status: number): boolean {
 
 /** Ambiguous responses, access restrictions and network errors cannot establish destination health. */
 export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
-  return typeof status !== "number" || isUnverifiedServerError(status) || [300, 304, 401, 403, 406, 407, 408, 409, 411, 412, 415, 416, 417, 421, 422, 423, 424, 425, 426, 428, 429, 431, 451].includes(status);
+  return typeof status !== "number"
+    || (status >= 300 && status < 400 && !isHttpRedirectStatus(status))
+    || isUnverifiedServerError(status)
+    || [401, 403, 406, 407, 408, 409, 411, 412, 415, 416, 417, 421, 422, 423, 424, 425, 426, 428, 429, 431, 451].includes(status);
 }
 
 export interface AuditCounts {

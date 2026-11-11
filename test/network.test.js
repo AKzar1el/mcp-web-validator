@@ -1821,6 +1821,26 @@ test("link checker accepts a successful GET after an inconclusive HEAD 304", asy
   }
 });
 
+test("link checker does not claim unrecognized 3xx responses are reachable", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const status of [305, 306, 399]) {
+      const methods = [];
+      globalThis.fetch = async (_input, init) => {
+        methods.push(init?.method);
+        return new Response(null, { status });
+      };
+      const links = await checkBrokenLinks(`<a href="https://1.1.1.1/unhandled-${status}">Link</a>`, undefined, 1);
+      assert.equal(links[0].status, status);
+      assert.equal(isUnverifiedLinkStatus(status), true);
+      assert.equal(links[0].ok, false);
+      assert.deepEqual(methods, ["HEAD"]);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker confirms a HEAD 401 with a bounded GET before reporting availability", async () => {
   const originalFetch = globalThis.fetch;
   const methods = [];

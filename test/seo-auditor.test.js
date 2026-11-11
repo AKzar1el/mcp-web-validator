@@ -454,6 +454,28 @@ test("aria-labelledby accepts a directly referenced aria-label as the accessible
     );
   }
 });
+test("aria-labelledby uses non-decorative descendant image alt text in referenced labels", () => {
+  const label = '<span id="ref"><img src="label.png" alt="Account settings"></span>';
+  for (const [control, code] of [
+    ['<iframe src="/account" aria-labelledby="ref"></iframe>', "accessibility.iframe_name.missing_or_empty"],
+    ['<input type="image" src="search.png" aria-labelledby="ref">', "accessibility.input_image_alt.missing_or_empty"],
+    ['<div role="img" aria-labelledby="ref"></div>', "accessibility.image_alt.missing"],
+  ]) {
+    const html = label + control;
+    assert.equal(auditSeoMetadata(html).some((issue) => issue.code === code), false, html);
+  }
+
+  for (const nestedImage of [
+    '<img src="label.png" alt="">',
+    '<img src="label.png" alt="   ">',
+    '<img src="label.png" alt="Hidden name" aria-hidden="true">',
+    '<img src="label.png" alt="Hidden name" style="visibility: hidden">',
+    '<img src="label.png" alt="Decorative" role="presentation">',
+  ]) {
+    const html = `<span id="ref">${nestedImage}</span><iframe src="/account" aria-labelledby="ref"></iframe>`;
+    assert.equal(auditSeoMetadata(html).some((issue) => issue.code === "accessibility.iframe_name.missing_or_empty"), true, html);
+  }
+});
 test("visible aria-labelledby targets exclude hidden descendant-only text", () => {
   for (const hidden of [
     "hidden",

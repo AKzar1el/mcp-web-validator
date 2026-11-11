@@ -1137,7 +1137,30 @@ describe("link checks", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it.each([406, 407, 408, 451, 502, 503, 504])("classifies inconclusive HTTP %i as unverified", (status) => {
+  it.each([305, 306, 399])("does not report an unknown HTTP %i redirect as healthy", async (status) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkBrokenLinks('<a href="https://example.com/page">Page</a>', undefined, 1)).resolves.toEqual([
+      { url: "https://example.com/page", status, ok: false, message: undefined },
+    ]);
+    expect(isUnverifiedLinkStatus(status)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([301, 302, 303, 307, 308])("preserves known HTTP %i redirects as redirects", (status) => {
+    expect(isUnverifiedLinkStatus(status)).toBe(false);
+  });
+
+  it.each([500, 501, 505, 507, 510, 599])("classifies inconclusive HTTP %i server failure as unverified", (status) => {
+    expect(isUnverifiedLinkStatus(status)).toBe(true);
+  });
+
+  it.each([525, 526])("keeps explicit HTTP %i TLS failures distinct", (status) => {
+    expect(isUnverifiedLinkStatus(status)).toBe(false);
+  });
+
+  it.each([406, 407, 408, 411, 451, 502, 503, 504])("classifies inconclusive HTTP %i as unverified", (status) => {
     expect(isUnverifiedLinkStatus(status)).toBe(true);
   });
 

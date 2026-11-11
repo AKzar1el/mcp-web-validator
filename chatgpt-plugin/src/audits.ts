@@ -25,9 +25,16 @@ export function isHttpRedirectStatus(status: LinkStatus["status"]): boolean {
   return typeof status === "number" && HTTP_REDIRECT_STATUSES.has(status);
 }
 
+function isUnverifiedServerError(status: number): boolean {
+  // Keep explicit TLS failures distinct from uncertain server availability.
+  return status >= 500 && status <= 599 && status !== 525 && status !== 526;
+}
+
 export function isUnverifiedLinkStatus(status: LinkStatus["status"]): boolean {
   return typeof status !== "number"
-    || [300, 304, 401, 403, 406, 407, 408, 409, 412, 415, 416, 417, 421, 422, 423, 424, 425, 426, 428, 429, 431, 451, 502, 503, 504, 511, 520, 521, 522, 523, 524].includes(status);
+    || (status >= 300 && status < 400 && !isHttpRedirectStatus(status))
+    || isUnverifiedServerError(status)
+    || [401, 403, 406, 407, 408, 409, 411, 412, 415, 416, 417, 421, 422, 423, 424, 425, 426, 428, 429, 431, 451].includes(status);
 }
 
 export interface AuditResult {

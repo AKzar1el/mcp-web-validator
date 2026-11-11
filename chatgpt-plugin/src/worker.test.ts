@@ -1188,4 +1188,40 @@ describe("public site audit", () => {
       expect(continuation.structuredContent.error).toContain("restart with page_offset 0");
     }
   });
+
+  it("keeps failed validation guidance visible alongside a pending site-audit batch", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response("<urlset><url><loc>https://example.com/</loc></url><url><loc>https://example.com/next</loc></url></urlset>", {
+          headers: { "content-type": "application/xml" },
+        });
+      }
+      if (url === "https://example.com/") {
+        return new Response("<!doctype html><html lang='en'><title>Example</title><body><h1>Example</h1></body></html>", {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) throw new Error("validator unavailable");
+      throw new Error(`Unexpected fetch target: ${url}`);
+    }));
+
+    const result = await callTool("audit_public_site", { site_url: "https://example.com/", max_pages: 1 });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      pages_partial: 1,
+      pages_audited: 0,
+      pages_eligible: 2,
+      pages_remaining: 1,
+      next_page_offset: 1,
+      overview: { status: "partial" },
+    });
+    expect(result.structuredContent.overview.detail).toContain("1 discovered crawlable page remains");
+    const nextAction = result.structuredContent.overview.next_action;
+    expect(nextAction).toContain("page_offset 1");
+    expect(nextAction).toContain("Review partial and failed page coverage");
+  });
 });

@@ -734,8 +734,11 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     ? "No discovered crawlable pages remain for later batches."
     : `${plural(result.pages_remaining, "discovered crawlable page")} ${result.pages_remaining === 1 ? "remains" : "remain"} for later batches.`;
   const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_eligible, "discovered crawlable page")} ${result.pages_eligible === 1 ? "is" : "are"} eligible, and ${plural(result.pages_selected, "page")} ${result.pages_selected === 1 ? "was" : "were"} selected in this batch. ${remainingDetail} ${discoveryDetail}${scoreDetail} Link checks are intentionally not run by this bounded site tool.`;
+  const incompletePageGuidance = result.pages_partial > 0 || result.pages_failed > 0
+    ? " Review partial and failed page coverage, then retry affected batches after resolving failures."
+    : "";
   const nextAction = result.next_page_offset !== undefined
-    ? `Continue with page_offset ${result.next_page_offset} and expected_discovery_fingerprint ${result.discovery_fingerprint} to audit the same sitemap snapshot; restart at offset 0 if discovery changes.`
+    ? `Continue with page_offset ${result.next_page_offset} and expected_discovery_fingerprint ${result.discovery_fingerprint} to audit the same sitemap snapshot; restart at offset 0 if discovery changes.${incompletePageGuidance}`
     : result.discovery_error === "sitemap_query_unsupported"
       ? "Provide public same-origin sitemap and page URLs without query parameters, then rerun discovery; skipped URLs were not audited."
     : result.discovery_error

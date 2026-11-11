@@ -478,6 +478,26 @@ test("report treats ambiguous HTTP 300 as incomplete verification rather than a 
   assert.match(result.report, /0 redirects to review of 1 checked/);
 });
 
+test("report withholds link health for unrecognized 3xx responses", () => {
+  for (const status of [305, 306, 399]) {
+    const result = createValidationReport({
+      htmlFilePath: "unknown-redirect.html",
+      cssAudited: false,
+      htmlMessages: [],
+      cssMessages: [],
+      seoIssues: [],
+      schemaIssues: [],
+      links: [{ url: "https://example.test/unknown", status, ok: false }],
+    });
+    assert.equal(result.summary.brokenLinks, 0);
+    assert.equal(result.summary.unverifiedLinks, 1);
+    assert.equal(result.summary.linkScore, null);
+    assert.equal(result.summary.overallScore, null);
+    assert.match(result.report, /Incomplete link verification/);
+    assert.match(result.report, /0 redirects to review of 1 checked/);
+  }
+});
+
 test("report withholds link score on HTTP 408 instead of claiming a broken URL", () => {
   const result = createValidationReport({
     htmlFilePath: "request-timeout.html",

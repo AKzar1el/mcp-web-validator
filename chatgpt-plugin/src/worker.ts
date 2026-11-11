@@ -1422,7 +1422,11 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           content: contentForOverview(overview, siteAuditFindings(result.issue_groups)),
         };
       } catch (cause) {
-        const error = cause instanceof PublicHtmlFetchError || (cause instanceof Error && cause.message.startsWith("Stale site audit continuation:"))
+        const isContinuationError = cause instanceof Error && (
+          cause.message.startsWith("Stale site audit continuation:")
+          || cause.message.startsWith("Invalid site audit continuation:")
+        );
+        const error = cause instanceof PublicHtmlFetchError || isContinuationError
           ? cause.message
           : "The public site audit could not be completed. Please try again shortly.";
         console.error(JSON.stringify({

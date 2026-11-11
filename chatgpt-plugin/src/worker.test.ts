@@ -1141,4 +1141,40 @@ describe("public site audit", () => {
     expect(JSON.stringify(result)).not.toContain(privateMarker);
     expect(result.content[0]?.text).toContain("Public site audit");
   });
+
+  it("explains exhausted or out-of-range site audit continuation offsets", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") {
+        return new Response("<!doctype html><html><head><title>Example</title></head><body><h1>Example</h1></body></html>", {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response("<urlset><url><loc>https://example.com/</loc></url></urlset>", {
+          headers: { "content-type": "application/xml" },
+        });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    }));
+
+    const first = await callTool("audit_public_site", { site_url: "https://example.com/", max_pages: 1 });
+    expect(first.isError).toBeUndefined();
+    const fingerprint = first.structuredContent.discovery_fingerprint;
+    for (const offset of [1, 99]) {
+      const continuation = await callTool("audit_public_site", {
+        site_url: "https://example.com/",
+        max_pages: 1,
+        page_offset: offset,
+        expected_discovery_fingerprint: fingerprint,
+      });
+      expect(continuation.isError).toBe(true);
+      expect(continuation.structuredContent.error).toContain("Invalid site audit continuation");
+      expect(continuation.structuredContent.error).toContain("restart with page_offset 0");
+    }
+  });
 });

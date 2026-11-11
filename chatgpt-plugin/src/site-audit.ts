@@ -1060,8 +1060,8 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
   if (options.pageOffset > 0 && options.expectedDiscoveryFingerprint !== discoveryFingerprint) {
     throw new Error("Stale site audit continuation: restart with page_offset 0 and use its discovery fingerprint.");
   }
-  if (options.pageOffset > eligible.length) {
-    throw new Error("Invalid site audit continuation: page_offset exceeds the discovered eligible pages; restart with page_offset 0.");
+  if (options.pageOffset > 0 && options.pageOffset >= eligible.length) {
+    throw new Error("Invalid site audit continuation: page_offset is at or beyond the discovered eligible pages; restart with page_offset 0.");
   }
 
   const pageOffset = options.pageOffset;

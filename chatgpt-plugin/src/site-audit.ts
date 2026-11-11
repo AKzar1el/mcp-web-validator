@@ -972,6 +972,10 @@ function groupFindings(
           pages: new Set<string>(),
         };
         groups.set(key, group);
+      } else if (finding.code === "accessibility.image_alt.missing" && group.message !== finding.message) {
+        // The same rule covers img, role=img, and SVG, which require different labels.
+        // Use accurate shared guidance while retaining each page's specific finding.
+        group.message = "Every affected image or element with an image role needs an accessible name. Use meaningful alt text on images or a supported label such as aria-label, aria-labelledby, title, or an SVG title as appropriate.";
       }
       group.pages.add(page.fetched_url ?? page.url);
     }

@@ -108,6 +108,41 @@ describe("robots rules", () => {
 
 describe("auditPublicSite", () => {
 
+  it("rejects a query-bearing seed URL before any network request or mislabeled page audit", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(auditPublicSite({
+      siteUrl: "https://example.com/?preview=private",
+      maxPages: 1,
+      pageOffset: 0,
+    })).rejects.toThrow(/query parameters/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a query-bearing seed redirect before fetching the parameterized target", async () => {
+    const visited: string[] = [];
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      visited.push(url);
+      if (url === "https://example.com/robots.txt" || url === "https://example.com/sitemap.xml") {
+        return new Response("missing", { status: 404 });
+      }
+      if (url === "https://example.com/") {
+        return new Response(null, { status: 302, headers: { location: "/?session=private" } });
+      }
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(auditPublicSite({
+      siteUrl: "https://example.com/",
+      maxPages: 1,
+      pageOffset: 0,
+    })).rejects.toThrow(/query parameters/i);
+    expect(visited).not.toContain("https://example.com/?session=private");
+  });
+
   it("blocks sitemap-page redirects into robots-disallowed paths before the target GET", async () => {
     const visited: string[] = [];
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {

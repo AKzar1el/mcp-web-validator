@@ -867,6 +867,13 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
           category: "Accessibility",
           message: `The document <html> lang attribute uses unknown primary language subtag "${primaryLanguageSubtag}". Use a primary language subtag registered by IANA.`,
         });
+      } else if (!pageLanguage.split("-").every((subtag) => /^[a-z0-9]{1,8}$/i.test(subtag))) {
+        collector.add({
+          code: "accessibility.page_language.malformed_subtag",
+          severity: "error",
+          category: "Accessibility",
+          message: "The document <html> lang attribute has a malformed BCP 47 subtag. Use hyphen-separated ASCII letters or digits, with 1-8 characters per subtag.",
+        });
       }
     }
   }

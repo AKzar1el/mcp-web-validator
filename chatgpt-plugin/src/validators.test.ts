@@ -868,6 +868,27 @@ describe("bounded audits", () => {
     expect(result.counts.warning).toBe(0);
   });
 
+  it("counts visible graphemes rather than UTF-16 code units in editorial length hints", () => {
+    const symbol = String.fromCodePoint(0x1f680);
+    const short = auditSeoMetadata(
+      `<title>${symbol.repeat(20)}</title><meta name="description" content="${symbol.repeat(75)}">`,
+    );
+    expect(short.issues.find((issue) => issue.code === "seo.title.length")?.message)
+      .toMatch(/^Title is 20 characters\. This is shorter/);
+    expect(short.issues.find((issue) => issue.code === "seo.meta_description.length")?.message)
+      .toMatch(/^Meta description is 75 characters\. This is shorter/);
+
+    const ordinary = auditSeoMetadata(
+      `<title>${symbol.repeat(40)}</title><meta name="description" content="${symbol.repeat(140)}">`,
+    );
+    expect(ordinary.issues.find((issue) => issue.code === "seo.title.length")).toBeUndefined();
+    expect(ordinary.issues.find((issue) => issue.code === "seo.meta_description.length")).toBeUndefined();
+
+    const combining = auditSeoMetadata(`<title>${"e\u0301".repeat(20)}</title>`);
+    expect(combining.issues.find((issue) => issue.code === "seo.title.length")?.message)
+      .toMatch(/^Title is 20 characters\. This is shorter/);
+  });
+
   it("matches the standard meta description name ASCII case-insensitively", () => {
     const description = "D".repeat(140);
     const result = auditSeoMetadata(`<meta name="Description" content="${description}">`);

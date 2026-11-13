@@ -330,6 +330,16 @@ function canParseCanonicalHref(href: string): boolean {
   }
 }
 
+function isUsableOpenGraphUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:")
+      && Boolean(url.hostname) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
 function hasIndexBlockingXRobotsTagForGoogle(value: string | undefined): boolean {
   if (!value) return false;
   const parameterizedRules = new Set([
@@ -375,6 +385,16 @@ function hasAmbiguousFoldedXRobotsNoindex(value: string | undefined): boolean {
   return false;
 }
 
+// Keep hosted SEO length hints consistent with local audits for emoji and
+// combining marks; UTF-16 code units are not visible editorial characters.
+const editorialGraphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function countEditorialCharacters(text: string): number {
+  let count = 0;
+  for (const _ of editorialGraphemes.segment(text)) count += 1;
+  return count;
+}
+
 /**
  * Checks on-page metadata and accessibility signals without fetching or storing
  * any external content.
@@ -393,6 +413,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
     });
   }
   const title = titleTags.first().text().trim();
+  const titleLength = countEditorialCharacters(title);
   if (!title) {
     collector.add({
       code: "seo.title.missing_or_empty",
@@ -400,19 +421,19 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
       category: "SEO",
       message: "Missing or empty <title> tag.",
     });
-  } else if (title.length < 30) {
+  } else if (titleLength < 30) {
     collector.add({
       code: "seo.title.length",
       severity: "info",
       category: "SEO",
-      message: `Title is ${title.length} characters. This is shorter than the audit's common editorial range; review whether it describes the page clearly.`,
+      message: `Title is ${titleLength} characters. This is shorter than the audit's common editorial range; review whether it describes the page clearly.`,
     });
-  } else if (title.length > 60) {
+  } else if (titleLength > 60) {
     collector.add({
       code: "seo.title.length",
       severity: "info",
       category: "SEO",
-      message: `Title is ${title.length} characters. This is longer than the audit's common editorial range; Google title links may be shortened or rewritten depending on context and device.`,
+      message: `Title is ${titleLength} characters. This is longer than the audit's common editorial range; Google title links may be shortened or rewritten depending on context and device.`,
     });
   }
 
@@ -426,6 +447,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
     });
   }
   const description = metaDescriptions.first().attr("content")?.trim() ?? "";
+  const descriptionLength = countEditorialCharacters(description);
   if (!description) {
     collector.add({
       code: "seo.meta_description.missing_or_empty",
@@ -433,19 +455,19 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
       category: "SEO",
       message: "Missing or empty meta description.",
     });
-  } else if (description.length < 120) {
+  } else if (descriptionLength < 120) {
     collector.add({
       code: "seo.meta_description.length",
       severity: "info",
       category: "SEO",
-      message: `Meta description is ${description.length} characters. This is shorter than the audit's common editorial range; review whether it provides a useful page summary.`,
+      message: `Meta description is ${descriptionLength} characters. This is shorter than the audit's common editorial range; review whether it provides a useful page summary.`,
     });
-  } else if (description.length > 160) {
+  } else if (descriptionLength > 160) {
     collector.add({
       code: "seo.meta_description.length",
       severity: "info",
       category: "SEO",
-      message: `Meta description is ${description.length} characters. This is longer than the audit's common editorial range; displayed snippets may be shortened depending on the query and device.`,
+      message: `Meta description is ${descriptionLength} characters. This is longer than the audit's common editorial range; displayed snippets may be shortened depending on the query and device.`,
     });
   }
 
@@ -845,15 +867,20 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
           category: "Accessibility",
           message: `The document <html> lang attribute uses unknown primary language subtag "${primaryLanguageSubtag}". Use a primary language subtag registered by IANA.`,
         });
+      } else if (!pageLanguage.split("-").every((subtag) => /^[a-z0-9]{1,8}$/i.test(subtag))) {
+        collector.add({
+          code: "accessibility.page_language.malformed_subtag",
+          severity: "error",
+          category: "Accessibility",
+          message: "The document <html> lang attribute has a malformed BCP 47 subtag. Use hyphen-separated ASCII letters or digits, with 1-8 characters per subtag.",
+        });
       }
     }
   }
 
   const requiredOpenGraphProperties = ["og:title", "og:type", "og:image", "og:url"] as const;
   const hasCompleteOpenGraphMetadata = requiredOpenGraphProperties.every((property) =>
-    $(`head > meta[property="${property}"]`).filter(
-      (_, element) => Boolean($(element).attr("content")?.trim()),
-    ).length > 0
+    Boolean($(`head > meta[property="${property}"]`).first().attr("content")?.trim())
   );
   if (!hasCompleteOpenGraphMetadata) {
     collector.add({
@@ -862,6 +889,18 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
       category: "SEO",
       message: "Open Graph basic metadata is incomplete or empty. Provide non-empty og:title, og:type, og:image, and og:url values.",
     });
+  }
+  // A later valid declaration cannot reliably repair an invalid first one.
+  for (const property of ["og:image", "og:url"] as const) {
+    const value = $(`head > meta[property="${property}"]`).first().attr("content")?.trim();
+    if (value && !isUsableOpenGraphUrl(value)) {
+      collector.add({
+        code: "seo.open_graph.invalid_url",
+        severity: "warning",
+        category: "SEO",
+        message: `Open Graph ${property} needs an absolute HTTP(S) URL without embedded credentials for reliable social previews.`,
+      });
+    }
   }
 
   return collector.result();

@@ -663,7 +663,9 @@ export const WIDGET_HTML = `<!doctype html>
       }
 
       function inferKind(data) {
-        if (Array.isArray(data.issue_groups)) return "site";
+        if (Array.isArray(data.issue_groups) || ["pages_selected", "pages_audited", "pages_partial", "pages_failed"].some(function (key) {
+          return asNumber(data[key], undefined) !== undefined;
+        })) return "site";
         if (Array.isArray(data.html_messages) || Array.isArray(data.css_messages) || Array.isArray(data.seo_findings)) return "report";
         if (Array.isArray(data.links)) return "links";
         if (Array.isArray(data.issues)) {
@@ -770,7 +772,7 @@ export const WIDGET_HTML = `<!doctype html>
         const info = countBySeverity(findings, "info");
         const passed = countBySeverity(findings, "success");
         const hasError = typeof data.error === "string" && data.error.trim();
-        const status = hasError ? (findings.length > 0 ? "partial" : "failed") : errors > 0 ? "issues" : warnings > 0 || info > 0 ? "review" : "clean";
+        let status = hasError ? (findings.length > 0 ? "partial" : "failed") : errors > 0 ? "issues" : warnings > 0 || info > 0 ? "review" : "clean";
         let headlineText;
         let detailText;
         let counts;
@@ -817,12 +819,20 @@ export const WIDGET_HTML = `<!doctype html>
           total = asNumber(data.pages_selected, 0);
           headlineText = total > 0 ? plural(total, "page selected for audit", "pages selected for audit") : "No eligible sitemap pages were selected";
           detailText = "Review the site-wide issue groups and page coverage before continuing the crawl.";
+          const audited = asNumber(data.pages_audited, 0);
+          const partial = asNumber(data.pages_partial, 0);
+          const failed = asNumber(data.pages_failed, 0);
+          if (!hasError) {
+            if (failed > 0 && audited === 0 && partial === 0) status = "failed";
+            else if (partial > 0 || failed > 0 || audited + partial + failed < total) status = "partial";
+          }
           counts = {
-            pages_audited: asNumber(data.pages_audited, 0),
-            pages_partial: asNumber(data.pages_partial, 0),
-            pages_failed: asNumber(data.pages_failed, 0),
-            audit_health_score: asNumber(data.audit_health_score, 0),
+            pages_audited: audited,
+            pages_partial: partial,
+            pages_failed: failed,
           };
+          const healthScore = asNumber(data.audit_health_score, undefined);
+          if (healthScore !== undefined) counts.audit_health_score = healthScore;
         } else {
           headlineText = total > 0 ? plural(total, "finding returned", "findings returned") : "Validation complete";
           detailText = total > 0 ? "Review the findings below." : "No detailed findings were returned.";

@@ -974,6 +974,10 @@ function groupFindings(
           pages: new Set<string>(),
         };
         groups.set(key, group);
+      } else if (finding.code === "accessibility.image_alt.missing" && group.message !== finding.message) {
+        // The same rule covers img, role=img, and SVG, which require different labels.
+        // Use accurate shared guidance while retaining each page's specific finding.
+        group.message = "Every affected image or element with an image role needs an accessible name. Use meaningful alt text on images or a supported label such as aria-label, aria-labelledby, title, or an SVG title as appropriate.";
       }
       group.pages.add(page.fetched_url ?? page.url);
     }
@@ -1016,11 +1020,19 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
   if (!initialUrl) {
     throw new PublicHtmlFetchError("blocked_url", "Use a public HTTP(S) URL without credentials or a custom port.");
   }
+  // Site audits report query-free crawl URLs. Never fetch query-specific HTML
+  // and then attribute its findings to a different, query-free page.
+  if (initialUrl.search) {
+    throw new PublicHtmlFetchError("blocked_url", "Site audits do not support query parameters in seed URLs.");
+  }
   let origin = initialUrl.origin;
   let discovery = await discoverSitePages(origin);
   const seed = isAllowedByRobots(initialUrl, discovery.rules)
     ? await fetchPublicHtml(options.siteUrl, {
         allowRedirect: async (target) => {
+          if (target.search) {
+            throw new PublicHtmlFetchError("blocked_url", "Site audit redirects with query parameters are unsupported.");
+          }
           if (target.origin === origin) return isAllowedByRobots(target, discovery.rules);
           // Canonical-host redirects need the destination's own robots policy
           // before any HTML is requested from that origin.

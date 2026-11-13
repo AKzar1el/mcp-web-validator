@@ -108,6 +108,41 @@ describe("robots rules", () => {
 
 describe("auditPublicSite", () => {
 
+  it("rejects a query-bearing seed URL before any network request or mislabeled page audit", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(auditPublicSite({
+      siteUrl: "https://example.com/?preview=private",
+      maxPages: 1,
+      pageOffset: 0,
+    })).rejects.toThrow(/query parameters/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a query-bearing seed redirect before fetching the parameterized target", async () => {
+    const visited: string[] = [];
+    const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      visited.push(url);
+      if (url === "https://example.com/robots.txt" || url === "https://example.com/sitemap.xml") {
+        return new Response("missing", { status: 404 });
+      }
+      if (url === "https://example.com/") {
+        return new Response(null, { status: 302, headers: { location: "/?session=private" } });
+      }
+      throw new Error(`Unexpected fetch target: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(auditPublicSite({
+      siteUrl: "https://example.com/",
+      maxPages: 1,
+      pageOffset: 0,
+    })).rejects.toThrow(/query parameters/i);
+    expect(visited).not.toContain("https://example.com/?session=private");
+  });
+
   it("blocks sitemap-page redirects into robots-disallowed paths before the target GET", async () => {
     const visited: string[] = [];
     const fetchMock = vi.fn(async (target: RequestInfo | URL) => {
@@ -950,6 +985,54 @@ describe("auditPublicSite", () => {
 
     expect(result.pages[0]?.top_findings).toContainEqual(expect.objectContaining({ code: "accessibility.image_alt.missing" }));
     expect(result.issue_groups).toContainEqual(expect.objectContaining({ code: "accessibility.image_alt.missing" }));
+  });
+
+  it.each([
+    ["img then SVG", "<img src='hero.png'>", "<svg role='img'></svg>", true],
+    ["SVG then img", "<svg role='img'></svg>", "<img src='hero.png'>", true],
+    ["img then role image", "<img src='hero.png'>", "<div role='img'></div>", true],
+    ["two img elements", "<img src='hero.png'>", "<img src='second.png'>", false],
+  ])("preserves accurate image-alt site guidance for %s", async (_name, firstImage, secondImage, mixed) => {
+    const html = (image: string, canonical: string) =>
+      `<!doctype html><html lang='en'><head><title>A descriptive page title for testing</title><meta name=description content='A useful description with enough characters to meet the normal metadata target for this focused test page.'><meta name=viewport content='width=device-width'><link rel=canonical href='${canonical}'></head><body><h1>Example</h1>${image}</body></html>`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (target: RequestInfo | URL) => {
+        const url = String(target);
+        if (url === "https://example.com/") return htmlResponse(html(firstImage, url));
+        if (url === "https://example.com/second") return htmlResponse(html(secondImage, url));
+        if (url === "https://example.com/robots.txt") {
+          return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+        }
+        if (url === "https://example.com/sitemap.xml") {
+          return new Response("<urlset><url><loc>https://example.com/</loc></url><url><loc>https://example.com/second</loc></url></urlset>", {
+            headers: { "content-type": "application/xml" },
+          });
+        }
+        if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+        throw new Error(`Unexpected fetch target: ${url}`);
+      }),
+    );
+
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 2, pageOffset: 0 });
+    const group = result.issue_groups.find((item) => item.code === "accessibility.image_alt.missing");
+    const specific = "Image needs a non-empty accessible name. Provide meaningful alt text or another supported label such as aria-label, aria-labelledby, or title.";
+    const mixedGuidance = "Every affected image or element with an image role needs an accessible name. Use meaningful alt text on images or a supported label such as aria-label, aria-labelledby, title, or an SVG title as appropriate.";
+
+    expect(group).toMatchObject({
+      severity: "error",
+      affected_pages: 2,
+      example_urls: ["https://example.com/", "https://example.com/second"],
+      message: mixed ? mixedGuidance : specific,
+    });
+    expect(result.pages[0]?.top_findings).toContainEqual(expect.objectContaining({
+      code: "accessibility.image_alt.missing",
+      message: firstImage.startsWith("<img") ? specific : expect.stringContaining("accessible name"),
+    }));
+    expect(result.pages[1]?.top_findings).toContainEqual(expect.objectContaining({
+      code: "accessibility.image_alt.missing",
+      message: secondImage.startsWith("<img") ? specific : expect.stringContaining("accessible name"),
+    }));
   });
 
   it("groups the same stable schema rule across pages despite instance-specific block numbers", async () => {

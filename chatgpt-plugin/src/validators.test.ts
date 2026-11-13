@@ -258,6 +258,52 @@ describe("bounded audits", () => {
     }
   });
 
+  it("checks the first Open Graph URL declarations before later replacements", () => {
+    const invalid = auditSeoMetadata([
+      '<meta property="og:image" content="/share.png">',
+      '<meta property="og:image" content="https://example.com/later.png">',
+      '<meta property="og:url" content="//example.com/page">',
+      '<meta property="og:url" content="https://example.com/later">',
+    ].join(""));
+    expect(invalid.issues.filter((issue) => issue.code === "seo.open_graph.invalid_url")).toEqual([
+      {
+        code: "seo.open_graph.invalid_url",
+        severity: "warning",
+        category: "SEO",
+        message: "Open Graph og:image needs an absolute HTTP(S) URL without embedded credentials for reliable social previews.",
+      },
+      {
+        code: "seo.open_graph.invalid_url",
+        severity: "warning",
+        category: "SEO",
+        message: "Open Graph og:url needs an absolute HTTP(S) URL without embedded credentials for reliable social previews.",
+      },
+    ]);
+
+    for (const bad of ["javascript:alert(1)", "data:image/png;base64,abc", "https://user:pass@example.com/img.png"]) {
+      expect(auditSeoMetadata(`<meta property="og:image" content="${bad}">`).issues.some(
+        (issue) => issue.code === "seo.open_graph.invalid_url",
+      )).toBe(true);
+    }
+
+    const laterInvalid = auditSeoMetadata([
+      '<meta property="og:image" content="https://example.com/first.png">',
+      '<meta property="og:image" content="relative-second.png">',
+      '<meta property="og:url" content="http://example.com/first">',
+      '<meta property="og:url" content="not a URL">',
+    ].join(""));
+    expect(laterInvalid.issues.some((issue) => issue.code === "seo.open_graph.invalid_url")).toBe(false);
+
+    const emptyFirst = auditSeoMetadata([
+      '<meta property="og:title" content="Example">',
+      '<meta property="og:type" content="website">',
+      '<meta property="og:image" content="">',
+      '<meta property="og:image" content="https://example.com/later.png">',
+      '<meta property="og:url" content="https://example.com/page">',
+    ].join(""));
+    expect(emptyFirst.issues.some((issue) => issue.code === "seo.open_graph.missing")).toBe(true);
+  });
+
   it("requires page language only for explicitly authored HTML documents", () => {
     for (const html of [
       "<html><head><title>Example</title></head><body></body></html>",
@@ -364,6 +410,29 @@ describe("bounded audits", () => {
       const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`).issues;
       expect(issues.some((issue) => issue.code === "accessibility.page_language.invalid_primary_subtag")).toBe(true);
     }
+  });
+
+  it("reports malformed hosted page language subtags consistently with local validation", () => {
+    for (const lang of ["en--US", "en-", "en-US_Latn", "en-abcdefghi", "en-ü"]) {
+      const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`).issues;
+      expect(issues.find((issue) => issue.code === "accessibility.page_language.malformed_subtag"), lang).toEqual({
+        code: "accessibility.page_language.malformed_subtag",
+        severity: "error",
+        category: "Accessibility",
+        message: "The document <html> lang attribute has a malformed BCP 47 subtag. Use hyphen-separated ASCII letters or digits, with 1-8 characters per subtag.",
+      });
+    }
+
+    for (const lang of ["en-US", "sl-SI", "zh-Hant-TW", "de-1996", "x-example", "i-klingon"]) {
+      const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`).issues;
+      expect(issues.some((issue) => issue.code === "accessibility.page_language.malformed_subtag"), lang).toBe(false);
+    }
+    expect(auditSeoMetadata('<html lang="zzzz-!"><head></head></html>').issues.some(
+      (issue) => issue.code === "accessibility.page_language.invalid_primary_subtag",
+    )).toBe(true);
+    expect(auditSeoMetadata("<title>Fragment</title>").issues.some(
+      (issue) => issue.code === "accessibility.page_language.malformed_subtag",
+    )).toBe(false);
   });
 
   it("image submit buttons require a non-empty accessible name", () => {
@@ -868,6 +937,27 @@ describe("bounded audits", () => {
     expect(result.counts.warning).toBe(0);
   });
 
+  it("counts visible graphemes rather than UTF-16 code units in editorial length hints", () => {
+    const symbol = String.fromCodePoint(0x1f680);
+    const short = auditSeoMetadata(
+      `<title>${symbol.repeat(20)}</title><meta name="description" content="${symbol.repeat(75)}">`,
+    );
+    expect(short.issues.find((issue) => issue.code === "seo.title.length")?.message)
+      .toMatch(/^Title is 20 characters\. This is shorter/);
+    expect(short.issues.find((issue) => issue.code === "seo.meta_description.length")?.message)
+      .toMatch(/^Meta description is 75 characters\. This is shorter/);
+
+    const ordinary = auditSeoMetadata(
+      `<title>${symbol.repeat(40)}</title><meta name="description" content="${symbol.repeat(140)}">`,
+    );
+    expect(ordinary.issues.find((issue) => issue.code === "seo.title.length")).toBeUndefined();
+    expect(ordinary.issues.find((issue) => issue.code === "seo.meta_description.length")).toBeUndefined();
+
+    const combining = auditSeoMetadata(`<title>${"e\u0301".repeat(20)}</title>`);
+    expect(combining.issues.find((issue) => issue.code === "seo.title.length")?.message)
+      .toMatch(/^Title is 20 characters\. This is shorter/);
+  });
+
   it("matches the standard meta description name ASCII case-insensitively", () => {
     const description = "D".repeat(140);
     const result = auditSeoMetadata(`<meta name="Description" content="${description}">`);
@@ -1013,7 +1103,7 @@ describe("bounded audits", () => {
   });
 
   it("caps SEO findings while retaining the total", () => {
-    const html = `<html lang="en"><head><title>${"A".repeat(40)}</title><meta name="description" content="${"D".repeat(140)}"><meta name="viewport" content="width=device-width"><link rel="canonical" href="https://example.com"><meta property="og:title" content="x"><meta property="og:type" content="website"><meta property="og:image" content="x"><meta property="og:url" content="https://example.com"></head><body><h1>Title</h1>${"<img src=x>".repeat(150)}</body></html>`;
+    const html = `<html lang="en"><head><title>${"A".repeat(40)}</title><meta name="description" content="${"D".repeat(140)}"><meta name="viewport" content="width=device-width"><link rel="canonical" href="https://example.com"><meta property="og:title" content="x"><meta property="og:type" content="website"><meta property="og:image" content="https://example.com/image.png"><meta property="og:url" content="https://example.com"></head><body><h1>Title</h1>${"<img src=x>".repeat(150)}</body></html>`;
     const result = auditSeoMetadata(html);
     expect(result.issues).toHaveLength(100);
     expect(result.total).toBe(150);

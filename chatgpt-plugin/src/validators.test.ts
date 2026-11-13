@@ -258,6 +258,52 @@ describe("bounded audits", () => {
     }
   });
 
+  it("checks the first Open Graph URL declarations before later replacements", () => {
+    const invalid = auditSeoMetadata([
+      '<meta property="og:image" content="/share.png">',
+      '<meta property="og:image" content="https://example.com/later.png">',
+      '<meta property="og:url" content="//example.com/page">',
+      '<meta property="og:url" content="https://example.com/later">',
+    ].join(""));
+    expect(invalid.issues.filter((issue) => issue.code === "seo.open_graph.invalid_url")).toEqual([
+      {
+        code: "seo.open_graph.invalid_url",
+        severity: "warning",
+        category: "SEO",
+        message: "Open Graph og:image needs an absolute HTTP(S) URL without embedded credentials for reliable social previews.",
+      },
+      {
+        code: "seo.open_graph.invalid_url",
+        severity: "warning",
+        category: "SEO",
+        message: "Open Graph og:url needs an absolute HTTP(S) URL without embedded credentials for reliable social previews.",
+      },
+    ]);
+
+    for (const bad of ["javascript:alert(1)", "data:image/png;base64,abc", "https://user:pass@example.com/img.png"]) {
+      expect(auditSeoMetadata(`<meta property="og:image" content="${bad}">`).issues.some(
+        (issue) => issue.code === "seo.open_graph.invalid_url",
+      )).toBe(true);
+    }
+
+    const laterInvalid = auditSeoMetadata([
+      '<meta property="og:image" content="https://example.com/first.png">',
+      '<meta property="og:image" content="relative-second.png">',
+      '<meta property="og:url" content="http://example.com/first">',
+      '<meta property="og:url" content="not a URL">',
+    ].join(""));
+    expect(laterInvalid.issues.some((issue) => issue.code === "seo.open_graph.invalid_url")).toBe(false);
+
+    const emptyFirst = auditSeoMetadata([
+      '<meta property="og:title" content="Example">',
+      '<meta property="og:type" content="website">',
+      '<meta property="og:image" content="">',
+      '<meta property="og:image" content="https://example.com/later.png">',
+      '<meta property="og:url" content="https://example.com/page">',
+    ].join(""));
+    expect(emptyFirst.issues.some((issue) => issue.code === "seo.open_graph.missing")).toBe(true);
+  });
+
   it("requires page language only for explicitly authored HTML documents", () => {
     for (const html of [
       "<html><head><title>Example</title></head><body></body></html>",
@@ -1034,7 +1080,7 @@ describe("bounded audits", () => {
   });
 
   it("caps SEO findings while retaining the total", () => {
-    const html = `<html lang="en"><head><title>${"A".repeat(40)}</title><meta name="description" content="${"D".repeat(140)}"><meta name="viewport" content="width=device-width"><link rel="canonical" href="https://example.com"><meta property="og:title" content="x"><meta property="og:type" content="website"><meta property="og:image" content="x"><meta property="og:url" content="https://example.com"></head><body><h1>Title</h1>${"<img src=x>".repeat(150)}</body></html>`;
+    const html = `<html lang="en"><head><title>${"A".repeat(40)}</title><meta name="description" content="${"D".repeat(140)}"><meta name="viewport" content="width=device-width"><link rel="canonical" href="https://example.com"><meta property="og:title" content="x"><meta property="og:type" content="website"><meta property="og:image" content="https://example.com/image.png"><meta property="og:url" content="https://example.com"></head><body><h1>Title</h1>${"<img src=x>".repeat(150)}</body></html>`;
     const result = auditSeoMetadata(html);
     expect(result.issues).toHaveLength(100);
     expect(result.total).toBe(150);

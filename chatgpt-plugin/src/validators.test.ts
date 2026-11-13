@@ -412,6 +412,29 @@ describe("bounded audits", () => {
     }
   });
 
+  it("reports malformed hosted page language subtags consistently with local validation", () => {
+    for (const lang of ["en--US", "en-", "en-US_Latn", "en-abcdefghi", "en-ü"]) {
+      const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`).issues;
+      expect(issues.find((issue) => issue.code === "accessibility.page_language.malformed_subtag"), lang).toEqual({
+        code: "accessibility.page_language.malformed_subtag",
+        severity: "error",
+        category: "Accessibility",
+        message: "The document <html> lang attribute has a malformed BCP 47 subtag. Use hyphen-separated ASCII letters or digits, with 1-8 characters per subtag.",
+      });
+    }
+
+    for (const lang of ["en-US", "sl-SI", "zh-Hant-TW", "de-1996", "x-example", "i-klingon"]) {
+      const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`).issues;
+      expect(issues.some((issue) => issue.code === "accessibility.page_language.malformed_subtag"), lang).toBe(false);
+    }
+    expect(auditSeoMetadata('<html lang="zzzz-!"><head></head></html>').issues.some(
+      (issue) => issue.code === "accessibility.page_language.invalid_primary_subtag",
+    )).toBe(true);
+    expect(auditSeoMetadata("<title>Fragment</title>").issues.some(
+      (issue) => issue.code === "accessibility.page_language.malformed_subtag",
+    )).toBe(false);
+  });
+
   it("image submit buttons require a non-empty accessible name", () => {
     for (const html of [
       '<input type="image" src="search.png">',

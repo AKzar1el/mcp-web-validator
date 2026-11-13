@@ -330,6 +330,16 @@ function canParseCanonicalHref(href: string): boolean {
   }
 }
 
+function isUsableOpenGraphUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:")
+      && Boolean(url.hostname) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
 function hasIndexBlockingXRobotsTagForGoogle(value: string | undefined): boolean {
   if (!value) return false;
   const parameterizedRules = new Set([
@@ -863,9 +873,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
 
   const requiredOpenGraphProperties = ["og:title", "og:type", "og:image", "og:url"] as const;
   const hasCompleteOpenGraphMetadata = requiredOpenGraphProperties.every((property) =>
-    $(`head > meta[property="${property}"]`).filter(
-      (_, element) => Boolean($(element).attr("content")?.trim()),
-    ).length > 0
+    Boolean($(`head > meta[property="${property}"]`).first().attr("content")?.trim())
   );
   if (!hasCompleteOpenGraphMetadata) {
     collector.add({
@@ -874,6 +882,18 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
       category: "SEO",
       message: "Open Graph basic metadata is incomplete or empty. Provide non-empty og:title, og:type, og:image, and og:url values.",
     });
+  }
+  // A later valid declaration cannot reliably repair an invalid first one.
+  for (const property of ["og:image", "og:url"] as const) {
+    const value = $(`head > meta[property="${property}"]`).first().attr("content")?.trim();
+    if (value && !isUsableOpenGraphUrl(value)) {
+      collector.add({
+        code: "seo.open_graph.invalid_url",
+        severity: "warning",
+        category: "SEO",
+        message: `Open Graph ${property} needs an absolute HTTP(S) URL without embedded credentials for reliable social previews.`,
+      });
+    }
   }
 
   return collector.result();

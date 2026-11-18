@@ -1011,7 +1011,7 @@ describe("public site audit", () => {
       const url = String(target);
       requested.add(url);
       if (url === "https://example.com/robots.txt") {
-        return new Response("User-agent: *\\nSitemap: /sitemap.xml\\n", {
+        return new Response("User-agent: *\nSitemap: /sitemap.xml\n", {
           headers: { "content-type": "text/plain" },
         });
       }

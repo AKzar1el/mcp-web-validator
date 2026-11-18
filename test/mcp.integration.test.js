@@ -119,10 +119,30 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
         ).join(""),
       },
     });
-    assert.equal(truncatedSchema.structuredContent?.issues.length, 200);
-    assert.equal(truncatedSchema.structuredContent?.totalIssues, schemaBlockCount);
-    assert.equal(truncatedSchema.structuredContent?.truncated, true);
-    assert.match(textContent(truncatedSchema), /Showing the first 200 of 205 findings/);
+    const schemaDetails = truncatedSchema.structuredContent;
+    assert.ok(schemaDetails?.issues.length > 0);
+    assert.ok(schemaDetails.issues.length < 200, "MCP output must not expose the entire oversized issue list");
+    assert.equal(schemaDetails.totalIssues, schemaBlockCount);
+    assert.equal(schemaDetails.counts.error, schemaBlockCount);
+    assert.equal(schemaDetails.truncated, true);
+    assert.ok(Buffer.byteLength(JSON.stringify(schemaDetails), "utf8") < 18_000,
+      "MCP structured diagnostics must stay below the gateway's response budget");
+    assert.match(textContent(truncatedSchema),
+      new RegExp(`Showing the first ${schemaDetails.issues.length} of 205 findings`));
+
+    // Long untrusted elements can make even a modest issue count exceed gateway limits.
+    const images = Array.from({ length: 240 }, (_, i) =>
+      `<img src="/${"a".repeat(400)}-${i}.png">`).join("");
+    const floodSeo = await client.callTool({
+      name: "seo.metadata",
+      arguments: { htmlContent: `<!doctype html><html><body>${images}</body></html>` },
+    });
+    const seoDetails = floodSeo.structuredContent;
+    assert.ok(seoDetails?.counts.error >= 240);
+    assert.ok(seoDetails.issues.length > 0 && seoDetails.issues.length < 240);
+    assert.equal(seoDetails.truncated, true);
+    assert.ok(Buffer.byteLength(JSON.stringify(seoDetails), "utf8") < 18_000,
+      "Long untrusted HTML attributes must not overwhelm the MCP response");
 
     const unreadableReport = await client.callTool({
       name: "report.validation",

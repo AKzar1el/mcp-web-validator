@@ -72,7 +72,7 @@ The hosted app exposes nine tools:
 | --- | --- |
 | `audit_public_webpage` | Fetch one authorized public HTML page and run the combined HTML, SEO/accessibility-signal, and JSON-LD syntax audit. Link checks are optional. |
 | `audit_public_site` | Run a bounded sitemap-first audit of up to eight authorized, same-origin public pages. It respects `robots.txt`, returns compact page coverage and deduplicated findings, and does not run site-wide link checks. |
-| `compare_site_audits` | Offline before/after comparison of two saved `audit_public_site` structured results. Flags per-page regressions, coverage loss, and sitemap drift; reports newly observed or no-longer observed grouped findings only when both site snapshots have complete, matching coverage. No network calls or retained history. |
+| `compare_site_audits` | Offline before/after comparison of two saved `audit_public_site` structured results. Flags per-page regressions, coverage loss, and sitemap drift; reports newly observed or no-longer observed grouped findings only for an identical, fully checked page sample; partial sitemap coverage never proves a site-wide fix. No network calls or retained history. |
 | `validate_html` | Validate raw HTML markup already supplied in the conversation. |
 | `validate_css` | Parse supplied CSS for syntax errors inside the Worker. |
 | `audit_seo_metadata` | Audit supplied HTML for covered on-page SEO, robots noindex, and accessibility signals. |
@@ -88,7 +88,7 @@ The hosted app exposes nine tools:
 2. After a release or repair, rerun `audit_public_site` using the same website and page-selection settings. If continuing paginated audits, use the fingerprint supplied by that run; do not reuse a stale continuation.
 3. Pass both structured results to `compare_site_audits` as `baseline` and `current`. Check `status`, `page_changes`, `limitations`, and `issue_group_comparison_available` before deciding whether a change is safe.
 
-The comparison never fetches pages or keeps audit history. It separately reports failures and incomplete coverage; a missing finding under a partial audit is **not** counted as a verified fix. It cannot determine Google indexing or ranking changes, prove why traffic changed, or replace a complete accessibility audit. The `health_score_delta` is a heuristic within this tool, not a Google ranking metric.
+The comparison never fetches pages or keeps audit history. It separately reports failures and incomplete coverage. When both snapshots contain the same fully checked selected URLs and the same discovery fingerprint, grouped findings may be compared *within that sample*, even if the whole sitemap was not audited; this is **not** a verified site-wide fix. It cannot determine Google indexing or ranking changes, prove why traffic changed, or replace a complete accessibility audit. The `health_score_delta` is a heuristic within this tool, not a Google ranking metric.
 
 ## Privacy Policy
 

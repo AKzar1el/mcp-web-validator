@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.49] - 2026-11-18
+
+### Added
+
+- Added opt-in `audit.history` to the local MCP server: one compact JSON file, at most 10 versioned site-audit snapshots, with automatic oldest-first eviction and no background process.
+
+### Security
+
+- Hosted MCP now uses the official stateless `@modelcontextprotocol/server` HTTP handler directly, eliminating the production `agents` dependency chain flagged for a transitive picomatch ReDoS advisory.
+
+### Hosted app
+
+- Added sampled cross-page indexability signals and graph to bounded `audit_public_site` output.
+- Added offline `compare_site_audits` for evidence-aware before/after comparisons with explicit coverage limitations.
+
 ## [1.3.48] - 2026-10-28
 
 ### Security

@@ -1,10 +1,9 @@
-import { createMcpHandler } from "agents/mcp/server";
 import {
   registerAppResource,
   registerAppTool,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
-import { McpServer } from "@modelcontextprotocol/server";
+import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { auditSeoMetadata, checkBrokenLinksDetailed, isHttpRedirectStatus, isUnverifiedLinkStatus, validateSchemaMarkup } from "./audits";
 import {
@@ -38,6 +37,15 @@ const TRUSTED_BROWSER_ORIGINS = new Set([
   "https://digestseo.com",
   "https://web-validator-mcp.digestseo.com",
 ]);
+// The SDK handler intentionally does not validate Host/Origin; enforce both
+// before its protocol parser so hostile browser and DNS-rebinding requests fail.
+const ALLOWED_REQUEST_HOSTS = new Set([
+  "web-validator-mcp.digestseo.com",
+  "localhost",
+  "127.0.0.1",
+]);
+const PREFLIGHT_HEADERS =
+  "Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID, Mcp-Method, Mcp-Name";
 const GLAMA_CONNECTOR_METADATA = {
   $schema: "https://glama.ai/mcp/schemas/connector.json",
   maintainers: [{ email: "tomi.seregi99@gmail.com" }],
@@ -314,6 +322,7 @@ function withExactCors(response: Response, origin?: string): Response {
   headers.delete("access-control-allow-origin");
   if (origin) {
     headers.set("access-control-allow-origin", origin);
+    headers.set("access-control-expose-headers", "Mcp-Session-Id");
     const vary = headers.get("vary");
     if (!vary) headers.set("vary", "Origin");
     else if (vary !== "*" && !vary.toLowerCase().split(",").map((value) => value.trim()).includes("origin")) {
@@ -1645,6 +1654,11 @@ export default {
     const startedAt = Date.now();
     const origin = request.headers.get("origin") ?? undefined;
     try {
+      const suppliedHost = request.headers.get("host");
+      if (!ALLOWED_REQUEST_HOSTS.has(url.hostname.toLowerCase())
+        || (suppliedHost !== null && suppliedHost.toLowerCase() !== url.host.toLowerCase())) {
+        return jsonRpcHttpError(403, "Forbidden: unexpected Host header.");
+      }
       if (origin && !TRUSTED_BROWSER_ORIGINS.has(origin)) {
         logRequest("mcp_request_rejected", {
           reason: "untrusted_origin",
@@ -1652,6 +1666,18 @@ export default {
           status: 403,
         });
         return jsonRpcHttpError(403, "Forbidden: untrusted Origin header.");
+      }
+
+      if (request.method === "OPTIONS") {
+        return withExactCors(new Response(null, {
+          status: 200,
+          headers: {
+            "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+            "access-control-allow-headers": PREFLIGHT_HEADERS,
+            "access-control-expose-headers": "Mcp-Session-Id",
+            "access-control-max-age": "86400",
+          },
+        }), origin);
       }
 
       const siteAuditRateLimitKey = request.method === "OPTIONS" ? "options" : await rateLimitKey(request);
@@ -1679,16 +1705,11 @@ export default {
       }
 
       const handler = createMcpHandler(() => createServer(env, siteAuditRateLimitKey), {
-        corsOptions: {
-          origin: origin ?? "https://chatgpt.com",
-          headers:
-            "Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID, Mcp-Method, Mcp-Name",
-          methods: "GET, POST, DELETE, OPTIONS",
-          exposeHeaders: "Mcp-Session-Id",
-          maxAge: 86400,
-        },
+        legacy: "stateless",
+        responseMode: "sse",
+        maxRequestBodySize: MCP_BODY_MAX_BYTES,
       });
-      const response = await addCanonicalToolSecuritySchemes(withExactCors(await handler(request, env, ctx), origin));
+      const response = await addCanonicalToolSecuritySchemes(withExactCors(await handler.fetch(request), origin));
       logRequest("mcp_request", {
         method: request.method,
         status: response.status,

@@ -131,6 +131,23 @@ describe("MCP HTTP boundary", () => {
     expect(env.MCP_RATE_LIMITER.limit).not.toHaveBeenCalled();
   });
 
+  it("rejects unexpected and mismatched Host headers before invoking the MCP parser", async () => {
+    const env = createEnv();
+    for (const [url, host] of [
+      ["https://attacker.example/mcp", undefined],
+      ["https://web-validator-mcp.digestseo.com/mcp", "attacker.example"],
+    ] as const) {
+      const response = await worker.fetch(
+        new Request(url, { method: "POST", ...(host ? { headers: { host } } : {}) }),
+        env,
+        context,
+      );
+      expect(response.status).toBe(403);
+      expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    }
+    expect(env.MCP_RATE_LIMITER.limit).not.toHaveBeenCalled();
+  });
+
   it("returns an exact CORS origin for approved preflights", async () => {
     const response = await worker.fetch(
       new Request("https://web-validator-mcp.digestseo.com/mcp", {
@@ -144,6 +161,9 @@ describe("MCP HTTP boundary", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("access-control-allow-origin")).toBe("https://chatgpt.com");
     expect(response.headers.get("vary")).toContain("Origin");
+    expect(response.headers.get("access-control-allow-headers")).toContain("MCP-Protocol-Version");
+    expect(response.headers.get("access-control-allow-methods")).toContain("POST");
+    expect(response.headers.get("access-control-allow-origin")).not.toBe("*");
   });
 
   it("rate limits an actor without exposing its raw identifier", async () => {

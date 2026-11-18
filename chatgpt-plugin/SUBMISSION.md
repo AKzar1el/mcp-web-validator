@@ -1,6 +1,6 @@
 # ChatGPT plugin submission notes
 
-This directory contains the public Streamable HTTP app included in the Web Validator by DigestSEO plugin. It is intentionally separate from the repository's local npm/stdio server.
+This directory contains the public Streamable HTTP app included in the Web Validator by DigestSEO plugin. It is intentionally separate from the repository's local npm/stdio server. The app uses `createMcpHandler` directly from `@modelcontextprotocol/server` in stateless mode; it does not require Cloudflare's `agents` package, persistent storage, or Durable Objects.
 
 ## Public app boundary
 

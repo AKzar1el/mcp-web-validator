@@ -1,4 +1,4 @@
-export const SERVER_VERSION = "0.5.0";
+export const SERVER_VERSION = "0.6.0";
 export const HTML_MAX_LENGTH = 200_000;
 export const CSS_MAX_LENGTH = 200_000;
 export const HOSTED_MAX_LINKS = 20;

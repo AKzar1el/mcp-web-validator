@@ -56,6 +56,7 @@ The npm package exposes these exact runtime tool names:
 | `links.broken` | Check links extracted from supplied HTML. | Sends bounded HTTP requests to eligible public links. |
 | `schema.markup` | Parse JSON-LD blocks and report JSON syntax errors. | Processes supplied HTML locally. |
 | `report.validation` | Combine HTML/XHTML, optional CSS, SEO, JSON-LD, and bounded link checks in a Markdown report. | Reads selected files, contacts the validators, and checks eligible public links found in the markup; `.xhtml` inputs use XHTML parsing semantics for Nu validation. |
+| `audit.history` | Opt-in local site-audit snapshot history: `save`, `list`, or `get` by ID. | Stores comparison-relevant fields only in one local JSON file, with a hard cap of 10 versions (oldest automatically evicted). No database or network access. |
 | `screenshot.capture` | Capture desktop, tablet, mobile, or custom viewport screenshots. | Opens a selected local file or eligible public URL and writes PNG files to the selected output directory; existing matching files may be replaced. |
 
 For direct Node.js integrations, `auditSeoMetadata(html, xRobotsTag)` and
@@ -97,6 +98,14 @@ A cross-page finding is not proof of deindexing, Google's selected canonical, a 
 3. Pass both structured results to `compare_site_audits` as `baseline` and `current`. Check `status`, `page_changes`, `limitations`, and `issue_group_comparison_available` before deciding whether a change is safe.
 
 The comparison never fetches pages or keeps audit history. It separately reports failures and incomplete coverage. When both snapshots contain the same fully checked selected URLs and the same discovery fingerprint, grouped findings may be compared *within that sample*, even if the whole sitemap was not audited; this is **not** a verified site-wide fix. It cannot determine Google indexing or ranking changes, prove why traffic changed, or replace a complete accessibility audit. The `health_score_delta` is a heuristic within this tool, not a Google ranking metric.
+
+### Optional local history: maximum 10 versions
+
+The hosted app deliberately retains **nothing**. If you use the local npm/stdio MCP, `audit.history` can save the JSON `structuredContent` from `audit_public_site` on your own computer. Choose `action: "save"` and supply `snapshotJson` as a JSON string; use `list` to see saved version IDs and `get` with an ID to retrieve its compact JSON. You can then pass two retrieved snapshots to `compare_site_audits`. Saving is always opt-in; audits do not silently create history.
+
+One compact `audit-history.json` file lives at `~/.mcp-validator/audit-history.json`; when `MCP_WEB_VALIDATOR_WORKSPACE_ROOT` is configured, the file instead lives in that root's `.mcp-validator/` directory. It stores **up to 10 total versions**, newest first when listed. Saving the eleventh automatically deletes the oldest. Each source snapshot is limited to 60 KB and is reduced to comparison-relevant fields (no raw HTML, browser screenshots, widget state, or full indexability graph). The history file has a 660 KB cap. There are no database services, background processes, or network calls. Files stay on the user's computer and are readable only with local filesystem access.
+
+**Security:** Do not save secrets in page diagnostics. URL fields containing query strings, credentials, or fragments are rejected; audit-history file symlinks and oversized or corrupt files fail closed. Concurrent saves from one local process are serialized. Separate concurrently running MCP processes should use separate workspace roots to avoid writing the same file.
 
 ## Privacy Policy
 

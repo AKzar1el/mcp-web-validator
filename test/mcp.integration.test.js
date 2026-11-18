@@ -27,6 +27,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name).sort();
     assert.deepEqual(names, [
+      "audit.history",
       "css.local",
       "html.local",
       "html.url",
@@ -134,6 +135,9 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     const screenshot = tools.find((tool) => tool.name === "screenshot.capture");
     assert.equal(screenshot?.annotations?.readOnlyHint, false);
     assert.equal(screenshot?.annotations?.destructiveHint, true);
+    const history = tools.find((tool) => tool.name === "audit.history");
+    assert.equal(history?.annotations?.readOnlyHint, false);
+    assert.equal(history?.annotations?.destructiveHint, true);
   } finally {
     await client.close();
   }

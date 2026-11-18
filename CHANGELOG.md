@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+### Hosted app
+
+- Fix Nu HTML validation in the Cloudflare Worker by using supported manual redirect handling and rejecting non-success responses without forwarding submitted markup.
+
 ### Security
 
 - Refresh the local MCP's locked transitive Hono dependency to 4.13.19 to address npm-audited middleware and input-validation advisories without changing the runtime dependency declarations.

@@ -131,6 +131,23 @@ describe("MCP HTTP boundary", () => {
     expect(env.MCP_RATE_LIMITER.limit).not.toHaveBeenCalled();
   });
 
+  it("rejects unexpected and mismatched Host headers before invoking the MCP parser", async () => {
+    const env = createEnv();
+    for (const [url, host] of [
+      ["https://attacker.example/mcp", undefined],
+      ["https://web-validator-mcp.digestseo.com/mcp", "attacker.example"],
+    ] as const) {
+      const response = await worker.fetch(
+        new Request(url, { method: "POST", ...(host ? { headers: { host } } : {}) }),
+        env,
+        context,
+      );
+      expect(response.status).toBe(403);
+      expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    }
+    expect(env.MCP_RATE_LIMITER.limit).not.toHaveBeenCalled();
+  });
+
   it("returns an exact CORS origin for approved preflights", async () => {
     const response = await worker.fetch(
       new Request("https://web-validator-mcp.digestseo.com/mcp", {
@@ -144,6 +161,9 @@ describe("MCP HTTP boundary", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("access-control-allow-origin")).toBe("https://chatgpt.com");
     expect(response.headers.get("vary")).toContain("Origin");
+    expect(response.headers.get("access-control-allow-headers")).toContain("MCP-Protocol-Version");
+    expect(response.headers.get("access-control-allow-methods")).toContain("POST");
+    expect(response.headers.get("access-control-allow-origin")).not.toBe("*");
   });
 
   it("rate limits an actor without exposing its raw identifier", async () => {
@@ -254,7 +274,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers eight accurately annotated tools", async () => {
+  it("discovers nine accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -265,6 +285,7 @@ describe("hosted tool contract", () => {
       "generate_validation_report",
       "audit_public_webpage",
       "audit_public_site",
+      "compare_site_audits",
     ]);
     const noAuthSecuritySchemes = [{ type: "noauth" }];
     for (const tool of tools) {
@@ -1005,6 +1026,70 @@ describe("public webpage audit", () => {
 });
 
 describe("public site audit", () => {
+  it("returns bounded cross-page canonical and sitemap/noindex evidence using already fetched HTML", async () => {
+    const requested = new Set<string>();
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      requested.add(url);
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /sitemap.xml\n", {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response("<urlset><url><loc>https://example.com/</loc></url><url><loc>https://example.com/a</loc></url><url><loc>https://example.com/b</loc></url></urlset>", {
+          headers: { "content-type": "application/xml" },
+        });
+      }
+      if (url === "https://example.com/") {
+        return new Response("<!doctype html><html lang='en'><head><title>Home</title></head><body><h1>Home</h1></body></html>", {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (url === "https://example.com/a") {
+        return new Response("<!doctype html><html lang='en'><head><title>Alpha</title><link rel=canonical href='/b'></head><body><h1>Alpha</h1></body></html>", {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (url === "https://example.com/b") {
+        return new Response("<!doctype html><html lang='en'><head><title>Beta</title><link rel=canonical href='/a'><meta name=robots content=noindex></head><body><h1>Beta</h1></body></html>", {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) {
+        return Response.json({ messages: [] });
+      }
+      throw new Error(`Unexpected fetch target: ${url}`);
+    }));
+
+    const result = await callTool("audit_public_site", {
+      site_url: "https://example.com/",
+      max_pages: 3,
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      pages_selected: 3,
+      indexability_graph: {
+        scope: "sampled_pages_only",
+        sampled_pages: 3,
+        sitemap_pages_sampled: 3,
+        coverage_limited: false,
+      },
+      overview: { kind: "site", status: "needs_attention" },
+    });
+    expect(result.structuredContent.indexability_graph.findings.map((finding: { code: string }) => finding.code))
+      .toEqual(expect.arrayContaining([
+        "indexability.canonical_cycle",
+        "indexability.canonical_to_noindex",
+        "indexability.sitemap_noindex",
+      ]));
+    expect(result.structuredContent.pages.find((p: { url: string }) => p.url === "https://example.com/b").indexability)
+      .toMatchObject({ canonical_url: "https://example.com/a", noindex_observed: true });
+    expect(requested.has("https://example.com/a")).toBe(true);
+    expect(requested.has("https://example.com/b")).toBe(true);
+    expect([...requested].filter((url) => !url.startsWith("https://html5.validator.nu/")).length).toBe(5);
+  });
+
   it("explains unsupported sitemap queries without exposing their values or claiming full coverage", async () => {
     const privateMarker = "private-sitemap-token-should-not-escape";
     vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
@@ -1209,5 +1294,77 @@ describe("public site audit", () => {
     const nextAction = result.structuredContent.overview.next_action;
     expect(nextAction).toContain("page_offset 1");
     expect(nextAction).toContain("Review partial and failed page coverage");
+  });
+});
+
+describe("hosted site audit comparison", () => {
+  function snapshot(issueCount: number, options: Record<string, unknown> = {}) {
+    const url = "https://example.com/";
+    return {
+      site_url: url,
+      sitemap_url: url + "sitemap.xml",
+      discovery: "sitemap",
+      pages_discovered: 1,
+      pages_selected: 1,
+      pages_audited: 1,
+      pages_partial: 0,
+      pages_failed: 0,
+      pages_skipped_robots: 0,
+      truncated: false,
+      discovery_fingerprint: "a".repeat(64),
+      score_coverage_percent: 100,
+      pages: [{
+        url, fetched_url: url, status: issueCount > 0 ? "needs_attention" : "passed",
+        http_status: 200, redirects_followed: 0, page_fetched: true,
+        html_validation_status: "completed",
+        html_errors: 0, html_warnings: 0, seo_errors: issueCount, seo_warnings: 0,
+        schema_errors: 0, schema_warnings: 0, notes: 0,
+        health_score: 100 - issueCount * 12, top_findings: [],
+      }],
+      issue_groups: issueCount > 0 ? [{
+        code: "seo.title.missing", severity: "error", category: "SEO",
+        message: "Page title is missing", affected_pages: 1, example_urls: [url],
+      }] : [],
+      issue_groups_truncated: false,
+      ...options,
+    };
+  }
+
+  it("exposes a genuinely offline, read-only comparison of previous site audit results", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => { throw new Error("No network should be contacted"); }));
+    const result = await callTool("compare_site_audits", {
+      baseline: snapshot(0),
+      current: snapshot(1),
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      status: "comparable",
+      pages_compared: 1,
+      regressed_pages: 1,
+      issue_group_comparison_available: true,
+      newly_observed_issue_groups: [{ code: "seo.title.missing" }],
+      overview: { kind: "site", status: "needs_attention" },
+    });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("blocks unsupported resolution claims for drifted discoveries", async () => {
+    const result = await callTool("compare_site_audits", {
+      baseline: snapshot(1),
+      current: snapshot(0, { discovery_fingerprint: "b".repeat(64), truncated: true }),
+    });
+    expect(result.structuredContent).toMatchObject({
+      status: "partial", issue_group_comparison_available: false,
+      no_longer_observed_issue_groups: [],
+      overview: { status: "partial" },
+    });
+  });
+
+  it("rejects malformed site audit snapshots at the tool boundary", async () => {
+    const result = await callTool("compare_site_audits", {
+      baseline: { ...snapshot(0), discovery_fingerprint: "not-a-sha256" },
+      current: snapshot(1),
+    });
+    expect(result.isError).toBe(true);
   });
 });

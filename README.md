@@ -56,6 +56,7 @@ The npm package exposes these exact runtime tool names:
 | `links.broken` | Check links extracted from supplied HTML. | Sends bounded HTTP requests to eligible public links. |
 | `schema.markup` | Parse JSON-LD blocks and report JSON syntax errors. | Processes supplied HTML locally. |
 | `report.validation` | Combine HTML/XHTML, optional CSS, SEO, JSON-LD, and bounded link checks in a Markdown report. | Reads selected files, contacts the validators, and checks eligible public links found in the markup; `.xhtml` inputs use XHTML parsing semantics for Nu validation. |
+| `audit.history` | Opt-in local site-audit snapshot history: `save`, `list`, or `get` by ID. | Stores comparison-relevant fields only in one local JSON file, with a hard cap of 10 versions (oldest automatically evicted). No database or network access. |
 | `screenshot.capture` | Capture desktop, tablet, mobile, or custom viewport screenshots. | Opens a selected local file or eligible public URL and writes PNG files to the selected output directory; existing matching files may be replaced. |
 
 For direct Node.js integrations, `auditSeoMetadata(html, xRobotsTag)` and
@@ -66,12 +67,13 @@ fetches headers; the MCP `seo.metadata` tool still analyzes supplied HTML only.
 
 ## Hosted app tools
 
-The hosted app exposes eight tools:
+The hosted app exposes nine tools:
 
 | Tool | Purpose |
 | --- | --- |
 | `audit_public_webpage` | Fetch one authorized public HTML page and run the combined HTML, SEO/accessibility-signal, and JSON-LD syntax audit. Link checks are optional. |
-| `audit_public_site` | Run a bounded sitemap-first audit of up to eight authorized, same-origin public pages. It respects `robots.txt`, returns compact page coverage and deduplicated findings, and does not run site-wide link checks. |
+| `audit_public_site` | Run a bounded sitemap-first audit of up to eight authorized, same-origin public pages. It respects `robots.txt`, returns compact page coverage and deduplicated findings, **plus a sampled cross-page indexability evidence graph** for canonical loops/chains, sitemap/noindex conflicts, duplicate titles, and hreflang return links. No site-wide link checks. |
+| `compare_site_audits` | Offline before/after comparison of two saved `audit_public_site` structured results. Flags per-page regressions, coverage loss, and sitemap drift; reports newly observed or no-longer observed grouped findings only for an identical, fully checked page sample; partial sitemap coverage never proves a site-wide fix. No network calls or retained history. |
 | `validate_html` | Validate raw HTML markup already supplied in the conversation. |
 | `validate_css` | Parse supplied CSS for syntax errors inside the Worker. |
 | `audit_seo_metadata` | Audit supplied HTML for covered on-page SEO, robots noindex, and accessibility signals. |
@@ -80,6 +82,30 @@ The hosted app exposes eight tools:
 | `generate_validation_report` | Combine the checks for supplied markup; `base_url` resolves relative links but does not fetch a page. |
 
 `audit_public_webpage` follows at most three validated redirects, accepts a bounded `text/html` response, and records the final URL. It does not crawl additional pages, execute JavaScript, authenticate, or fetch linked stylesheets and assets. `audit_public_site` first locks the final public origin, then reads bounded `robots.txt` plus same-origin XML Sitemap, RSS 2.0, Atom 1.0, and plain-text sitemap representations before auditing at most eight eligible sitemap pages in one call. Robots discovery may follow up to five validated public redirects across authorities, as defined by the robots protocol; the resulting rules and relative Sitemap directives are still interpreted for the originally audited authority. Sitemap entries and audited pages remain same-origin, and private/reserved destinations, credentials, custom ports, service self-fetches, and HTTPS-to-HTTP redirect downgrades are rejected. The tool never follows HTML links or external sitemap entries; use `page_offset` when the response says more eligible pages remain. The fetched HTML is sent to `https://html5.validator.nu/`, the same external Nu HTML Checker used by `validate_html` and the report tool. CSS parsing, SEO analysis, and JSON-LD parsing run inside the DigestSEO Worker. Optional link checks make capped `HEAD` requests, with a bounded `GET` fallback where necessary, to eligible public HTTP(S) URLs; link redirects are reported but not followed. The site tool intentionally does not perform site-wide link checking. The hosted app does not retain tool inputs, fetched HTML, or results.
+
+### Sampled indexability evidence graph
+
+The hosted `audit_public_site` result now includes per-page `indexability` static signals (canonical state/target, an **observed** noindex directive, bounded page title, and bounded hreflang declarations) and a new `indexability_graph` section. Findings are derived only from the HTML/headers already requested by the site audit: **zero additional page requests, no JavaScript execution, no stored audit history, and no extra recipients**.
+
+The graph identifies evidence-supported canonical cycles and chains between sampled pages, sampled sitemap URLs observed with noindex, sampled canonicals pointing to other sampled noindex pages, potential duplicate titles for distinct canonical destinations, and missing sampled hreflang return links. `coverage_limited` and `limitations` explain why partial results cannot establish a site-wide pass.
+
+A cross-page finding is not proof of deindexing, Google's selected canonical, a search ranking signal, or a traffic-change cause. Query-bearing/credentialed canonical and alternate URLs are **not echoed** and are excluded from cross-page assertions rather than incorrectly normalized to a different page. The graph does not follow canonical or hreflang links: targets must already be inside the bounded audited sample.
+
+### Before/after site regression checks
+
+1. Run `audit_public_site` on an authorized website and preserve the returned **structured result** as a baseline.
+2. After a release or repair, rerun `audit_public_site` using the same website and page-selection settings. If continuing paginated audits, use the fingerprint supplied by that run; do not reuse a stale continuation.
+3. Pass both structured results to `compare_site_audits` as `baseline` and `current`. Check `status`, `page_changes`, `limitations`, and `issue_group_comparison_available` before deciding whether a change is safe.
+
+The comparison never fetches pages or keeps audit history. It separately reports failures and incomplete coverage. When both snapshots contain the same fully checked selected URLs and the same discovery fingerprint, grouped findings may be compared *within that sample*, even if the whole sitemap was not audited; this is **not** a verified site-wide fix. It cannot determine Google indexing or ranking changes, prove why traffic changed, or replace a complete accessibility audit. The `health_score_delta` is a heuristic within this tool, not a Google ranking metric.
+
+### Optional local history: maximum 10 versions
+
+The hosted app deliberately retains **nothing**. If you use the local npm/stdio MCP, `audit.history` can save the JSON `structuredContent` from `audit_public_site` on your own computer. Choose `action: "save"` and supply `snapshotJson` as a JSON string; use `list` to see saved version IDs and `get` with an ID to retrieve its compact JSON. You can then pass two retrieved snapshots to `compare_site_audits`. Saving is always opt-in; audits do not silently create history.
+
+One compact `audit-history.json` file lives at `~/.mcp-validator/audit-history.json`; when `MCP_WEB_VALIDATOR_WORKSPACE_ROOT` is configured, the file instead lives in that root's `.mcp-validator/` directory. It stores **up to 10 total versions**, newest first when listed. Saving the eleventh automatically deletes the oldest. Each source snapshot is limited to 60 KB and is reduced to comparison-relevant fields (no raw HTML, browser screenshots, widget state, or full indexability graph). The history file has a 660 KB cap. There are no database services, background processes, or network calls. Files stay on the user's computer and are readable only with local filesystem access.
+
+**Security:** Do not save secrets in page diagnostics. URL fields containing query strings, credentials, or fragments are rejected; audit-history file symlinks and oversized or corrupt files fail closed. Concurrent saves from one local process are serialized. Separate concurrently running MCP processes should use separate workspace roots to avoid writing the same file.
 
 ## Privacy Policy
 

@@ -1,10 +1,9 @@
-import { createMcpHandler } from "agents/mcp/server";
 import {
   registerAppResource,
   registerAppTool,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
-import { McpServer } from "@modelcontextprotocol/server";
+import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { auditSeoMetadata, checkBrokenLinksDetailed, isHttpRedirectStatus, isUnverifiedLinkStatus, validateSchemaMarkup } from "./audits";
 import {
@@ -27,6 +26,7 @@ import {
 } from "./presentation";
 import { validateCss, validateHtmlDetailed } from "./validators";
 import { auditPublicSite } from "./site-audit";
+import { compareSiteAudits } from "./site-comparison";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -37,6 +37,15 @@ const TRUSTED_BROWSER_ORIGINS = new Set([
   "https://digestseo.com",
   "https://web-validator-mcp.digestseo.com",
 ]);
+// The SDK handler intentionally does not validate Host/Origin; enforce both
+// before its protocol parser so hostile browser and DNS-rebinding requests fail.
+const ALLOWED_REQUEST_HOSTS = new Set([
+  "web-validator-mcp.digestseo.com",
+  "localhost",
+  "127.0.0.1",
+]);
+const PREFLIGHT_HEADERS =
+  "Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID, Mcp-Method, Mcp-Name";
 const GLAMA_CONNECTOR_METADATA = {
   $schema: "https://glama.ai/mcp/schemas/connector.json",
   maintainers: [{ email: "tomi.seregi99@gmail.com" }],
@@ -102,11 +111,40 @@ const sitePageSchema = z.object({
   health_score: z.number().int().min(0).max(100).optional(),
   failure_code: z.string().optional(),
   top_findings: z.array(siteFindingSchema),
+  indexability: z.object({
+    canonical_state: z.enum(["missing", "usable", "ambiguous", "unverifiable"]),
+    canonical_url: z.string().optional(),
+    noindex_observed: z.boolean(),
+    title: z.string().max(150).optional(),
+    hreflang: z.array(z.object({
+      language: z.string(),
+      url: z.string(),
+    })).max(16),
+    hreflang_truncated: z.boolean(),
+  }).optional(),
 });
 
 const siteIssueGroupSchema = siteFindingSchema.extend({
   affected_pages: z.number().int().nonnegative(),
   example_urls: z.array(z.string()),
+});
+
+const indexabilityFindingSchema = z.object({
+  code: z.string(),
+  severity: z.enum(["error", "warning", "info"]),
+  confidence: z.enum(["observed", "potential"]),
+  message: z.string(),
+  example_urls: z.array(z.string()),
+});
+
+const siteIndexabilityGraphSchema = z.object({
+  scope: z.literal("sampled_pages_only"),
+  sampled_pages: z.number().int().nonnegative(),
+  sitemap_pages_sampled: z.number().int().nonnegative(),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string()),
+  findings: z.array(indexabilityFindingSchema),
+  findings_truncated: z.boolean(),
 });
 
 const siteAuditOutputSchema = {
@@ -128,8 +166,63 @@ const siteAuditOutputSchema = {
   pages: z.array(sitePageSchema),
   issue_groups: z.array(siteIssueGroupSchema),
   issue_groups_truncated: z.boolean(),
+  indexability_graph: siteIndexabilityGraphSchema.optional(),
   overview: overviewSchema,
   error: z.string().optional(),
+};
+
+const siteAuditSnapshotSchema = z.object({
+  ...siteAuditOutputSchema,
+  site_url: z.string().url().max(2_048),
+  discovery_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  pages: z.array(sitePageSchema).max(SITE_AUDIT_MAX_PAGES),
+  issue_groups: z.array(siteIssueGroupSchema).max(50),
+  overview: overviewSchema.optional(),
+  error: z.string().optional(),
+});
+
+const comparedPageSchema = z.object({
+  url: z.string(),
+  kind: z.enum(["regressed", "improved", "mixed", "unchanged", "coverage_lost", "coverage_recovered", "unverified"]),
+  before_status: sitePageSchema.shape.status,
+  after_status: sitePageSchema.shape.status,
+  error_delta: z.number().int().optional(),
+  warning_delta: z.number().int().optional(),
+  health_score_delta: z.number().int().optional(),
+  redirect_changed: z.boolean(),
+});
+
+const changedIssueGroupSchema = siteFindingSchema.extend({
+  affected_pages: z.number().int().nonnegative(),
+});
+const expandedIssueGroupSchema = siteFindingSchema.extend({
+  before_affected_pages: z.number().int().nonnegative(),
+  after_affected_pages: z.number().int().nonnegative(),
+  delta_pages: z.number().int(),
+});
+
+const siteComparisonOutputSchema = {
+  status: z.enum(["comparable", "partial", "not_comparable"]),
+  baseline_site_url: z.string(),
+  current_site_url: z.string(),
+  baseline_selected_pages: z.number().int().nonnegative(),
+  current_selected_pages: z.number().int().nonnegative(),
+  pages_compared: z.number().int().nonnegative(),
+  regressed_pages: z.number().int().nonnegative(),
+  improved_pages: z.number().int().nonnegative(),
+  mixed_pages: z.number().int().nonnegative(),
+  coverage_lost_pages: z.number().int().nonnegative(),
+  coverage_recovered_pages: z.number().int().nonnegative(),
+  newly_selected_urls: z.array(z.string()),
+  no_longer_selected_urls: z.array(z.string()),
+  page_changes: z.array(comparedPageSchema),
+  issue_group_comparison_available: z.boolean(),
+  newly_observed_issue_groups: z.array(changedIssueGroupSchema),
+  no_longer_observed_issue_groups: z.array(changedIssueGroupSchema),
+  expanding_issue_groups: z.array(expandedIssueGroupSchema),
+  shrinking_issue_groups: z.array(expandedIssueGroupSchema),
+  limitations: z.array(z.string()),
+  overview: overviewSchema,
 };
 
 const reportOutputSchema = {
@@ -213,11 +306,23 @@ function withNoAuthWidget(statusText: { invoking: string; invoked: string }) {
   };
 }
 
+function withNoAuthPlainTool(statusText: { invoking: string; invoked: string }) {
+  return {
+    securitySchemes: noAuthSecuritySchemes(),
+    _meta: {
+      securitySchemes: noAuthSecuritySchemes(),
+      "openai/toolInvocation/invoking": statusText.invoking,
+      "openai/toolInvocation/invoked": statusText.invoked,
+    },
+  };
+}
+
 function withExactCors(response: Response, origin?: string): Response {
   const headers = new Headers(response.headers);
   headers.delete("access-control-allow-origin");
   if (origin) {
     headers.set("access-control-allow-origin", origin);
+    headers.set("access-control-expose-headers", "Mcp-Session-Id");
     const vary = headers.get("vary");
     if (!vary) headers.set("vary", "Origin");
     else if (vary !== "*" && !vary.toLowerCase().split(",").map((value) => value.trim()).includes("origin")) {
@@ -701,7 +806,10 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     { errors: 0, warnings: 0, notes: 0 },
   );
   const completed = result.pages_audited;
+  const indexabilityFindings = result.indexability_graph.findings;
+  const hasIndexabilityFindings = indexabilityFindings.length > 0;
   const hasCoverageGap = result.discovery_error !== undefined
+    || result.indexability_graph.coverage_limited
     || result.pages_partial > 0
     || result.pages_failed > 0
     || result.pages_skipped_robots > 0
@@ -710,7 +818,7 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     ? "failed"
     : hasCoverageGap
       ? "partial"
-      : totals.errors > 0 || totals.warnings > 0
+      : totals.errors > 0 || totals.warnings > 0 || hasIndexabilityFindings
         ? "needs_attention"
         : "passed";
   const headline = status === "failed"
@@ -718,8 +826,10 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     : status === "partial"
       ? `Public site audit is partial: ${plural(completed, "page")} completed with coverage limits.`
       : totals.errors > 0 || totals.warnings > 0
-        ? `Public site audit found ${summarizeSeverities({ errors: totals.errors, warnings: totals.warnings, info: 0 })}.`
-        : "Public site audit found no errors or warnings in the completed checks.";
+        ? `Public site audit found ${summarizeSeverities({ errors: totals.errors, warnings: totals.warnings, info: 0 })}${hasIndexabilityFindings ? ` plus ${plural(indexabilityFindings.length, "sampled cross-page finding")}` : ""}.`
+        : hasIndexabilityFindings
+          ? `Public site audit found ${plural(indexabilityFindings.length, "sampled cross-page indexability finding")}.`
+          : "Public site audit found no errors or warnings in the completed checks.";
   const scoreDetail = result.audit_health_score === undefined
     ? "No full HTML-and-metadata score was available."
     : `Audit health score: ${result.audit_health_score}/100 across ${result.score_coverage_percent}% of selected pages.`;
@@ -728,7 +838,7 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     : result.discovery_error
       ? `Discovery was incomplete (${result.discovery_error}); selected-page coverage is not site-wide coverage. `
       : "";
-  const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_selected, "page")} were selected. ${discoveryDetail}${scoreDetail} Link checks are intentionally not run by this bounded site tool.`;
+  const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_selected, "page")} were selected. ${discoveryDetail}${scoreDetail} Link checks are intentionally not run by this bounded site tool. Cross-page indexability findings concern sampled static HTML only, not Google indexing decisions.`;
   const incompletePageGuidance = result.pages_partial > 0 || result.pages_failed > 0
     ? " Review partial and failed page coverage, then retry affected batches after resolving failures."
     : "";
@@ -742,8 +852,10 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
       ? "Review robots.txt exclusions with the site owner; excluded pages were not audited and must not be crawled unless the rules change."
     : result.truncated
       ? "Discovery or page selection reached a coverage limit; review the sitemap and continue permitted batches before claiming a site-wide audit."
-    : totals.errors > 0 || totals.warnings > 0
-      ? "Fix the highest-impact grouped findings, then rerun the bounded site audit."
+    : result.indexability_graph.coverage_limited
+      ? "Review the indexability graph limitations and incomplete observations; do not treat missing graph findings as a complete site pass."
+    : totals.errors > 0 || totals.warnings > 0 || hasIndexabilityFindings
+      ? "Review both on-page findings and sampled cross-page canonical, noindex, and hreflang conflicts, then rerun the bounded site audit."
       : result.pages_partial > 0 || result.pages_failed > 0
         ? "Review partial and failed page coverage, then retry the affected batch."
         : undefined;
@@ -753,9 +865,9 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     title: "Public site audit",
     headline,
     detail,
-    total: totals.errors + totals.warnings + totals.notes,
-    shown: result.issue_groups.length,
-    truncated: result.truncated || result.issue_groups_truncated,
+    total: totals.errors + totals.warnings + totals.notes + indexabilityFindings.length,
+    shown: result.issue_groups.length + indexabilityFindings.length,
+    truncated: result.truncated || result.issue_groups_truncated || result.indexability_graph.findings_truncated,
     counts: [
       metric("pages_audited", "Pages audited", result.pages_audited, "success"),
       metric("pages_partial", "Pages partial", result.pages_partial, "warning"),
@@ -763,6 +875,7 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
       metric("pages_skipped_robots", "Pages excluded by robots", result.pages_skipped_robots, "warning"),
       metric("errors", "Errors", totals.errors, "error"),
       metric("warnings", "Warnings", totals.warnings, "warning"),
+      metric("indexability_findings", "Cross-page signals", indexabilityFindings.length, "warning"),
       ...(result.audit_health_score === undefined
         ? []
         : [metric("audit_health_score", "Audit health score", result.audit_health_score, "success")]),
@@ -1375,7 +1488,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
     {
       title: "Audit public site",
       description:
-        `Use this for a bounded, sitemap-first audit of a public website the user owns or is authorized to inspect. It fetches at most ${SITE_AUDIT_MAX_PAGES} same-origin HTML pages per call, respects robots.txt, and returns compact page summaries plus deduplicated findings. It does not recursively follow HTML links, authenticate, execute JavaScript, fetch assets, or run site-wide link checks. To continue a batch, pass both the returned page offset and discovery fingerprint; changed sitemaps require restarting at offset 0.`,
+        `Use this for a bounded, sitemap-first audit of a public website the user owns or is authorized to inspect. It fetches at most ${SITE_AUDIT_MAX_PAGES} same-origin HTML pages per call, respects robots.txt, and returns compact page summaries plus deduplicated findings and a sampled cross-page canonical/noindex/hreflang evidence graph. It does not recursively follow HTML links, authenticate, execute JavaScript, fetch assets, or run site-wide link checks. To continue a batch, pass both the returned page offset and discovery fingerprint; changed sitemaps require restarting at offset 0.`,
       inputSchema: {
         site_url: publicPageUrlInput.describe("Authorized public website URL. The final public origin becomes the crawl boundary."),
         max_pages: z
@@ -1422,7 +1535,14 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
         const overview = siteAuditOverview(result);
         return {
           structuredContent: { ...result, overview },
-          content: contentForOverview(overview, siteAuditFindings(result.issue_groups)),
+          content: contentForOverview(overview, [
+            ...siteAuditFindings(result.issue_groups),
+            ...result.indexability_graph.findings.map((finding) => ({
+              severity: finding.severity,
+              label: "Indexability",
+              message: finding.message,
+            })),
+          ]),
         };
       } catch (cause) {
         const isContinuationError = cause instanceof Error && (
@@ -1438,6 +1558,75 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
         }));
         return failedPublicSiteAudit(error);
       }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "compare_site_audits",
+    {
+      title: "Compare site audit snapshots",
+      description:
+        "Compare the structured results of two earlier audit_public_site runs entirely offline. Identify changed page issue counts, unavailable checks, sitemap drift, and newly/no-longer observed grouped findings only within the same fully checked selected-page sample (not site-wide). This is not a Google indexing, ranking, or traffic-causality test. No webpages are fetched and results are not stored.",
+      inputSchema: {
+        baseline: siteAuditSnapshotSchema.describe("Earlier structuredContent from audit_public_site, without editing its page list."),
+        current: siteAuditSnapshotSchema.describe("Later structuredContent from audit_public_site, ideally the same sitemap batch."),
+      },
+      outputSchema: siteComparisonOutputSchema,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Comparing site audit snapshots…",
+        invoked: "Site audit comparison complete.",
+      }),
+    },
+    async ({ baseline, current }) => {
+      const comparison = compareSiteAudits(baseline, current);
+      const actionable = comparison.regressed_pages + comparison.coverage_lost_pages
+        + comparison.newly_observed_issue_groups.length + comparison.expanding_issue_groups.length;
+      const status: ResultOverview["status"] = comparison.status === "not_comparable"
+        ? "failed"
+        : comparison.status === "partial"
+          ? "partial"
+          : actionable > 0 ? "needs_attention" : "passed";
+      const overview: ResultOverview = {
+        kind: "site",
+        status,
+        title: "Site audit comparison",
+        headline: comparison.status === "not_comparable"
+          ? "These site audit snapshots cannot be compared safely."
+          : comparison.status === "partial"
+            ? `Compared ${plural(comparison.pages_compared, "matching page")} with coverage limitations; missing findings are not proven fixes.`
+            : actionable > 0
+              ? `Comparison found ${plural(comparison.regressed_pages, "regressed page")} and ${plural(comparison.newly_observed_issue_groups.length, "newly observed issue group")}.`
+              : "No new issues were observed across these comparable audit snapshots.",
+        detail: "This compares recorded static-page audit evidence only. It does not establish Google indexing, ranking changes, or the cause of a traffic change.",
+        total: comparison.page_changes.length,
+        shown: comparison.page_changes.length,
+        truncated: false,
+        counts: [
+          metric("pages_compared", "Pages compared", comparison.pages_compared, "info"),
+          metric("regressed_pages", "Regressed pages", comparison.regressed_pages, "error"),
+          metric("mixed_pages", "Mixed changes", comparison.mixed_pages, "warning"),
+          metric("coverage_lost", "Coverage lost", comparison.coverage_lost_pages, "warning"),
+          metric("new_issue_groups", "New issue groups", comparison.newly_observed_issue_groups.length, "error"),
+        ],
+        ...(comparison.status !== "comparable"
+          ? { next_action: comparison.limitations.join(" ") }
+          : actionable > 0
+            ? { next_action: "Review affected URLs and newly observed findings, fix verified defects, then rerun the same site audit." }
+            : { next_action: "Keep the current snapshot as the new comparison baseline after reviewing the change evidence." }),
+      };
+      return {
+        structuredContent: { ...comparison, overview },
+        content: contentForOverview(
+          overview,
+          comparison.newly_observed_issue_groups.map((group) => ({
+            severity: group.severity,
+            label: group.category,
+            message: group.message,
+          })),
+        ),
+      };
     },
   );
 
@@ -1465,6 +1654,11 @@ export default {
     const startedAt = Date.now();
     const origin = request.headers.get("origin") ?? undefined;
     try {
+      const suppliedHost = request.headers.get("host");
+      if (!ALLOWED_REQUEST_HOSTS.has(url.hostname.toLowerCase())
+        || (suppliedHost !== null && suppliedHost.toLowerCase() !== url.host.toLowerCase())) {
+        return jsonRpcHttpError(403, "Forbidden: unexpected Host header.");
+      }
       if (origin && !TRUSTED_BROWSER_ORIGINS.has(origin)) {
         logRequest("mcp_request_rejected", {
           reason: "untrusted_origin",
@@ -1472,6 +1666,18 @@ export default {
           status: 403,
         });
         return jsonRpcHttpError(403, "Forbidden: untrusted Origin header.");
+      }
+
+      if (request.method === "OPTIONS") {
+        return withExactCors(new Response(null, {
+          status: 200,
+          headers: {
+            "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+            "access-control-allow-headers": PREFLIGHT_HEADERS,
+            "access-control-expose-headers": "Mcp-Session-Id",
+            "access-control-max-age": "86400",
+          },
+        }), origin);
       }
 
       const siteAuditRateLimitKey = request.method === "OPTIONS" ? "options" : await rateLimitKey(request);
@@ -1499,16 +1705,11 @@ export default {
       }
 
       const handler = createMcpHandler(() => createServer(env, siteAuditRateLimitKey), {
-        corsOptions: {
-          origin: origin ?? "https://chatgpt.com",
-          headers:
-            "Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID, Mcp-Method, Mcp-Name",
-          methods: "GET, POST, DELETE, OPTIONS",
-          exposeHeaders: "Mcp-Session-Id",
-          maxAge: 86400,
-        },
+        legacy: "stateless",
+        responseMode: "sse",
+        maxRequestBodySize: MCP_BODY_MAX_BYTES,
       });
-      const response = await addCanonicalToolSecuritySchemes(withExactCors(await handler(request, env, ctx), origin));
+      const response = await addCanonicalToolSecuritySchemes(withExactCors(await handler.fetch(request), origin));
       logRequest("mcp_request", {
         method: request.method,
         status: response.status,

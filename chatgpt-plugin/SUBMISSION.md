@@ -1,6 +1,6 @@
 # ChatGPT plugin submission notes
 
-This directory contains the public Streamable HTTP app included in the Web Validator by DigestSEO plugin. It is intentionally separate from the repository's local npm/stdio server.
+This directory contains the public Streamable HTTP app included in the Web Validator by DigestSEO plugin. It is intentionally separate from the repository's local npm/stdio server. The app uses `createMcpHandler` directly from `@modelcontextprotocol/server` in stateless mode; it does not require Cloudflare's `agents` package, persistent storage, or Durable Objects.
 
 ## Public app boundary
 
@@ -11,7 +11,8 @@ Data flow by tool:
 | Tool | Processing and recipients | Annotations |
 | --- | --- | --- |
 | `audit_public_webpage` | Fetches one authorized public `text/html` page with bounded size, time, and redirects; sends the fetched HTML to `https://html5.validator.nu/`; runs local SEO/accessibility-signal and JSON-LD syntax checks; and optionally checks up to 20 eligible links. | `readOnlyHint: true`, `openWorldHint: true`, `destructiveHint: false` |
-| `audit_public_site` | Fetches one authorized public site seed, then reads bounded `robots.txt` plus same-origin XML Sitemap, RSS 2.0, Atom 1.0, and plain-text sitemap representations to audit at most eight same-origin eligible `text/html` pages. Robots discovery may follow up to five validated public redirects across authorities while applying the reached rules to the initially audited authority; private/reserved destinations, credentials, custom ports, service self-fetches, and HTTPS-to-HTTP downgrades remain blocked. Sitemap entries and audited pages remain same-origin, and the tool does not follow HTML links or run site-wide link checks. Eligible page HTML may be sent to `https://html5.validator.nu/`; SEO/accessibility and JSON-LD checks run inside the Worker. | `readOnlyHint: true`, `openWorldHint: true`, `destructiveHint: false` |
+| `audit_public_site` | Fetches at most eight authorized same-origin sitemap-discovered public HTML pages after applying robots.txt, redirect, URL and size checks. Runs Nu HTML validation plus local SEO/JSON-LD checks; returns sampled canonical/noindex/title/hreflang signals and an indexability graph derived from already fetched HTML/headers, with **no additional target requests**. It does not follow HTML links or run site-wide link checks. | `readOnlyHint: true`, `openWorldHint: true`, `destructiveHint: false` |
+| `compare_site_audits` | Compares two previously returned `audit_public_site` structured snapshots inside the Worker; it does not fetch pages, call the Nu validator, or retain baselines. Sampled group changes are compared only for identical fully checked selected pages with matching discovery fingerprints and untruncated issue groups. Missing findings cannot be declared resolved across a whole site after sitemap drift, incomplete HTML validation, skipped/failed pages, or truncated sitemap coverage. User-supplied audit summaries and URLs are processed transiently. | `readOnlyHint: true`, `openWorldHint: false`, `destructiveHint: false` |
 | `validate_html` | Sends supplied HTML to `https://html5.validator.nu/`, an external Nu HTML Checker service, and returns capped diagnostics. | `readOnlyHint: true`, `openWorldHint: true`, `destructiveHint: false` |
 | `validate_css` | Parses supplied CSS inside the Worker without an external validation request. | `readOnlyHint: true`, `openWorldHint: false`, `destructiveHint: false` |
 | `audit_seo_metadata` | Analyzes supplied HTML inside the Worker. | `readOnlyHint: true`, `openWorldHint: false`, `destructiveHint: false` |
@@ -19,14 +20,14 @@ Data flow by tool:
 | `check_broken_links` | Makes capped `HEAD` requests, with a bounded `GET` fallback where required, to up to 20 eligible public HTTP(S) links. Redirects are not followed and response bodies are not retained. | `readOnlyHint: true`, `openWorldHint: true`, `destructiveHint: false` |
 | `generate_validation_report` | Combines external Nu HTML validation with local CSS, SEO, and JSON-LD checks for supplied markup; public link requests occur only when explicitly enabled. `base_url` resolves relative links and does not fetch a page. | `readOnlyHint: true`, `openWorldHint: true`, `destructiveHint: false` |
 
-DigestSEO does not retain tool inputs, fetched HTML, robots files, sitemaps, or results. Do not submit credential-bearing URLs, access tokens, payment data, health data, private source code, or other sensitive personal data. For `audit_public_webpage` and eligible pages in `audit_public_site`, the requested public host receives bounded requests and the external `html5.validator.nu` service receives fetched HTML for validation. That external service is outside DigestSEO's control.
+DigestSEO does not retain tool inputs, fetched HTML, robots files, sitemaps, or results. The new per-page static indexability signals and graph findings are not retained either; only limited sampled signals are returned to the invoking MCP client. Do not submit credential-bearing URLs, access tokens, payment data, health data, private source code, or other sensitive personal data. For `audit_public_webpage` and eligible pages in `audit_public_site`, the requested public host receives bounded requests and the external `html5.validator.nu` service receives fetched HTML for validation. That external service is outside DigestSEO's control.
 
 ## Production endpoint
 
 - MCP URL: `https://web-validator-mcp.digestseo.com/mcp`
 - Health URL: `https://web-validator-mcp.digestseo.com/health`
 - Authentication: none
-- Expected discovery: eight tools and two UI resources: the current MCP Apps resource `ui://web-validator/results-v5.html` and the legacy compatibility resource `ui://web-validator/results-v4.html`
+- Expected discovery: nine tools and two UI resources: the current MCP Apps resource `ui://web-validator/results-v5.html` and the legacy compatibility resource `ui://web-validator/results-v4.html`
 - CSP app domain: `https://web-validator-mcp.digestseo.com`
 
 The endpoint is universal, not a per-workspace URL template.

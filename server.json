@@ -3,7 +3,7 @@
   "name": "io.github.AKzar1el/mcp-web-validator",
   "title": "Web Validator by DigestSEO",
   "description": "Validate HTML/CSS, audit SEO and JSON-LD, check links, and capture responsive screenshots.",
-  "version": "1.3.48",
+  "version": "1.3.49",
   "repository": {
     "url": "https://github.com/AKzar1el/mcp-web-validator",
     "source": "github"
@@ -1119,6 +1119,103 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "audit.history",
+      "title": "Manage local audit history",
+      "description": "Opt-in local-only site-audit snapshot history. Save a previous hosted audit_public_site structured result as JSON, list saved IDs, or retrieve an exact version. A single compact local JSON file retains at most 10 versions; saving the 11th removes the oldest. No database, background task, or network request.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "save",
+              "list",
+              "get"
+            ],
+            "description": "Save a snapshot, list versions, or retrieve one by ID."
+          },
+          "snapshotJson": {
+            "description": "For save: JSON-serialized structuredContent from hosted audit_public_site, max 60 KB. Raw HTML is not stored.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60000
+          },
+          "id": {
+            "description": "For get: saved version ID returned by list or save.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "items": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "saved_at": {
+                  "type": "string"
+                },
+                "site_url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "saved_at",
+                "site_url"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "snapshot_json": {
+            "type": "string"
+          },
+          "evicted_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "count",
+          "items"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
       },
       "execution": {
         "taskSupport": "forbidden"

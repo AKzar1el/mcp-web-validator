@@ -33,6 +33,13 @@ import {
 } from "./presentation.js";
 import { PACKAGE_VERSION } from "./version.js";
 import {
+  MAX_AUDIT_HISTORY,
+  MAX_AUDIT_SNAPSHOT_BYTES,
+  getAuditHistorySnapshot,
+  listAuditHistory,
+  saveAuditHistorySnapshot,
+} from "./audit-history.js";
+import {
   getW3CMessageSeverity,
   type HtmlValidationMediaType,
   MAX_CSS_VALIDATION_BYTES,
@@ -692,6 +699,61 @@ export function createServer(): McpServer {
             error,
             "Confirm the input paths are readable and any base URL is public, then regenerate the report.",
           ),
+          true,
+        );
+      }
+    },
+  );
+
+  server.registerTool(
+    "audit.history",
+    {
+      title: "Manage local audit history",
+      description:
+        "Opt-in local-only site-audit snapshot history. Save a previous hosted audit_public_site structured result as JSON, list saved IDs, or retrieve an exact version. A single compact local JSON file retains at most 10 versions; saving the 11th removes the oldest. No database, background task, or network request.",
+      inputSchema: {
+        action: z.enum(["save", "list", "get"]).describe("Save a snapshot, list versions, or retrieve one by ID."),
+        snapshotJson: z.string().min(1).max(MAX_AUDIT_SNAPSHOT_BYTES).optional()
+          .describe("For save: JSON-serialized structuredContent from hosted audit_public_site, max 60 KB. Raw HTML is not stored."),
+        id: z.string().uuid().optional().describe("For get: saved version ID returned by list or save."),
+      },
+      outputSchema: {
+        count: z.number().int().nonnegative(),
+        items: z.array(z.object({
+          id: z.string().uuid(),
+          saved_at: z.string(),
+          site_url: z.string(),
+        })).max(MAX_AUDIT_HISTORY),
+        snapshot_json: z.string().optional(),
+        evicted_id: z.string().uuid().optional(),
+        error: z.string().optional(),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ action, snapshotJson, id }) => {
+      try {
+        if (action === "save") {
+          if (!snapshotJson) throw new Error("snapshotJson is required when action is save.");
+          const saved = await saveAuditHistorySnapshot(snapshotJson);
+          return result(saved, `Audit version saved locally. ${saved.count}/10 versions retained.${saved.evicted_id ? " Oldest version automatically deleted." : ""} Latest ID: ${saved.items[0]?.id}`);
+        }
+        if (action === "get") {
+          if (!id) throw new Error("id is required when action is get.");
+          const found = await getAuditHistorySnapshot(id);
+          return result(found, `Retrieved audit history version ${id}. Use snapshot_json as a baseline or current result for compare_site_audits.`);
+        }
+        const listed = await listAuditHistory();
+        return result(listed, `Found ${listed.count} locally saved audit versions, newest first.`);
+      } catch (cause) {
+        const error = getErrorMessage(cause);
+        return result(
+          { count: 0, items: [], error },
+          failureContent("Audit history", error, "Review snapshot JSON or local history file permissions and retry."),
           true,
         );
       }

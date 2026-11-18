@@ -1024,7 +1024,8 @@ export function validateSchemaMarkupDetailed(htmlContent: string): AuditDetails 
     }
 
     try {
-      const parsed = JSON.parse(scriptText) as unknown;
+      // A leading UTF-8 BOM is optional for tolerant JSON parsers (RFC 8259).
+      const parsed = JSON.parse(scriptText.replace(/^\\uFEFF/, "")) as unknown;
       if (!hasJsonLdDocumentShape(parsed)) {
         add({
           code: "schema.jsonld.invalid_document",

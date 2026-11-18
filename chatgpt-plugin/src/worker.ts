@@ -734,6 +734,7 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
   const indexabilityFindings = result.indexability_graph.findings;
   const hasIndexabilityFindings = indexabilityFindings.length > 0;
   const hasCoverageGap = result.discovery_error !== undefined
+    || result.indexability_graph.coverage_limited
     || result.pages_partial > 0
     || result.pages_failed > 0
     || result.pages_skipped_robots > 0
@@ -749,9 +750,11 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     ? "Public site audit could not complete an eligible page audit."
     : status === "partial"
       ? `Public site audit is partial: ${plural(completed, "page")} completed with coverage limits.`
-      : totals.errors > 0 || totals.warnings > 0 || hasIndexabilityFindings
-        ? `Public site audit found ${summarizeSeverities({ errors: totals.errors, warnings: totals.warnings, info: 0 })} and ${plural(indexabilityFindings.length, "cross-page indexability finding")}.`
-        : "Public site audit found no errors or warnings in the completed checks.";
+      : totals.errors > 0 || totals.warnings > 0
+        ? `Public site audit found ${summarizeSeverities({ errors: totals.errors, warnings: totals.warnings, info: 0 })}${hasIndexabilityFindings ? ` plus ${plural(indexabilityFindings.length, "sampled cross-page finding")}` : ""}.`
+        : hasIndexabilityFindings
+          ? `Public site audit found ${plural(indexabilityFindings.length, "sampled cross-page indexability finding")}.`
+          : "Public site audit found no errors or warnings in the completed checks.";
   const scoreDetail = result.audit_health_score === undefined
     ? "No full HTML-and-metadata score was available."
     : `Audit health score: ${result.audit_health_score}/100 across ${result.score_coverage_percent}% of selected pages.`;
@@ -774,6 +777,8 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
       ? "Review robots.txt exclusions with the site owner; excluded pages were not audited and must not be crawled unless the rules change."
     : result.truncated
       ? "Discovery or page selection reached a coverage limit; review the sitemap and continue permitted batches before claiming a site-wide audit."
+    : result.indexability_graph.coverage_limited
+      ? "Review the indexability graph limitations and incomplete observations; do not treat missing graph findings as a complete site pass."
     : totals.errors > 0 || totals.warnings > 0 || hasIndexabilityFindings
       ? "Review both on-page findings and sampled cross-page canonical, noindex, and hreflang conflicts, then rerun the bounded site audit."
       : result.pages_partial > 0 || result.pages_failed > 0
@@ -785,9 +790,9 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     title: "Public site audit",
     headline,
     detail,
-    total: totals.errors + totals.warnings + totals.notes,
-    shown: result.issue_groups.length,
-    truncated: result.truncated || result.issue_groups_truncated,
+    total: totals.errors + totals.warnings + totals.notes + indexabilityFindings.length,
+    shown: result.issue_groups.length + indexabilityFindings.length,
+    truncated: result.truncated || result.issue_groups_truncated || result.indexability_graph.findings_truncated,
     counts: [
       metric("pages_audited", "Pages audited", result.pages_audited, "success"),
       metric("pages_partial", "Pages partial", result.pages_partial, "warning"),

@@ -23,6 +23,7 @@
     "sync:manifests": "node scripts/sync-manifests.mjs",
     "check:manifests": "node scripts/sync-manifests.mjs --check",
     "smoke:hosted": "node scripts/smoke-hosted-mcp.mjs",
+    "smoke:interop": "node scripts/smoke-local-hosted-interop.mjs",
     "check": "npm test && npm run check:manifests",
     "prepublishOnly": "npm run check"
   },

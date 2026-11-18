@@ -27,6 +27,7 @@ import {
 } from "./presentation";
 import { validateCss, validateHtmlDetailed } from "./validators";
 import { auditPublicSite } from "./site-audit";
+import { compareSiteAudits } from "./site-comparison";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -162,6 +163,60 @@ const siteAuditOutputSchema = {
   error: z.string().optional(),
 };
 
+const siteAuditSnapshotSchema = z.object({
+  ...siteAuditOutputSchema,
+  site_url: z.string().url().max(2_048),
+  discovery_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  pages: z.array(sitePageSchema).max(SITE_AUDIT_MAX_PAGES),
+  issue_groups: z.array(siteIssueGroupSchema).max(50),
+  overview: overviewSchema.optional(),
+  error: z.string().optional(),
+});
+
+const comparedPageSchema = z.object({
+  url: z.string(),
+  kind: z.enum(["regressed", "improved", "mixed", "unchanged", "coverage_lost", "coverage_recovered", "unverified"]),
+  before_status: sitePageSchema.shape.status,
+  after_status: sitePageSchema.shape.status,
+  error_delta: z.number().int().optional(),
+  warning_delta: z.number().int().optional(),
+  health_score_delta: z.number().int().optional(),
+  redirect_changed: z.boolean(),
+});
+
+const changedIssueGroupSchema = siteFindingSchema.extend({
+  affected_pages: z.number().int().nonnegative(),
+});
+const expandedIssueGroupSchema = siteFindingSchema.extend({
+  before_affected_pages: z.number().int().nonnegative(),
+  after_affected_pages: z.number().int().nonnegative(),
+  delta_pages: z.number().int(),
+});
+
+const siteComparisonOutputSchema = {
+  status: z.enum(["comparable", "partial", "not_comparable"]),
+  baseline_site_url: z.string(),
+  current_site_url: z.string(),
+  baseline_selected_pages: z.number().int().nonnegative(),
+  current_selected_pages: z.number().int().nonnegative(),
+  pages_compared: z.number().int().nonnegative(),
+  regressed_pages: z.number().int().nonnegative(),
+  improved_pages: z.number().int().nonnegative(),
+  mixed_pages: z.number().int().nonnegative(),
+  coverage_lost_pages: z.number().int().nonnegative(),
+  coverage_recovered_pages: z.number().int().nonnegative(),
+  newly_selected_urls: z.array(z.string()),
+  no_longer_selected_urls: z.array(z.string()),
+  page_changes: z.array(comparedPageSchema),
+  issue_group_comparison_available: z.boolean(),
+  newly_observed_issue_groups: z.array(changedIssueGroupSchema),
+  no_longer_observed_issue_groups: z.array(changedIssueGroupSchema),
+  expanding_issue_groups: z.array(expandedIssueGroupSchema),
+  shrinking_issue_groups: z.array(expandedIssueGroupSchema),
+  limitations: z.array(z.string()),
+  overview: overviewSchema,
+};
+
 const reportOutputSchema = {
   html_errors: z.number().int().nonnegative(),
   css_errors: z.number().int().nonnegative(),
@@ -240,6 +295,17 @@ function withNoAuthWidget(statusText: { invoking: string; invoked: string }) {
   return {
     securitySchemes: noAuthSecuritySchemes(),
     _meta: withWidget(statusText),
+  };
+}
+
+function withNoAuthPlainTool(statusText: { invoking: string; invoked: string }) {
+  return {
+    securitySchemes: noAuthSecuritySchemes(),
+    _meta: {
+      securitySchemes: noAuthSecuritySchemes(),
+      "openai/toolInvocation/invoking": statusText.invoking,
+      "openai/toolInvocation/invoked": statusText.invoked,
+    },
   };
 }
 
@@ -1483,6 +1549,75 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
         }));
         return failedPublicSiteAudit(error);
       }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "compare_site_audits",
+    {
+      title: "Compare site audit snapshots",
+      description:
+        "Compare the structured results of two earlier audit_public_site runs entirely offline. Identify changed page issue counts, unavailable checks, sitemap drift, and newly/no-longer observed grouped findings only within the same fully checked selected-page sample (not site-wide). This is not a Google indexing, ranking, or traffic-causality test. No webpages are fetched and results are not stored.",
+      inputSchema: {
+        baseline: siteAuditSnapshotSchema.describe("Earlier structuredContent from audit_public_site, without editing its page list."),
+        current: siteAuditSnapshotSchema.describe("Later structuredContent from audit_public_site, ideally the same sitemap batch."),
+      },
+      outputSchema: siteComparisonOutputSchema,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Comparing site audit snapshots…",
+        invoked: "Site audit comparison complete.",
+      }),
+    },
+    async ({ baseline, current }) => {
+      const comparison = compareSiteAudits(baseline, current);
+      const actionable = comparison.regressed_pages + comparison.coverage_lost_pages
+        + comparison.newly_observed_issue_groups.length + comparison.expanding_issue_groups.length;
+      const status: ResultOverview["status"] = comparison.status === "not_comparable"
+        ? "failed"
+        : comparison.status === "partial"
+          ? "partial"
+          : actionable > 0 ? "needs_attention" : "passed";
+      const overview: ResultOverview = {
+        kind: "site",
+        status,
+        title: "Site audit comparison",
+        headline: comparison.status === "not_comparable"
+          ? "These site audit snapshots cannot be compared safely."
+          : comparison.status === "partial"
+            ? `Compared ${plural(comparison.pages_compared, "matching page")} with coverage limitations; missing findings are not proven fixes.`
+            : actionable > 0
+              ? `Comparison found ${plural(comparison.regressed_pages, "regressed page")} and ${plural(comparison.newly_observed_issue_groups.length, "newly observed issue group")}.`
+              : "No new issues were observed across these comparable audit snapshots.",
+        detail: "This compares recorded static-page audit evidence only. It does not establish Google indexing, ranking changes, or the cause of a traffic change.",
+        total: comparison.page_changes.length,
+        shown: comparison.page_changes.length,
+        truncated: false,
+        counts: [
+          metric("pages_compared", "Pages compared", comparison.pages_compared, "info"),
+          metric("regressed_pages", "Regressed pages", comparison.regressed_pages, "error"),
+          metric("mixed_pages", "Mixed changes", comparison.mixed_pages, "warning"),
+          metric("coverage_lost", "Coverage lost", comparison.coverage_lost_pages, "warning"),
+          metric("new_issue_groups", "New issue groups", comparison.newly_observed_issue_groups.length, "error"),
+        ],
+        ...(comparison.status !== "comparable"
+          ? { next_action: comparison.limitations.join(" ") }
+          : actionable > 0
+            ? { next_action: "Review affected URLs and newly observed findings, fix verified defects, then rerun the same site audit." }
+            : { next_action: "Keep the current snapshot as the new comparison baseline after reviewing the change evidence." }),
+      };
+      return {
+        structuredContent: { ...comparison, overview },
+        content: contentForOverview(
+          overview,
+          comparison.newly_observed_issue_groups.map((group) => ({
+            severity: group.severity,
+            label: group.category,
+            message: group.message,
+          })),
+        ),
+      };
     },
   );
 

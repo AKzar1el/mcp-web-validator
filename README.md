@@ -66,12 +66,13 @@ fetches headers; the MCP `seo.metadata` tool still analyzes supplied HTML only.
 
 ## Hosted app tools
 
-The hosted app exposes eight tools:
+The hosted app exposes nine tools:
 
 | Tool | Purpose |
 | --- | --- |
 | `audit_public_webpage` | Fetch one authorized public HTML page and run the combined HTML, SEO/accessibility-signal, and JSON-LD syntax audit. Link checks are optional. |
 | `audit_public_site` | Run a bounded sitemap-first audit of up to eight authorized, same-origin public pages. It respects `robots.txt`, returns compact page coverage and deduplicated findings, **plus a sampled cross-page indexability evidence graph** for canonical loops/chains, sitemap/noindex conflicts, duplicate titles, and hreflang return links. No site-wide link checks. |
+| `compare_site_audits` | Offline before/after comparison of two saved `audit_public_site` structured results. Flags per-page regressions, coverage loss, and sitemap drift; reports newly observed or no-longer observed grouped findings only for an identical, fully checked page sample; partial sitemap coverage never proves a site-wide fix. No network calls or retained history. |
 | `validate_html` | Validate raw HTML markup already supplied in the conversation. |
 | `validate_css` | Parse supplied CSS for syntax errors inside the Worker. |
 | `audit_seo_metadata` | Audit supplied HTML for covered on-page SEO, robots noindex, and accessibility signals. |
@@ -88,6 +89,14 @@ The hosted `audit_public_site` result now includes per-page `indexability` stati
 The graph identifies evidence-supported canonical cycles and chains between sampled pages, sampled sitemap URLs observed with noindex, sampled canonicals pointing to other sampled noindex pages, potential duplicate titles for distinct canonical destinations, and missing sampled hreflang return links. `coverage_limited` and `limitations` explain why partial results cannot establish a site-wide pass.
 
 A cross-page finding is not proof of deindexing, Google's selected canonical, a search ranking signal, or a traffic-change cause. Query-bearing/credentialed canonical and alternate URLs are **not echoed** and are excluded from cross-page assertions rather than incorrectly normalized to a different page. The graph does not follow canonical or hreflang links: targets must already be inside the bounded audited sample.
+
+### Before/after site regression checks
+
+1. Run `audit_public_site` on an authorized website and preserve the returned **structured result** as a baseline.
+2. After a release or repair, rerun `audit_public_site` using the same website and page-selection settings. If continuing paginated audits, use the fingerprint supplied by that run; do not reuse a stale continuation.
+3. Pass both structured results to `compare_site_audits` as `baseline` and `current`. Check `status`, `page_changes`, `limitations`, and `issue_group_comparison_available` before deciding whether a change is safe.
+
+The comparison never fetches pages or keeps audit history. It separately reports failures and incomplete coverage. When both snapshots contain the same fully checked selected URLs and the same discovery fingerprint, grouped findings may be compared *within that sample*, even if the whole sitemap was not audited; this is **not** a verified site-wide fix. It cannot determine Google indexing or ranking changes, prove why traffic changed, or replace a complete accessibility audit. The `health_score_delta` is a heuristic within this tool, not a Google ranking metric.
 
 ## Privacy Policy
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { compareSiteAudits } from "./site-comparison";
-import type { PublicSiteAuditResult, SiteAuditPageSummary } from "./site-audit";
+import { compareSiteAudits, type ComparableSiteAudit } from "./site-comparison";
+import type { SiteAuditPageSummary } from "./site-audit";
 
 const FINGERPRINT = "a".repeat(64);
 
@@ -31,8 +31,8 @@ function page(
 
 function site(
   pages: SiteAuditPageSummary[],
-  options: Partial<PublicSiteAuditResult> = {},
-): PublicSiteAuditResult {
+  options: Partial<ComparableSiteAudit> = {},
+): ComparableSiteAudit {
   return {
     site_url: "https://example.com/",
     sitemap_url: "https://example.com/sitemap.xml",

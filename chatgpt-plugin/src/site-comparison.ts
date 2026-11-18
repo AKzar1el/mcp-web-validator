@@ -6,6 +6,11 @@ import type {
 } from "./site-audit";
 
 export type ComparisonStatus = "comparable" | "partial" | "not_comparable";
+// Historical audit snapshots predate the optional indexability graph.
+// This comparator only relies on page counts, URLs and grouped findings.
+export type ComparableSiteAudit = Omit<PublicSiteAuditResult, "indexability_graph"> & {
+  indexability_graph?: PublicSiteAuditResult["indexability_graph"];
+};
 export type PageChangeKind =
   | "regressed"
   | "improved"
@@ -79,7 +84,7 @@ function cleanUrl(value: string): string | undefined {
   }
 }
 
-function pageMap(snapshot: PublicSiteAuditResult): Map<string, SiteAuditPageSummary> | undefined {
+function pageMap(snapshot: ComparableSiteAudit): Map<string, SiteAuditPageSummary> | undefined {
   const pages = new Map<string, SiteAuditPageSummary>();
   for (const page of snapshot.pages) {
     const key = cleanUrl(page.url);
@@ -134,7 +139,7 @@ function sortedGroups(groups: ChangedIssueGroup[]): ChangedIssueGroup[] {
   );
 }
 
-function emptyResult(before: PublicSiteAuditResult, after: PublicSiteAuditResult): SiteAuditComparison {
+function emptyResult(before: ComparableSiteAudit, after: ComparableSiteAudit): SiteAuditComparison {
   return {
     status: "not_comparable",
     baseline_site_url: before.site_url,
@@ -168,8 +173,8 @@ function emptyResult(before: PublicSiteAuditResult, after: PublicSiteAuditResult
  * can be compared only within the same fully checked selected page sample.
  */
 export function compareSiteAudits(
-  before: PublicSiteAuditResult,
-  after: PublicSiteAuditResult,
+  before: ComparableSiteAudit,
+  after: ComparableSiteAudit,
 ): SiteAuditComparison {
   const result = emptyResult(before, after);
   const baselineUrl = cleanUrl(before.site_url);

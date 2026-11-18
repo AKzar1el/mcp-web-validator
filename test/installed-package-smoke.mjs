@@ -54,7 +54,7 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "css.local", "html.local", "html.url", "links.broken",
+      "audit.history", "css.local", "html.local", "html.url", "links.broken",
       "report.validation", "schema.markup", "screenshot.capture", "seo.metadata",
     ],
   );

@@ -110,7 +110,7 @@ test("rejects credential/query-bearing URLs rather than persisting tokens", asyn
     sample({ pages: [{ ...JSON.parse(sample()).pages[0], url: "https://example.com/a?key=private" }] }),
   ]) {
     assert.throws(() => parseCompactAuditSnapshot(bad), /valid bounded/i);
-    await assert.rejects(saveAuditHistorySnapshot(bad, root), /valid bounded/i);
+    assert.throws(() => saveAuditHistorySnapshot(bad, root), /valid bounded/i);
   }
   assert.deepEqual(await fs.readdir(root), []);
 });

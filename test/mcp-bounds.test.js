@@ -107,3 +107,35 @@ test("small reports retain their complete original content", () => {
   });
   assert.equal(boundedMcpReport(normal, "Normal report"), normal);
 });
+
+test("UTF-8 byte budgets account for multibyte diagnostics", () => {
+  const diagnostics = Array.from({ length: 200 }, (_, index) => ({
+    message: `Issue ${index}: ` + "😀".repeat(350),
+  }));
+  const preview = boundedMcpArray(diagnostics);
+  assert.ok(preview.length > 0 && preview.length < diagnostics.length);
+  assert.ok(jsonBytes(preview) <= MAX_MCP_STRUCTURED_BYTES);
+  assert.deepEqual(boundedMcpArray([{ message: "é".repeat(20_000) }]), []);
+});
+
+test("combined reports survive a single enormous error and original Markdown body", () => {
+  const normal = createValidationReport({
+    htmlFilePath: "large.html",
+    cssAudited: false,
+    htmlMessages: [],
+    cssMessages: [],
+    seoIssues: [],
+    schemaIssues: [],
+    links: [],
+  });
+  const oversized = {
+    ...normal,
+    report: "long report".repeat(10_000),
+    errors: ["long error".repeat(10_000)],
+  };
+  const preview = boundedMcpReport(oversized, "A concise status summary");
+  assert.ok(jsonBytes(preview) <= MAX_MCP_STRUCTURED_BYTES);
+  assert.deepEqual(preview.summary, normal.summary);
+  assert.match(preview.report, /condensed/);
+  assert.ok(preview.errors[0].length <= 400);
+});

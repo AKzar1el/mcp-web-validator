@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+### Security
+
+- Refresh the local MCP's locked transitive Hono dependency to 4.13.19 to address npm-audited middleware and input-validation advisories without changing the runtime dependency declarations.
+
 ## [1.3.51] - 2026-11-18
 
 ### Fixed

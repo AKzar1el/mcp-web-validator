@@ -254,7 +254,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers eight accurately annotated tools", async () => {
+  it("discovers nine accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -265,6 +265,7 @@ describe("hosted tool contract", () => {
       "generate_validation_report",
       "audit_public_webpage",
       "audit_public_site",
+      "compare_site_audits",
     ]);
     const noAuthSecuritySchemes = [{ type: "noauth" }];
     for (const tool of tools) {
@@ -1209,5 +1210,77 @@ describe("public site audit", () => {
     const nextAction = result.structuredContent.overview.next_action;
     expect(nextAction).toContain("page_offset 1");
     expect(nextAction).toContain("Review partial and failed page coverage");
+  });
+});
+
+describe("hosted site audit comparison", () => {
+  function snapshot(issueCount: number, options: Record<string, unknown> = {}) {
+    const url = "https://example.com/";
+    return {
+      site_url: url,
+      sitemap_url: url + "sitemap.xml",
+      discovery: "sitemap",
+      pages_discovered: 1,
+      pages_selected: 1,
+      pages_audited: 1,
+      pages_partial: 0,
+      pages_failed: 0,
+      pages_skipped_robots: 0,
+      truncated: false,
+      discovery_fingerprint: "a".repeat(64),
+      score_coverage_percent: 100,
+      pages: [{
+        url, fetched_url: url, status: issueCount > 0 ? "needs_attention" : "passed",
+        http_status: 200, redirects_followed: 0, page_fetched: true,
+        html_validation_status: "completed",
+        html_errors: 0, html_warnings: 0, seo_errors: issueCount, seo_warnings: 0,
+        schema_errors: 0, schema_warnings: 0, notes: 0,
+        health_score: 100 - issueCount * 12, top_findings: [],
+      }],
+      issue_groups: issueCount > 0 ? [{
+        code: "seo.title.missing", severity: "error", category: "SEO",
+        message: "Page title is missing", affected_pages: 1, example_urls: [url],
+      }] : [],
+      issue_groups_truncated: false,
+      ...options,
+    };
+  }
+
+  it("exposes a genuinely offline, read-only comparison of previous site audit results", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => { throw new Error("No network should be contacted"); }));
+    const result = await callTool("compare_site_audits", {
+      baseline: snapshot(0),
+      current: snapshot(1),
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      status: "comparable",
+      pages_compared: 1,
+      regressed_pages: 1,
+      issue_group_comparison_available: true,
+      newly_observed_issue_groups: [{ code: "seo.title.missing" }],
+      overview: { kind: "site", status: "needs_attention" },
+    });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("blocks unsupported resolution claims for drifted discoveries", async () => {
+    const result = await callTool("compare_site_audits", {
+      baseline: snapshot(1),
+      current: snapshot(0, { discovery_fingerprint: "b".repeat(64), truncated: true }),
+    });
+    expect(result.structuredContent).toMatchObject({
+      status: "partial", issue_group_comparison_available: false,
+      no_longer_observed_issue_groups: [],
+      overview: { status: "partial" },
+    });
+  });
+
+  it("rejects malformed site audit snapshots at the tool boundary", async () => {
+    const result = await callTool("compare_site_audits", {
+      baseline: { ...snapshot(0), discovery_fingerprint: "not-a-sha256" },
+      current: snapshot(1),
+    });
+    expect(result.isError).toBe(true);
   });
 });

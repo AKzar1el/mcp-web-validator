@@ -268,6 +268,17 @@ function withNoAuthWidget(statusText: { invoking: string; invoked: string }) {
   };
 }
 
+function withNoAuthPlainTool(statusText: { invoking: string; invoked: string }) {
+  return {
+    securitySchemes: noAuthSecuritySchemes(),
+    _meta: {
+      securitySchemes: noAuthSecuritySchemes(),
+      "openai/toolInvocation/invoking": statusText.invoking,
+      "openai/toolInvocation/invoked": statusText.invoked,
+    },
+  };
+}
+
 function withExactCors(response: Response, origin?: string): Response {
   const headers = new Headers(response.headers);
   headers.delete("access-control-allow-origin");
@@ -1509,12 +1520,10 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
       },
       outputSchema: siteComparisonOutputSchema,
       annotations: localReadOnlyAnnotations,
-      securitySchemes: noAuthSecuritySchemes(),
-      _meta: {
-        securitySchemes: noAuthSecuritySchemes(),
-        "openai/toolInvocation/invoking": "Comparing site audit snapshots…",
-        "openai/toolInvocation/invoked": "Site audit comparison complete.",
-      },
+      ...withNoAuthPlainTool({
+        invoking: "Comparing site audit snapshots…",
+        invoked: "Site audit comparison complete.",
+      }),
     },
     async ({ baseline, current }) => {
       const comparison = compareSiteAudits(baseline, current);

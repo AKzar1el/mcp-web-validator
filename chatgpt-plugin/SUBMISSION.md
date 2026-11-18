@@ -12,6 +12,7 @@ Data flow by tool:
 | --- | --- | --- |
 | `audit_public_webpage` | Fetches one authorized public `text/html` page with bounded size, time, and redirects; sends the fetched HTML to `https://html5.validator.nu/`; runs local SEO/accessibility-signal and JSON-LD syntax checks; and optionally checks up to 20 eligible links. | `readOnlyHint: true`, `openWorldHint: true`, `destructiveHint: false` |
 | `audit_public_site` | Fetches one authorized public site seed, then reads bounded `robots.txt` plus same-origin XML Sitemap, RSS 2.0, Atom 1.0, and plain-text sitemap representations to audit at most eight same-origin eligible `text/html` pages. Robots discovery may follow up to five validated public redirects across authorities while applying the reached rules to the initially audited authority; private/reserved destinations, credentials, custom ports, service self-fetches, and HTTPS-to-HTTP downgrades remain blocked. Sitemap entries and audited pages remain same-origin, and the tool does not follow HTML links or run site-wide link checks. Eligible page HTML may be sent to `https://html5.validator.nu/`; SEO/accessibility and JSON-LD checks run inside the Worker. | `readOnlyHint: true`, `openWorldHint: true`, `destructiveHint: false` |
+| `compare_site_audits` | Compares two previously returned `audit_public_site` structured snapshots inside the Worker; it does not fetch pages, call the Nu validator, or retain baselines. Comparison limitations explicitly prevent declaring missing findings resolved after sitemap drift, incomplete HTML validation, skipped/failed pages, or truncation. User-supplied audit summaries and URLs are processed transiently. | `readOnlyHint: true`, `openWorldHint: false`, `destructiveHint: false` |
 | `validate_html` | Sends supplied HTML to `https://html5.validator.nu/`, an external Nu HTML Checker service, and returns capped diagnostics. | `readOnlyHint: true`, `openWorldHint: true`, `destructiveHint: false` |
 | `validate_css` | Parses supplied CSS inside the Worker without an external validation request. | `readOnlyHint: true`, `openWorldHint: false`, `destructiveHint: false` |
 | `audit_seo_metadata` | Analyzes supplied HTML inside the Worker. | `readOnlyHint: true`, `openWorldHint: false`, `destructiveHint: false` |
@@ -26,7 +27,7 @@ DigestSEO does not retain tool inputs, fetched HTML, robots files, sitemaps, or 
 - MCP URL: `https://web-validator-mcp.digestseo.com/mcp`
 - Health URL: `https://web-validator-mcp.digestseo.com/health`
 - Authentication: none
-- Expected discovery: eight tools and two UI resources: the current MCP Apps resource `ui://web-validator/results-v5.html` and the legacy compatibility resource `ui://web-validator/results-v4.html`
+- Expected discovery: nine tools and two UI resources: the current MCP Apps resource `ui://web-validator/results-v5.html` and the legacy compatibility resource `ui://web-validator/results-v4.html`
 - CSP app domain: `https://web-validator-mcp.digestseo.com`
 
 The endpoint is universal, not a per-workspace URL template.

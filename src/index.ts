@@ -4,12 +4,12 @@ import { pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { boundedMcpArray, boundedMcpIssues, boundedMcpReport } from "./mcp-bounds.js";
 import { z } from "zod";
 import { captureScreenshots, PartialScreenshotCaptureError } from "./screenshot.js";
 import {
   auditSeoMetadata,
   auditSeoMetadataDetailed,
-  type AuditDetails,
   checkBrokenLinks,
   validateSchemaMarkup,
   validateSchemaMarkupDetailed,
@@ -56,9 +56,6 @@ const HTML_MAX_BYTES = 2_000_000;
 const CSS_MAX_BYTES = MAX_CSS_VALIDATION_BYTES;
 const PATH_MAX_LENGTH = 4_096;
 const MAX_VIEWPORTS = 8;
-// Bound machine-readable diagnostic payloads for MCP gateways with smaller result limits.
-// The original issue totals and severity counts remain exact when details are clipped.
-const MAX_MCP_ISSUES_JSON_BYTES = 16_000;
 
 function localHtmlValidationMediaType(filePath: string): HtmlValidationMediaType {
   const extension = path.extname(filePath).toLowerCase();
@@ -161,19 +158,6 @@ const localReadOnlyAnnotations = {
   idempotentHint: true,
   openWorldHint: false,
 } as const;
-
-function boundedMcpIssues(details: AuditDetails): AuditDetails {
-  let bytes = 2; // JSON array brackets.
-  let count = 0;
-  for (const issue of details.issues) {
-    const increment = Buffer.byteLength(JSON.stringify(issue), "utf8") + (count > 0 ? 1 : 0);
-    if (bytes + increment > MAX_MCP_ISSUES_JSON_BYTES) break;
-    bytes += increment;
-    count += 1;
-  }
-  if (count === details.issues.length) return details;
-  return { ...details, issues: details.issues.slice(0, count), truncated: true };
-}
 
 function result<T extends object>(
   structuredContent: T,
@@ -409,9 +393,11 @@ export function createServer(): McpServer {
           html,
           htmlMediaType,
         );
+        const messages = boundedMcpArray(validation.messages);
+        const truncated = validation.truncated || messages.length < validation.messages.length;
         return result(
-          { errors: validation.messages, totalMessages: validation.total, truncated: validation.truncated },
-          htmlValidationContent(validation.messages, undefined, validation.total, validation.counts),
+          { errors: messages, totalMessages: validation.total, truncated },
+          htmlValidationContent(messages, undefined, validation.total, validation.counts),
         );
       } catch (cause) {
         const error = getErrorMessage(cause);
@@ -468,14 +454,16 @@ export function createServer(): McpServer {
           ? "application/xhtml+xml"
           : "text/html";
         const validation = await validateHtmlContentDetailed(fetched.text, validationMediaType);
+        const messages = boundedMcpArray(validation.messages);
+        const truncated = validation.truncated || messages.length < validation.messages.length;
         return result(
           {
-            errors: validation.messages,
+            errors: messages,
             totalMessages: validation.total,
-            truncated: validation.truncated,
+            truncated,
             fetchedUrl: fetched.url,
           },
-          htmlValidationContent(validation.messages, fetched.url, validation.total, validation.counts),
+          htmlValidationContent(messages, fetched.url, validation.total, validation.counts),
         );
       } catch (cause) {
         const error = getErrorMessage(cause);
@@ -514,14 +502,16 @@ export function createServer(): McpServer {
       try {
         const css = await readTextFile(filePath, CSS_MAX_BYTES, "text/css");
         const validation = await validateCssContentDetailed(css);
+        const messages = boundedMcpArray(validation.messages);
+        const truncated = validation.truncated || messages.length < validation.messages.length;
         return result(
           {
-            errors: validation.messages.filter((message) => message.type.toLowerCase() !== "warning"),
-            warnings: validation.messages.filter((message) => message.type.toLowerCase() === "warning"),
+            errors: messages.filter((message) => message.type.toLowerCase() !== "warning"),
+            warnings: messages.filter((message) => message.type.toLowerCase() === "warning"),
             totalMessages: validation.total,
-            truncated: validation.truncated,
+            truncated,
           },
-          cssValidationContent(validation.messages, validation.total, validation.counts),
+          cssValidationContent(messages, validation.total, validation.counts),
         );
       } catch (cause) {
         const error = getErrorMessage(cause);
@@ -599,6 +589,8 @@ export function createServer(): McpServer {
       },
       outputSchema: {
         links: z.array(linkStatusSchema),
+        totalLinks: z.number().int().nonnegative(),
+        truncated: z.boolean(),
         error: z.string().optional(),
       },
       annotations: externalReadOnlyAnnotations,
@@ -606,11 +598,17 @@ export function createServer(): McpServer {
     async ({ htmlContent, baseUrl, maxLinks }) => {
       try {
         const links = await checkBrokenLinks(htmlContent, baseUrl, maxLinks);
-        return result({ links }, linkCheckContent(links, baseUrl));
+        const preview = boundedMcpArray(links);
+        const truncated = preview.length < links.length;
+        return result(
+          { links: preview, totalLinks: links.length, truncated },
+          linkCheckContent(links, baseUrl)
+            + (truncated ? `\n\nOnly the first ${preview.length} of ${links.length} link records fit the MCP output budget; link-check counts include all results.` : ""),
+        );
       } catch (cause) {
         const error = getErrorMessage(cause);
         return result(
-          { links: [], error },
+          { links: [], totalLinks: 0, truncated: false, error },
           failureContent(
             "Link check",
             error,
@@ -705,7 +703,14 @@ export function createServer(): McpServer {
           cssFilePath,
           baseUrl,
         });
-        return result(reportData, reportContent(reportData));
+        const narrative = reportContent(reportData);
+        const bounded = boundedMcpReport(reportData, narrative);
+        return result(
+          bounded,
+          bounded === reportData
+            ? narrative
+            : narrative + "\n\nVerbose report tables and structured previews were shortened for MCP transport; all summary scores and totals remain unchanged.",
+        );
       } catch (cause) {
         const error = getErrorMessage(cause);
         const reportData = failedReport(htmlFilePath, error);

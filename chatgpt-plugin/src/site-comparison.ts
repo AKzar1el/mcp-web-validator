@@ -269,7 +269,20 @@ export function compareSiteAudits(
   }
 
   result.status = result.limitations.length > 0 ? "partial" : "comparable";
-  if (result.status !== "comparable") return result;
+  // Even when the sitemap contains more pages than this batch, changes to
+  // grouped findings remain meaningful *within the same fully checked sample*.
+  // Never present them as site-wide changes or as evidence of indexing.
+  const sampleCanCompareGroups = sameSet
+    && before.discovery_fingerprint === after.discovery_fingerprint
+    && before.pages_selected === before.pages.length
+    && after.pages_selected === after.pages.length
+    && !before.issue_groups_truncated
+    && !after.issue_groups_truncated
+    && shared.every((url) => completed(baseline.get(url)!) && completed(current.get(url)!));
+  if (!sampleCanCompareGroups) return result;
+  if (result.status === "partial") {
+    result.limitations.push("Grouped-finding changes apply only to the identical, fully checked sampled pages; they do not establish site-wide resolution.");
+  }
 
   const beforeGroups = new Map(before.issue_groups.map((group) => [issueKey(group), group]));
   const afterGroups = new Map(after.issue_groups.map((group) => [issueKey(group), group]));

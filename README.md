@@ -71,7 +71,7 @@ The hosted app exposes eight tools:
 | Tool | Purpose |
 | --- | --- |
 | `audit_public_webpage` | Fetch one authorized public HTML page and run the combined HTML, SEO/accessibility-signal, and JSON-LD syntax audit. Link checks are optional. |
-| `audit_public_site` | Run a bounded sitemap-first audit of up to eight authorized, same-origin public pages. It respects `robots.txt`, returns compact page coverage and deduplicated findings, and does not run site-wide link checks. |
+| `audit_public_site` | Run a bounded sitemap-first audit of up to eight authorized, same-origin public pages. It respects `robots.txt`, returns compact page coverage and deduplicated findings, **plus a sampled cross-page indexability evidence graph** for canonical loops/chains, sitemap/noindex conflicts, duplicate titles, and hreflang return links. No site-wide link checks. |
 | `validate_html` | Validate raw HTML markup already supplied in the conversation. |
 | `validate_css` | Parse supplied CSS for syntax errors inside the Worker. |
 | `audit_seo_metadata` | Audit supplied HTML for covered on-page SEO, robots noindex, and accessibility signals. |
@@ -80,6 +80,14 @@ The hosted app exposes eight tools:
 | `generate_validation_report` | Combine the checks for supplied markup; `base_url` resolves relative links but does not fetch a page. |
 
 `audit_public_webpage` follows at most three validated redirects, accepts a bounded `text/html` response, and records the final URL. It does not crawl additional pages, execute JavaScript, authenticate, or fetch linked stylesheets and assets. `audit_public_site` first locks the final public origin, then reads bounded `robots.txt` plus same-origin XML Sitemap, RSS 2.0, Atom 1.0, and plain-text sitemap representations before auditing at most eight eligible sitemap pages in one call. Robots discovery may follow up to five validated public redirects across authorities, as defined by the robots protocol; the resulting rules and relative Sitemap directives are still interpreted for the originally audited authority. Sitemap entries and audited pages remain same-origin, and private/reserved destinations, credentials, custom ports, service self-fetches, and HTTPS-to-HTTP redirect downgrades are rejected. The tool never follows HTML links or external sitemap entries; use `page_offset` when the response says more eligible pages remain. The fetched HTML is sent to `https://html5.validator.nu/`, the same external Nu HTML Checker used by `validate_html` and the report tool. CSS parsing, SEO analysis, and JSON-LD parsing run inside the DigestSEO Worker. Optional link checks make capped `HEAD` requests, with a bounded `GET` fallback where necessary, to eligible public HTTP(S) URLs; link redirects are reported but not followed. The site tool intentionally does not perform site-wide link checking. The hosted app does not retain tool inputs, fetched HTML, or results.
+
+### Sampled indexability evidence graph
+
+The hosted `audit_public_site` result now includes per-page `indexability` static signals (canonical state/target, an **observed** noindex directive, bounded page title, and bounded hreflang declarations) and a new `indexability_graph` section. Findings are derived only from the HTML/headers already requested by the site audit: **zero additional page requests, no JavaScript execution, no stored audit history, and no extra recipients**.
+
+The graph identifies evidence-supported canonical cycles and chains between sampled pages, sampled sitemap URLs observed with noindex, sampled canonicals pointing to other sampled noindex pages, potential duplicate titles for distinct canonical destinations, and missing sampled hreflang return links. `coverage_limited` and `limitations` explain why partial results cannot establish a site-wide pass.
+
+A cross-page finding is not proof of deindexing, Google's selected canonical, a search ranking signal, or a traffic-change cause. Query-bearing/credentialed canonical and alternate URLs are **not echoed** and are excluded from cross-page assertions rather than incorrectly normalized to a different page. The graph does not follow canonical or hreflang links: targets must already be inside the bounded audited sample.
 
 ## Privacy Policy
 

@@ -9,6 +9,7 @@ import { captureScreenshots, PartialScreenshotCaptureError } from "./screenshot.
 import {
   auditSeoMetadata,
   auditSeoMetadataDetailed,
+  type AuditDetails,
   checkBrokenLinks,
   validateSchemaMarkup,
   validateSchemaMarkupDetailed,
@@ -55,6 +56,9 @@ const HTML_MAX_BYTES = 2_000_000;
 const CSS_MAX_BYTES = MAX_CSS_VALIDATION_BYTES;
 const PATH_MAX_LENGTH = 4_096;
 const MAX_VIEWPORTS = 8;
+// Bound machine-readable diagnostic payloads for MCP gateways with smaller result limits.
+// The original issue totals and severity counts remain exact when details are clipped.
+const MAX_MCP_ISSUES_JSON_BYTES = 16_000;
 
 function localHtmlValidationMediaType(filePath: string): HtmlValidationMediaType {
   const extension = path.extname(filePath).toLowerCase();
@@ -157,6 +161,19 @@ const localReadOnlyAnnotations = {
   idempotentHint: true,
   openWorldHint: false,
 } as const;
+
+function boundedMcpIssues(details: AuditDetails): AuditDetails {
+  let bytes = 2; // JSON array brackets.
+  let count = 0;
+  for (const issue of details.issues) {
+    const increment = Buffer.byteLength(JSON.stringify(issue), "utf8") + (count > 0 ? 1 : 0);
+    if (bytes + increment > MAX_MCP_ISSUES_JSON_BYTES) break;
+    bytes += increment;
+    count += 1;
+  }
+  if (count === details.issues.length) return details;
+  return { ...details, issues: details.issues.slice(0, count), truncated: true };
+}
 
 function result<T extends object>(
   structuredContent: T,
@@ -541,7 +558,7 @@ export function createServer(): McpServer {
     },
     async ({ htmlContent }) => {
       try {
-        const { issues, totalIssues, truncated, counts } = auditSeoMetadataDetailed(htmlContent);
+        const { issues, totalIssues, truncated, counts } = boundedMcpIssues(auditSeoMetadataDetailed(htmlContent));
         return result(
           { issues, totalIssues, truncated, counts },
           seoAuditContent(issues, totalIssues, truncated, counts),
@@ -625,7 +642,7 @@ export function createServer(): McpServer {
     },
     async ({ htmlContent }) => {
       try {
-        const { issues, totalIssues, truncated, counts } = validateSchemaMarkupDetailed(htmlContent);
+        const { issues, totalIssues, truncated, counts } = boundedMcpIssues(validateSchemaMarkupDetailed(htmlContent));
         return result(
           { issues, totalIssues, truncated, counts },
           schemaValidationContent(issues, totalIssues, truncated, htmlContent),

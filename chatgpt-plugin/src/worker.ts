@@ -1460,7 +1460,14 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
         const overview = siteAuditOverview(result);
         return {
           structuredContent: { ...result, overview },
-          content: contentForOverview(overview, siteAuditFindings(result.issue_groups)),
+          content: contentForOverview(overview, [
+            ...siteAuditFindings(result.issue_groups),
+            ...result.indexability_graph.findings.map((finding) => ({
+              severity: finding.severity,
+              label: "Indexability",
+              message: finding.message,
+            })),
+          ]),
         };
       } catch (cause) {
         const isContinuationError = cause instanceof Error && (

@@ -66,12 +66,13 @@ fetches headers; the MCP `seo.metadata` tool still analyzes supplied HTML only.
 
 ## Hosted app tools
 
-The hosted app exposes eight tools:
+The hosted app exposes nine tools:
 
 | Tool | Purpose |
 | --- | --- |
 | `audit_public_webpage` | Fetch one authorized public HTML page and run the combined HTML, SEO/accessibility-signal, and JSON-LD syntax audit. Link checks are optional. |
 | `audit_public_site` | Run a bounded sitemap-first audit of up to eight authorized, same-origin public pages. It respects `robots.txt`, returns compact page coverage and deduplicated findings, and does not run site-wide link checks. |
+| `compare_site_audits` | Offline before/after comparison of two saved `audit_public_site` structured results. Flags per-page regressions, coverage loss, and sitemap drift; reports newly observed or no-longer observed grouped findings only when both site snapshots have complete, matching coverage. No network calls or retained history. |
 | `validate_html` | Validate raw HTML markup already supplied in the conversation. |
 | `validate_css` | Parse supplied CSS for syntax errors inside the Worker. |
 | `audit_seo_metadata` | Audit supplied HTML for covered on-page SEO, robots noindex, and accessibility signals. |
@@ -80,6 +81,14 @@ The hosted app exposes eight tools:
 | `generate_validation_report` | Combine the checks for supplied markup; `base_url` resolves relative links but does not fetch a page. |
 
 `audit_public_webpage` follows at most three validated redirects, accepts a bounded `text/html` response, and records the final URL. It does not crawl additional pages, execute JavaScript, authenticate, or fetch linked stylesheets and assets. `audit_public_site` first locks the final public origin, then reads bounded `robots.txt` plus same-origin XML Sitemap, RSS 2.0, Atom 1.0, and plain-text sitemap representations before auditing at most eight eligible sitemap pages in one call. Robots discovery may follow up to five validated public redirects across authorities, as defined by the robots protocol; the resulting rules and relative Sitemap directives are still interpreted for the originally audited authority. Sitemap entries and audited pages remain same-origin, and private/reserved destinations, credentials, custom ports, service self-fetches, and HTTPS-to-HTTP redirect downgrades are rejected. The tool never follows HTML links or external sitemap entries; use `page_offset` when the response says more eligible pages remain. The fetched HTML is sent to `https://html5.validator.nu/`, the same external Nu HTML Checker used by `validate_html` and the report tool. CSS parsing, SEO analysis, and JSON-LD parsing run inside the DigestSEO Worker. Optional link checks make capped `HEAD` requests, with a bounded `GET` fallback where necessary, to eligible public HTTP(S) URLs; link redirects are reported but not followed. The site tool intentionally does not perform site-wide link checking. The hosted app does not retain tool inputs, fetched HTML, or results.
+
+### Before/after site regression checks
+
+1. Run `audit_public_site` on an authorized website and preserve the returned **structured result** as a baseline.
+2. After a release or repair, rerun `audit_public_site` using the same website and page-selection settings. If continuing paginated audits, use the fingerprint supplied by that run; do not reuse a stale continuation.
+3. Pass both structured results to `compare_site_audits` as `baseline` and `current`. Check `status`, `page_changes`, `limitations`, and `issue_group_comparison_available` before deciding whether a change is safe.
+
+The comparison never fetches pages or keeps audit history. It separately reports failures and incomplete coverage; a missing finding under a partial audit is **not** counted as a verified fix. It cannot determine Google indexing or ranking changes, prove why traffic changed, or replace a complete accessibility audit. The `health_score_delta` is a heuristic within this tool, not a Google ranking metric.
 
 ## Privacy Policy
 

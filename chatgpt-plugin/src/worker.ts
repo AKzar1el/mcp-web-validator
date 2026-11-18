@@ -1513,7 +1513,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
     {
       title: "Compare site audit snapshots",
       description:
-        "Compare the structured results of two earlier audit_public_site runs entirely offline. Identify changed page issue counts, unavailable checks, sitemap drift, and newly/no-longer observed grouped findings only when both snapshots have complete matching coverage. This is not a Google indexing, ranking, or traffic-causality test. No webpages are fetched and results are not stored.",
+        "Compare the structured results of two earlier audit_public_site runs entirely offline. Identify changed page issue counts, unavailable checks, sitemap drift, and newly/no-longer observed grouped findings only within the same fully checked selected-page sample (not site-wide). This is not a Google indexing, ranking, or traffic-causality test. No webpages are fetched and results are not stored.",
       inputSchema: {
         baseline: siteAuditSnapshotSchema.describe("Earlier structuredContent from audit_public_site, without editing its page list."),
         current: siteAuditSnapshotSchema.describe("Later structuredContent from audit_public_site, ideally the same sitemap batch."),

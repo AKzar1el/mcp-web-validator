@@ -14,13 +14,14 @@ function createEnv(success = true) {
   } as unknown as Env;
 }
 
-async function callTool(name: string, args: Record<string, unknown>) {
+async function callTool(name: string, args: Record<string, unknown>, clientHeaders: Record<string, string> = {}) {
   const response = await worker.fetch(
     new Request("https://web-validator-mcp.digestseo.com/mcp", {
       method: "POST",
       headers: {
         accept: "application/json, text/event-stream",
         "content-type": "application/json",
+        ...clientHeaders,
       },
       body: JSON.stringify({
         jsonrpc: "2.0",
@@ -100,6 +101,45 @@ afterEach(() => {
 });
 
 describe("MCP HTTP boundary", () => {
+  it("serves independent ChatGPT-style clients without cookies or server-side sessions", async () => {
+    const env = createEnv();
+    for (const [name, ip] of [
+      ["chatgpt-client-one", "198.51.100.21"],
+      ["chatgpt-client-two", "198.51.100.22"],
+    ]) {
+      const response = await worker.fetch(
+        new Request("https://web-validator-mcp.digestseo.com/mcp", {
+          method: "POST",
+          headers: {
+            accept: "application/json, text/event-stream",
+            "content-type": "application/json",
+            origin: "https://chatgpt.com",
+            "cf-connecting-ip": ip,
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0", id: 1, method: "initialize",
+            params: {
+              protocolVersion: "2025-06-18",
+              capabilities: {},
+              clientInfo: { name, version: "1.0.0" },
+            },
+          }),
+        }),
+        env,
+        context,
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("access-control-allow-origin")).toBe("https://chatgpt.com");
+      expect(response.headers.get("mcp-session-id")).toBeNull();
+      expect(response.headers.get("set-cookie")).toBeNull();
+      expect(await response.text()).toContain('"serverInfo"');
+    }
+    expect(env.MCP_RATE_LIMITER.limit).toHaveBeenCalledTimes(2);
+    const toolNames = (await listTools()).map((tool) => tool.name);
+    expect(toolNames).toContain("compare_site_audits");
+    expect(toolNames).not.toContain("audit.history"); // Local-only; no accidental hosted persistence.
+  });
+
   it("serves the current and cached legacy widget resource URIs", async () => {
     const current = await readResource("ui://web-validator/results-v5.html");
     const legacy = await readResource("ui://web-validator/results-v4.html");
@@ -1366,5 +1406,36 @@ describe("hosted site audit comparison", () => {
       current: snapshot(1),
     });
     expect(result.isError).toBe(true);
+  });
+
+  it("does not leak one client's comparison data into a different client's request", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Offline comparison must not fetch"); }));
+    const forSite = (site_url: string, issueCount: number) => {
+      const audit = snapshot(issueCount);
+      return {
+        ...audit,
+        site_url,
+        sitemap_url: `${site_url}sitemap.xml`,
+        pages: audit.pages.map((page) => ({ ...page, url: site_url, fetched_url: site_url })),
+        issue_groups: audit.issue_groups.map((group) => ({ ...group, example_urls: [site_url] })),
+      };
+    };
+    const alpha = await callTool("compare_site_audits", {
+      baseline: forSite("https://alpha.example/", 0),
+      current: forSite("https://alpha.example/", 1),
+    }, { origin: "https://chatgpt.com", "cf-connecting-ip": "198.51.100.31" });
+    expect(alpha.isError).not.toBe(true);
+    expect(alpha.structuredContent.baseline_site_url).toBe("https://alpha.example/");
+    expect(alpha.structuredContent.regressed_pages).toBe(1);
+
+    const beta = await callTool("compare_site_audits", {
+      baseline: forSite("https://beta.example/", 0),
+      current: forSite("https://beta.example/", 0),
+    }, { origin: "https://chatgpt.com", "cf-connecting-ip": "198.51.100.32" });
+    expect(beta.isError).not.toBe(true);
+    expect(beta.structuredContent.baseline_site_url).toBe("https://beta.example/");
+    expect(beta.structuredContent.regressed_pages).toBe(0);
+    expect(JSON.stringify(beta.structuredContent)).not.toContain("alpha.example");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });

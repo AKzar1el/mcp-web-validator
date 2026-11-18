@@ -57,8 +57,6 @@ try {
 
   const tools = await call("tools/list", {});
   const names = tools.tools.map(({ name }) => name);
-  assert.deepEqual(names, expectedTools,
-    "The published endpoint does not match the current nine-tool source. Deploy the verified Worker before declaring hosted features available.");
   assert.ok(!names.includes("audit.history"), "Local filesystem history must never be exposed as a public hosted MCP tool");
 
   const checked = await call("tools/call", {
@@ -69,14 +67,21 @@ try {
   });
   assert.notEqual(checked.isError, true);
   assert.ok(checked.structuredContent, "A hosted offline tool must return structured results");
+  const missing = expectedTools.filter((name) => !names.includes(name));
+  const extra = names.filter((name) => !expectedTools.includes(name));
   console.log(JSON.stringify({
-    status: "passed",
+    status: missing.length === 0 && extra.length === 0 ? "passed" : "deployed_version_mismatch",
     target: target.origin + target.pathname,
     initialized: true,
     tools: names.length,
+    missing_tools: missing,
+    unexpected_tools: extra,
     hosted_history: "not implemented (stateless by design)",
-    offline_tool: "validate_schema_markup",
+    offline_tool: "validate_schema_markup passed",
   }, null, 2));
+  if (missing.length || extra.length) {
+    throw new Error("The public MCP does not match the verified source. Deploy the Worker and re-run this read-only smoke before claiming new hosted functionality.");
+  }
 } catch (error) {
   console.error("Hosted MCP read-only smoke failed:", error instanceof Error ? error.message : String(error));
   process.exitCode = 1;

@@ -32,8 +32,20 @@ describe("validateHtml", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://html5.validator.nu/?out=json",
-      expect.objectContaining({ method: "POST", body: markup, redirect: "error" }),
+      expect.objectContaining({ method: "POST", body: markup, redirect: "manual" }),
     );
+  });
+  it("rejects a redirect from Nu without forwarding submitted markup to the new host", async () => {
+    const fetchMock = vi.fn(async (_target: RequestInfo | URL, _init?: RequestInit) => new Response(null, {
+      status: 302,
+      headers: { location: "https://other.example/nu/" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(validateHtmlDetailed("<html><body>Private content</body></html>"))
+      .rejects.toThrow("HTTP 302");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]?.redirect).toBe("manual");
   });
   it("preserves Nu errors, warning subtypes, and informational messages", async () => {
     vi.stubGlobal(

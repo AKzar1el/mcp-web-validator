@@ -42,8 +42,8 @@ async function validateHtmlDetailedWithSignal(
   signal: AbortSignal,
   mediaType: HtmlMediaType,
 ): Promise<HtmlValidationResult> {
-  // The Nu endpoint accepts server-side validation requests over Cloudflare's
-  // production transport while returning the same standard Nu JSON format.
+  // Workers do not support redirect: "error". Use "manual" and reject all
+  // non-success statuses below so submitted markup is never reposted on a redirect.
   const response = await fetch("https://html5.validator.nu/?out=json", {
     method: "POST",
     headers: {
@@ -51,7 +51,7 @@ async function validateHtmlDetailedWithSignal(
       "user-agent": SERVICE_USER_AGENT,
     },
     body: html,
-    redirect: "error",
+    redirect: "manual",
     signal,
   });
   // A partial Nu response may omit diagnostics and must not yield a clean verdict.

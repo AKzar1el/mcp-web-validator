@@ -1005,6 +1005,70 @@ describe("public webpage audit", () => {
 });
 
 describe("public site audit", () => {
+  it("returns bounded cross-page canonical and sitemap/noindex evidence using already fetched HTML", async () => {
+    const requested = new Set<string>();
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      requested.add(url);
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /sitemap.xml\n", {
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response("<urlset><url><loc>https://example.com/</loc></url><url><loc>https://example.com/a</loc></url><url><loc>https://example.com/b</loc></url></urlset>", {
+          headers: { "content-type": "application/xml" },
+        });
+      }
+      if (url === "https://example.com/") {
+        return new Response("<!doctype html><html lang='en'><head><title>Home</title></head><body><h1>Home</h1></body></html>", {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (url === "https://example.com/a") {
+        return new Response("<!doctype html><html lang='en'><head><title>Alpha</title><link rel=canonical href='/b'></head><body><h1>Alpha</h1></body></html>", {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (url === "https://example.com/b") {
+        return new Response("<!doctype html><html lang='en'><head><title>Beta</title><link rel=canonical href='/a'><meta name=robots content=noindex></head><body><h1>Beta</h1></body></html>", {
+          headers: { "content-type": "text/html" },
+        });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) {
+        return Response.json({ messages: [] });
+      }
+      throw new Error(`Unexpected fetch target: ${url}`);
+    }));
+
+    const result = await callTool("audit_public_site", {
+      site_url: "https://example.com/",
+      max_pages: 3,
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      pages_selected: 3,
+      indexability_graph: {
+        scope: "sampled_pages_only",
+        sampled_pages: 3,
+        sitemap_pages_sampled: 3,
+        coverage_limited: false,
+      },
+      overview: { kind: "site", status: "needs_attention" },
+    });
+    expect(result.structuredContent.indexability_graph.findings.map((finding: { code: string }) => finding.code))
+      .toEqual(expect.arrayContaining([
+        "indexability.canonical_cycle",
+        "indexability.canonical_to_noindex",
+        "indexability.sitemap_noindex",
+      ]));
+    expect(result.structuredContent.pages.find((p: { url: string }) => p.url === "https://example.com/b").indexability)
+      .toMatchObject({ canonical_url: "https://example.com/a", noindex_observed: true });
+    expect(requested.has("https://example.com/a")).toBe(true);
+    expect(requested.has("https://example.com/b")).toBe(true);
+    expect([...requested].filter((url) => !url.startsWith("https://html5.validator.nu/")).length).toBe(5);
+  });
+
   it("explains unsupported sitemap queries without exposing their values or claiming full coverage", async () => {
     const privateMarker = "private-sitemap-token-should-not-escape";
     vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {

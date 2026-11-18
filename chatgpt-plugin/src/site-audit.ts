@@ -24,6 +24,7 @@ import {
   type FetchedPublicHtml,
 } from "./network";
 import { validateHtmlDetailed, type ValidationMessage } from "./validators";
+import { buildSiteIndexabilityGraph, extractPageIndexabilitySignals, type PageIndexabilitySignals, type SiteIndexabilityGraph } from "./indexability-graph";
 
 export type SitePageStatus = "passed" | "needs_attention" | "partial" | "failed" | "skipped";
 export type HtmlValidationStatus = "completed" | "timeout" | "unavailable" | "not_run";
@@ -55,6 +56,7 @@ export interface SiteAuditPageSummary {
   health_score?: number;
   failure_code?: string;
   top_findings: SiteAuditFinding[];
+  indexability?: PageIndexabilitySignals;
 }
 
 export interface SiteAuditIssueGroup {
@@ -92,6 +94,7 @@ export interface PublicSiteAuditResult {
   pages: SiteAuditPageSummary[];
   issue_groups: SiteAuditIssueGroup[];
   issue_groups_truncated: boolean;
+  indexability_graph: SiteIndexabilityGraph;
 }
 
 interface RobotsRule {
@@ -896,6 +899,7 @@ async function auditFetchedPage(
       ? { health_score: clampScore(100 - errors * 12 - warnings * 4) }
       : { failure_code: htmlValidationStatus === "timeout" ? "html_validation_timeout" : "html_validation_unavailable" }),
     top_findings: actionableFindings(findings),
+    indexability: extractPageIndexabilitySignals(fetched.html, fetched.finalUrl, fetched.xRobotsTag),
     findings,
     findingsTruncated,
   };
@@ -1089,6 +1093,16 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
   const pagesFailed = pages.filter((page) => page.status === "failed").length;
   const scores = pages.flatMap((page) => page.health_score === undefined ? [] : [page.health_score]);
   const hasMorePages = pageOffset + selected.length < eligible.length;
+  const graph = buildSiteIndexabilityGraph(pages, {
+    sitemapPages: discovery.pageUrls.map((url) => url.href),
+    discoveryComplete: discovery.discovery === "sitemap"
+      && !discovery.discoveryError
+      && !discovery.truncated
+      && pageOffset === 0
+      && selected.length === eligible.length
+      && pagesSkippedRobots === 0
+      && pages.every((page) => page.page_fetched && page.html_validation_status === "completed"),
+  });
 
   return {
     site_url: seedUrl.href,
@@ -1111,5 +1125,6 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
     pages,
     issue_groups: grouped.issueGroups,
     issue_groups_truncated: grouped.truncated,
+    indexability_graph: graph,
   };
 }

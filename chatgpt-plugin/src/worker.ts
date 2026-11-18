@@ -102,11 +102,40 @@ const sitePageSchema = z.object({
   health_score: z.number().int().min(0).max(100).optional(),
   failure_code: z.string().optional(),
   top_findings: z.array(siteFindingSchema),
+  indexability: z.object({
+    canonical_state: z.enum(["missing", "usable", "ambiguous", "unverifiable"]),
+    canonical_url: z.string().optional(),
+    noindex_observed: z.boolean(),
+    title: z.string().max(150).optional(),
+    hreflang: z.array(z.object({
+      language: z.string(),
+      url: z.string(),
+    })).max(16),
+    hreflang_truncated: z.boolean(),
+  }).optional(),
 });
 
 const siteIssueGroupSchema = siteFindingSchema.extend({
   affected_pages: z.number().int().nonnegative(),
   example_urls: z.array(z.string()),
+});
+
+const indexabilityFindingSchema = z.object({
+  code: z.string(),
+  severity: z.enum(["error", "warning", "info"]),
+  confidence: z.enum(["observed", "potential"]),
+  message: z.string(),
+  example_urls: z.array(z.string()),
+});
+
+const siteIndexabilityGraphSchema = z.object({
+  scope: z.literal("sampled_pages_only"),
+  sampled_pages: z.number().int().nonnegative(),
+  sitemap_pages_sampled: z.number().int().nonnegative(),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string()),
+  findings: z.array(indexabilityFindingSchema),
+  findings_truncated: z.boolean(),
 });
 
 const siteAuditOutputSchema = {
@@ -128,6 +157,7 @@ const siteAuditOutputSchema = {
   pages: z.array(sitePageSchema),
   issue_groups: z.array(siteIssueGroupSchema),
   issue_groups_truncated: z.boolean(),
+  indexability_graph: siteIndexabilityGraphSchema.optional(),
   overview: overviewSchema,
   error: z.string().optional(),
 };
@@ -701,7 +731,10 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     { errors: 0, warnings: 0, notes: 0 },
   );
   const completed = result.pages_audited;
+  const indexabilityFindings = result.indexability_graph.findings;
+  const hasIndexabilityFindings = indexabilityFindings.length > 0;
   const hasCoverageGap = result.discovery_error !== undefined
+    || result.indexability_graph.coverage_limited
     || result.pages_partial > 0
     || result.pages_failed > 0
     || result.pages_skipped_robots > 0
@@ -710,7 +743,7 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     ? "failed"
     : hasCoverageGap
       ? "partial"
-      : totals.errors > 0 || totals.warnings > 0
+      : totals.errors > 0 || totals.warnings > 0 || hasIndexabilityFindings
         ? "needs_attention"
         : "passed";
   const headline = status === "failed"
@@ -718,8 +751,10 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     : status === "partial"
       ? `Public site audit is partial: ${plural(completed, "page")} completed with coverage limits.`
       : totals.errors > 0 || totals.warnings > 0
-        ? `Public site audit found ${summarizeSeverities({ errors: totals.errors, warnings: totals.warnings, info: 0 })}.`
-        : "Public site audit found no errors or warnings in the completed checks.";
+        ? `Public site audit found ${summarizeSeverities({ errors: totals.errors, warnings: totals.warnings, info: 0 })}${hasIndexabilityFindings ? ` plus ${plural(indexabilityFindings.length, "sampled cross-page finding")}` : ""}.`
+        : hasIndexabilityFindings
+          ? `Public site audit found ${plural(indexabilityFindings.length, "sampled cross-page indexability finding")}.`
+          : "Public site audit found no errors or warnings in the completed checks.";
   const scoreDetail = result.audit_health_score === undefined
     ? "No full HTML-and-metadata score was available."
     : `Audit health score: ${result.audit_health_score}/100 across ${result.score_coverage_percent}% of selected pages.`;
@@ -728,7 +763,7 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     : result.discovery_error
       ? `Discovery was incomplete (${result.discovery_error}); selected-page coverage is not site-wide coverage. `
       : "";
-  const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_selected, "page")} were selected. ${discoveryDetail}${scoreDetail} Link checks are intentionally not run by this bounded site tool.`;
+  const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_selected, "page")} were selected. ${discoveryDetail}${scoreDetail} Link checks are intentionally not run by this bounded site tool. Cross-page indexability findings concern sampled static HTML only, not Google indexing decisions.`;
   const incompletePageGuidance = result.pages_partial > 0 || result.pages_failed > 0
     ? " Review partial and failed page coverage, then retry affected batches after resolving failures."
     : "";
@@ -742,8 +777,10 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
       ? "Review robots.txt exclusions with the site owner; excluded pages were not audited and must not be crawled unless the rules change."
     : result.truncated
       ? "Discovery or page selection reached a coverage limit; review the sitemap and continue permitted batches before claiming a site-wide audit."
-    : totals.errors > 0 || totals.warnings > 0
-      ? "Fix the highest-impact grouped findings, then rerun the bounded site audit."
+    : result.indexability_graph.coverage_limited
+      ? "Review the indexability graph limitations and incomplete observations; do not treat missing graph findings as a complete site pass."
+    : totals.errors > 0 || totals.warnings > 0 || hasIndexabilityFindings
+      ? "Review both on-page findings and sampled cross-page canonical, noindex, and hreflang conflicts, then rerun the bounded site audit."
       : result.pages_partial > 0 || result.pages_failed > 0
         ? "Review partial and failed page coverage, then retry the affected batch."
         : undefined;
@@ -753,9 +790,9 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     title: "Public site audit",
     headline,
     detail,
-    total: totals.errors + totals.warnings + totals.notes,
-    shown: result.issue_groups.length,
-    truncated: result.truncated || result.issue_groups_truncated,
+    total: totals.errors + totals.warnings + totals.notes + indexabilityFindings.length,
+    shown: result.issue_groups.length + indexabilityFindings.length,
+    truncated: result.truncated || result.issue_groups_truncated || result.indexability_graph.findings_truncated,
     counts: [
       metric("pages_audited", "Pages audited", result.pages_audited, "success"),
       metric("pages_partial", "Pages partial", result.pages_partial, "warning"),
@@ -763,6 +800,7 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
       metric("pages_skipped_robots", "Pages excluded by robots", result.pages_skipped_robots, "warning"),
       metric("errors", "Errors", totals.errors, "error"),
       metric("warnings", "Warnings", totals.warnings, "warning"),
+      metric("indexability_findings", "Cross-page signals", indexabilityFindings.length, "warning"),
       ...(result.audit_health_score === undefined
         ? []
         : [metric("audit_health_score", "Audit health score", result.audit_health_score, "success")]),
@@ -1375,7 +1413,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
     {
       title: "Audit public site",
       description:
-        `Use this for a bounded, sitemap-first audit of a public website the user owns or is authorized to inspect. It fetches at most ${SITE_AUDIT_MAX_PAGES} same-origin HTML pages per call, respects robots.txt, and returns compact page summaries plus deduplicated findings. It does not recursively follow HTML links, authenticate, execute JavaScript, fetch assets, or run site-wide link checks. To continue a batch, pass both the returned page offset and discovery fingerprint; changed sitemaps require restarting at offset 0.`,
+        `Use this for a bounded, sitemap-first audit of a public website the user owns or is authorized to inspect. It fetches at most ${SITE_AUDIT_MAX_PAGES} same-origin HTML pages per call, respects robots.txt, and returns compact page summaries plus deduplicated findings and a sampled cross-page canonical/noindex/hreflang evidence graph. It does not recursively follow HTML links, authenticate, execute JavaScript, fetch assets, or run site-wide link checks. To continue a batch, pass both the returned page offset and discovery fingerprint; changed sitemaps require restarting at offset 0.`,
       inputSchema: {
         site_url: publicPageUrlInput.describe("Authorized public website URL. The final public origin becomes the crawl boundary."),
         max_pages: z
@@ -1422,7 +1460,14 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
         const overview = siteAuditOverview(result);
         return {
           structuredContent: { ...result, overview },
-          content: contentForOverview(overview, siteAuditFindings(result.issue_groups)),
+          content: contentForOverview(overview, [
+            ...siteAuditFindings(result.issue_groups),
+            ...result.indexability_graph.findings.map((finding) => ({
+              severity: finding.severity,
+              label: "Indexability",
+              message: finding.message,
+            })),
+          ]),
         };
       } catch (cause) {
         const isContinuationError = cause instanceof Error && (

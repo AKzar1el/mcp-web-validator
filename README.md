@@ -107,6 +107,14 @@ One compact `audit-history.json` file lives at `~/.mcp-validator/audit-history.j
 
 **Security:** Do not save secrets in page diagnostics. URL fields containing query strings, credentials, or fragments are rejected; audit-history file symlinks and oversized or corrupt files fail closed. Concurrent saves from one local process are serialized. Separate concurrently running MCP processes should use separate workspace roots to avoid writing the same file.
 
+#### Test the storage boundary
+
+Run `npm test` to exercise the local history implementation **through a real stdio MCP client**: saving 11 versions, evicting only the oldest, retrieving a snapshot after the MCP process restarts, and isolating two different workspace roots. The hosted Worker test suite separately verifies that multiple ChatGPT-style HTTP clients can connect with no session cookie, that comparisons stay request-local, and that the hosted tool list **does not** expose `audit.history`.
+
+Run `npm run smoke:hosted` to verify the **actually deployed** public MCP endpoint using read-only `initialize`, `tools/list`, and one offline JSON-LD check. This intentionally makes three small requests to the live service and does not crawl websites or save data. It fails if deployment still exposes an older tool catalog, even when repository CI is green. An HTTPS preview URL can be selected with `MCP_WEB_VALIDATOR_HOSTED_URL`. Do not mistake green source tests for a published deployment.
+
+Local history is **not** a per-user cloud history system. ChatGPT users invoking the hosted MCP cannot retrieve local snapshots; cloud-side per-user persistence would require separately implemented authentication and storage. These tests prove the existing stateless architecture, not that unimplemented feature.
+
 ## Privacy Policy
 
 Only validate files, markup, and public webpages that you own or are authorized to inspect. Public page URLs can contain sensitive query values, so remove tokens and private identifiers before submitting them. Do not submit passwords, API keys, access tokens, payment data, health data, private source code, or other sensitive personal data.

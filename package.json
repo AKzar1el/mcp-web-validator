@@ -22,6 +22,7 @@
     "test": "npm run build && node --test test/*.test.js",
     "sync:manifests": "node scripts/sync-manifests.mjs",
     "check:manifests": "node scripts/sync-manifests.mjs --check",
+    "smoke:hosted": "node scripts/smoke-hosted-mcp.mjs",
     "check": "npm test && npm run check:manifests",
     "prepublishOnly": "npm run check"
   },

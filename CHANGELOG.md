@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.50] - 2026-11-18
+
+### Fixed
+
+- Bound the local MCP structured diagnostic issue arrays by UTF-8 byte size for `seo.metadata` and `schema.markup`. This prevents Codexify gateways from rejecting large issue floods while retaining exact totals, severity counts, and truncation signals.
+- Accept an optional UTF-8 byte-order mark at the beginning of a JSON-LD script block without accepting malformed JSON.
+
+### Validation
+
+- Extended real-stdio regression tests for hundreds of malformed JSON-LD blocks, oversized image attributes, and BOM-prefixed JSON-LD.
+
 ## [1.3.49] - 2026-11-18
 
 ### Added

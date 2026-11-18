@@ -164,8 +164,8 @@ function emptyResult(before: PublicSiteAuditResult, after: PublicSiteAuditResult
  * no HTTP requests, no persistence, no changes to either source snapshot.
  *
  * Comparisons of observed pages remain useful under partial coverage, but
- * issue-group disappearance is NEVER called a fix unless the same entire
- * sitemap snapshot was successfully audited on both occasions.
+ * issue-group disappearance is never called a site-wide fix: observations
+ * can be compared only within the same fully checked selected page sample.
  */
 export function compareSiteAudits(
   before: PublicSiteAuditResult,

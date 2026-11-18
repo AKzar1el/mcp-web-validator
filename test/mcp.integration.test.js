@@ -144,6 +144,23 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.ok(Buffer.byteLength(JSON.stringify(seoDetails), "utf8") < 18_000,
       "Long untrusted HTML attributes must not overwhelm the MCP response");
 
+    const blockedLinks = await client.callTool({
+      name: "links.broken",
+      arguments: {
+        htmlContent: Array.from({ length: 25 }, (_, i) =>
+          `<a href="http://127.0.0.1/private/${i}/${"a".repeat(1900)}">blocked</a>`).join(""),
+        maxLinks: 25,
+      },
+    });
+    const boundedLinks = blockedLinks.structuredContent;
+    assert.equal(blockedLinks.isError, undefined);
+    assert.equal(boundedLinks.totalLinks, 25);
+    assert.equal(boundedLinks.truncated, true);
+    assert.ok(boundedLinks.links.length > 0 && boundedLinks.links.length < 25);
+    assert.ok(boundedLinks.links.every((link) => link.status === "blocked"));
+    assert.ok(Buffer.byteLength(JSON.stringify(boundedLinks), "utf8") < 18_000);
+    assert.match(textContent(blockedLinks), /all results/i);
+
     const unreadableReport = await client.callTool({
       name: "report.validation",
       arguments: { htmlFilePath: "definitely-missing-report-input.html" },

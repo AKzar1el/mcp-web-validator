@@ -45,6 +45,8 @@ The validation, SEO, schema, link, and report tools do not download a browser du
 
 ## Tools
 
+**Large results:** MCP structured diagnostic previews are bounded by serialized byte size. Exact totals and severity counts remain available, and `truncated` indicates omitted previews. `links.broken` also returns `totalLinks`. Extremely large `report.validation` results use a condensed Markdown summary instead of oversized tables; the score and check-status values still reflect the full audit.
+
 The npm package exposes these exact runtime tool names:
 
 | Tool | Purpose | Network or filesystem behavior |

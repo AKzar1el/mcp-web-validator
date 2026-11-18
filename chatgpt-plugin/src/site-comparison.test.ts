@@ -120,6 +120,36 @@ describe("site audit comparison: evidence boundaries", () => {
     }]);
   });
 
+  it("can compare changes within the identical fully checked sample even if site-wide coverage is partial", () => {
+    const url = "https://example.com/";
+    const issue = {
+      code: "seo.title.missing", severity: "error" as const, category: "SEO" as const,
+      message: "Missing title", affected_pages: 1, example_urls: [url],
+    };
+    const before = site([page(url, { seo_errors: 1, health_score: 88 })], {
+      truncated: true,
+      pages_discovered: 250,
+      next_page_offset: 1,
+      issue_groups: [issue],
+    });
+    const after = site([page(url)], {
+      truncated: true,
+      pages_discovered: 250,
+      next_page_offset: 1,
+      issue_groups: [],
+    });
+    const result = compareSiteAudits(before, after);
+    expect(result).toMatchObject({
+      status: "partial",
+      pages_compared: 1,
+      improved_pages: 1,
+      issue_group_comparison_available: true,
+      no_longer_observed_issue_groups: [{ code: "seo.title.missing" }],
+    });
+    expect(result.limitations.join(" ")).toMatch(/sampled pages/i);
+    expect(result.limitations.join(" ")).toMatch(/not establish site-wide resolution/i);
+  });
+
   it("suppresses claims of resolution after sitemap drift or pagination differences", () => {
     const before = site([page("https://example.com/"), page("https://example.com/a")], {
       issue_groups: [{ code: "seo.title.missing", severity: "error", category: "SEO", message: "Missing title", affected_pages: 1, example_urls: ["https://example.com/a"] }],

@@ -37,6 +37,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "schema.markup",
       "screenshot.capture",
       "seo.metadata",
+      "site.hreflang",
     ]);
 
     const seoTool = tools.find((tool) => tool.name === "seo.metadata");
@@ -102,6 +103,29 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.equal(duplicates.structuredContent?.pairs?.[0]?.similarity_percent, 100);
     assert.match(textContent(duplicates), /same-language/i);
     assert.doesNotMatch(JSON.stringify(duplicates), /safetopic50/);
+
+    const english = "https://example.test/en/";
+    const german = "https://example.test/de/";
+    const head = (self, links) => '<!doctype html><html lang="'
+      + (self === english ? "en" : "de")
+      + '"><head><link rel="canonical" href="' + self + '">'
+      + links.map(([locale, url]) => '<link rel="alternate" hreflang="' + locale + '" href="' + url + '">').join("")
+      + '</head><body><main>Localized page</main></body></html>';
+    const hreflang = await client.callTool({
+      name: "site.hreflang",
+      arguments: {
+        pages: [
+          { url: english, htmlContent: head(english, [["en", english], ["de", german]]) },
+          { url: german, htmlContent: head(german, [["de", german]]) },
+        ],
+      },
+    });
+    assert.equal(hreflang.isError, undefined);
+    assert.equal(hreflang.structuredContent?.sampled_pages, 2);
+    assert.equal(hreflang.structuredContent?.unobserved_targets, 0);
+    assert(hreflang.structuredContent?.findings?.some((finding) =>
+      finding.code === "multilingual.return_link_missing"));
+    assert.match(textContent(hreflang), /hreflang/i);
 
     const schema = await client.callTool({
       name: "schema.markup",

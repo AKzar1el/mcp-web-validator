@@ -1135,6 +1135,45 @@ describe("public webpage audit", () => {
 });
 
 describe("public site audit", () => {
+  it("exposes P1-02 multilingual cluster errors in a real MCP HTTP response without extra fetches", async () => {
+    const english = "https://example.com/";
+    const german = "https://example.com/de/";
+    const visited: string[] = [];
+    const page = (language: string, refs: Array<[string, string]>, canonical: string) =>
+      '<!doctype html><html lang="' + language + '"><head><title>Localized page</title>'
+        + '<link rel="canonical" href="' + canonical + '">'
+        + refs.map(([locale, url]) => '<link rel="alternate" hreflang="' + locale + '" href="' + url + '">').join("")
+        + '</head><body><main>Localized content</main></body></html>';
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      visited.push(url);
+      if (url === "https://example.com/robots.txt") return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response("<urlset><url><loc>" + english + "</loc></url><url><loc>" + german + "</loc></url></urlset>", { headers: { "content-type": "application/xml" } });
+      }
+      if (url === english) return new Response(page("en", [["en", english], ["de", german]], english), { headers: { "content-type": "text/html" } });
+      if (url === german) return new Response(page("de", [["de", german]], german), { headers: { "content-type": "text/html" } });
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error("Unexpected fetch: " + url);
+    }));
+
+    const response = await callTool("audit_public_site", { site_url: english, max_pages: 2 });
+    expect(response.isError).toBeUndefined();
+    const evidence = response.structuredContent.multilingual_clusters;
+    expect(evidence).toMatchObject({
+      scope: "sampled_pages_only", sampled_pages: 2, eligible_pages: 2,
+      locales_observed: 2, unobserved_targets: 0, coverage_limited: false,
+    });
+    expect(evidence.findings.map((item: { code: string }) => item.code))
+      .toContain("multilingual.return_link_missing");
+    expect(response.structuredContent.overview.status).toBe("needs_attention");
+    expect(response.structuredContent.overview.counts).toContainEqual(expect.objectContaining({
+      key: "multilingual_cluster_findings", value: evidence.total_findings,
+    }));
+    expect(response.content[0].text).toMatch(/multilingual/i);
+    expect(visited.filter((url) => url === english || url === german)).toEqual([english, german]);
+  });
+
   it("reports same-language duplicate main content through the real hosted HTTP MCP contract", async () => {
     const main = Array.from({ length: 130 }, (_, i) => `releaseconcept${i}`).join(" ");
     const document = (lang: string) => `<!doctype html><html lang="${lang}"><head><title>Content page</title></head><body><nav>${"navigation ".repeat(130)}</nav><main><p>${main}</p></main></body></html>`;

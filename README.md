@@ -61,12 +61,14 @@ The npm package exposes these exact runtime tool names:
 | `content.competitors` | Compare static search-intent signals between one primary page and up to six user-supplied competitor pages. Optional caller-chosen intent and query-heading word overlap identify review leads, never ranking winners. | Fully offline; **does not fetch competitor sites, scrape SERPs, use GSC, run a semantic classifier or claim Google intent alignment**. |
 | `product.claims` | Compare explicit local MCP capability promises in supplied or fetched landing-page HTML against the local runtime's **actually registered** tools and metadata. | Processes supplied HTML offline or fetches exactly one authorized public page using SSRF-safe network rules; registration consistency is **not** successful execution or a full marketing truth verdict. |
 | `site.hreflang` | Compare up to 16 supplied localized HTML pages for hreflang return links, self references, locale conflicts, `x-default` and canonical target clusters. | Fully offline and cross-domain aware; no crawling, private credentials, local-file access or storage. Unseen targets are unverified, not broken. |
-| `links.broken` | Check links extracted from supplied HTML. | Sends bounded HTTP requests to eligible public links. |
+| `links.broken` | Check links extracted from supplied HTML. | Sends bounded HTTP requests to eligible public links. Returned link URLs omit queries and embedded credentials; requests still use the original URLs. |
 | `schema.markup` | Parse JSON-LD blocks and report JSON syntax errors. | Processes supplied HTML locally. |
 | `schema.supported` | Review explicit JSON-LD structures for a limited set of Article, Product, BreadcrumbList, FAQPage, Organization and WebSite profiles. | Fully offline; checks bounded property shapes and review recommendations, **not** complete Schema.org validity, Google rich-result eligibility, content correctness or external contexts. The original syntax checker remains unchanged. |
 | `report.validation` | Combine HTML/XHTML, optional CSS, SEO, JSON-LD, and bounded link checks in a Markdown report. | Reads selected files, contacts the validators, and checks eligible public links found in the markup; `.xhtml` inputs use XHTML parsing semantics for Nu validation. |
 | `audit.history` | Opt-in local site-audit snapshot history: `save`, `list`, or `get` by ID. | Stores comparison-relevant fields only in one local JSON file, with a hard cap of 10 versions (oldest automatically evicted). No database or network access. |
 | `screenshot.capture` | Capture desktop, tablet, mobile, or custom viewport screenshots. | Opens a selected local file or eligible public URL and writes PNG files to the selected output directory; existing matching files may be replaced. |
+
+Different links that differ only by query parameters may therefore appear under the same displayed URL. Do not submit private tokens in HTML or URL inputs.
 
 For direct Node.js integrations, `auditSeoMetadata(html, xRobotsTag)` and
 `auditSeoMetadataDetailed(html, xRobotsTag)` from `dist/seo-auditor.js` accept
@@ -86,7 +88,7 @@ The hosted app exposes thirteen tools:
 | `verify_product_claims` | Check visible explicit hosted tool names, an advertised site batch limit, and selected read-only/screenshot-scope statements against the hosted MCP's registered tool names, schemas and annotations. Accepts supplied static HTML or one authorized public HTML URL; unknown statements remain unverified. |
 | `verify_content_provenance` | Offline comparison of explicit citation URLs, dataset metadata, published/modified dates and methodology references in up to eight caller-supplied HTML pages against optional supplied evidence. No citation URLs are fetched, and unsupported factual/freshness claims remain unverified. |
 | `compare_competitor_intent` | Offline comparison of one primary and up to six user-supplied competitor HTML pages for static informational, commercial, transactional or navigational signals and optional exact query/heading lexical overlap; no competitor crawling, SERP or ranking inference. |
-| `validate_html` | Validate raw HTML markup already supplied in the conversation. |
+| `validate_html` | Validate supplied HTML or a public webpage URL (`url` field, or standalone URL in `html`). Uses the same bounded, redirect-checked public fetch as the webpage audit for URL inputs. |
 | `validate_css` | Parse supplied CSS for syntax errors inside the Worker. |
 | `audit_seo_metadata` | Audit supplied HTML for covered on-page SEO, robots noindex, and accessibility signals. |
 | `validate_schema_markup` | Check JSON-LD blocks in supplied HTML for JSON syntax errors. |

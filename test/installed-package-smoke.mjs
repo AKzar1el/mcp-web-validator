@@ -54,7 +54,7 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "content.duplicates", "content.quality", "css.local", "html.local", "html.url", "links.broken", "product.claims",
+      "audit.history", "content.duplicates", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "links.broken", "product.claims",
       "report.validation", "schema.markup", "screenshot.capture", "seo.metadata", "site.hreflang",
     ],
   );
@@ -83,6 +83,23 @@ try {
   assert.equal(duplicateContent.structuredContent?.total_pairs, 1);
   assert.equal(duplicateContent.structuredContent?.pairs?.[0]?.kind, "exact");
   assert.ok(!JSON.stringify(duplicateContent).includes("installedtestword50"));
+
+  const source = "https://doi.org/10.1000/install-smoke";
+  const provenance = await client.callTool({
+    name: "content.provenance",
+    arguments: {
+      pages: [{
+        url: "https://example.test/report",
+        htmlContent: '<html><main><a rel=cite data-citation-id=source_2026 href="' + source
+          + '">Citation</a></main></html>',
+      }],
+      evidence: { sources: [{ id: "source_2026", url: source }] },
+    },
+  });
+  assert.notEqual(provenance.isError, true);
+  assert.equal(provenance.structuredContent?.citations_observed, 1);
+  assert.equal(provenance.structuredContent?.consistent_declarations, 1);
+  assert.equal(provenance.structuredContent?.conflicting_declarations, 0);
 
   const advertised = await client.callTool({
     name: "product.claims",

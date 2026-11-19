@@ -34,6 +34,18 @@ import {
   MAX_PRODUCT_CLAIM_HTML_BYTES,
 } from "./modules/content-schema/product-claims";
 import { safeObservedUrl } from "../../src/modules/content-schema/same-language-duplicates";
+import {
+  analyzeProvenance,
+  observeProvenancePage,
+  MAX_PROVENANCE_HTML_BYTES,
+  MAX_PROVENANCE_INPUT_BYTES,
+} from "./modules/content-schema/citation-methodology-consistency";
+import {
+  normalizedEvidenceDate,
+  safeDatasetVersion,
+  safeProvenanceId,
+  safeProvenanceUrl,
+} from "../../src/modules/content-schema/citation-methodology-consistency";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -225,6 +237,55 @@ const productClaimSchema = z.object({
     message: z.string().max(240),
     evidence_tool: z.string().max(64).optional(),
   })).max(10),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+});
+
+const provenanceIdSchema = z.string().min(1).max(64)
+  .refine((value) => Boolean(safeProvenanceId(value)), "Use a safe ASCII reference identifier.");
+const provenanceUrlSchema = z.string().url().max(512)
+  .refine((value) => Boolean(safeProvenanceUrl(value)),
+    "Use a query-free HTTP(S) URL without credentials, fragment or nonstandard port.");
+const provenanceDateSchema = z.string().max(48)
+  .refine((value) => Boolean(normalizedEvidenceDate(value)), "Use a valid ISO date or timezone-qualified timestamp.");
+const provenanceManifestSchema = z.object({
+  as_of: provenanceDateSchema.optional(),
+  sources: z.array(z.object({ id: provenanceIdSchema, url: provenanceUrlSchema })).max(24).optional(),
+  datasets: z.array(z.object({
+    id: provenanceIdSchema,
+    version: z.string().min(1).max(64)
+      .refine((value) => Boolean(safeDatasetVersion(value))).optional(),
+    as_of: provenanceDateSchema.optional(),
+    max_age_days: z.number().int().min(0).max(3650).optional(),
+    methodology_id: provenanceIdSchema.optional(),
+  })).max(16).optional(),
+  methodologies: z.array(z.object({ id: provenanceIdSchema, url: provenanceUrlSchema })).max(16).optional(),
+});
+const provenanceOutputSchema = z.object({
+  scope: z.literal("supplied_static_html_and_evidence"),
+  pages_sampled: z.number().int().nonnegative().max(8),
+  pages_eligible: z.number().int().nonnegative().max(8),
+  citations_observed: z.number().int().nonnegative(),
+  datasets_observed: z.number().int().nonnegative(),
+  methodologies_observed: z.number().int().nonnegative(),
+  checked_declarations: z.number().int().nonnegative(),
+  consistent_declarations: z.number().int().nonnegative(),
+  conflicting_declarations: z.number().int().nonnegative(),
+  unverified_declarations: z.number().int().nonnegative(),
+  invalid_date_declarations: z.number().int().nonnegative(),
+  evidence_supplied: z.boolean(),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(320)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    evidence: z.enum(["observed_html", "supplied_manifest", "reference_date"]),
+    page_url: z.string().max(512),
+    reference_id: z.string().max(64).optional(),
+    message: z.string().max(320),
+  })).max(12),
   findings_truncated: z.boolean(),
   overview: overviewSchema,
   error: z.string().optional(),
@@ -1844,6 +1905,81 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
             }, [], "hosted"),
             overview, error,
           },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "verify_content_provenance",
+    {
+      title: "Verify citation, dataset freshness and methodology evidence",
+      description:
+        "Compare up to eight already-supplied static HTML pages with optional caller-supplied citation, dataset and methodology metadata. Verify explicit URL/ID agreement, dataset versions and as-of dates, publication chronology, and only caller-defined freshness windows. The Worker does not fetch sources, datasets or pages, and missing evidence is unverified rather than a fabricated factual verdict.",
+      inputSchema: {
+        pages: z.array(z.object({
+          url: provenanceUrlSchema.describe("Safe public-style URL label only; never fetched."),
+          htmlContent: z.string().min(1).max(MAX_PROVENANCE_HTML_BYTES)
+            .refine((value) => new TextEncoder().encode(value).byteLength <= MAX_PROVENANCE_HTML_BYTES,
+              "Each page is limited to 200,000 UTF-8 bytes."),
+        })).min(1).max(8)
+          .describe("One to eight authorized static HTML page observations, combined cap 1 MB."),
+        evidence: provenanceManifestSchema.optional()
+          .describe("Optional caller-provided source URLs and dataset/method metadata; not independently fact-checked."),
+      },
+      outputSchema: provenanceOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthWidget({
+        invoking: "Checking source and methodology evidence...",
+        invoked: "Provenance evidence comparison complete.",
+      }),
+    },
+    async ({ pages, evidence }) => {
+      try {
+        if (pages.reduce((total, page) => total + new TextEncoder().encode(page.htmlContent).byteLength, 0)
+          > MAX_PROVENANCE_INPUT_BYTES) throw new Error("Combined HTML input too large.");
+        const analysis = analyzeProvenance(pages.map(({ url, htmlContent }) =>
+          observeProvenancePage(htmlContent, url)), evidence ?? {});
+        const overview: ResultOverview = {
+          kind: "report",
+          status: analysis.conflicting_declarations > 0
+            ? "needs_attention" : analysis.coverage_limited ? "partial" : "passed",
+          title: "Citation, dataset freshness and methodology consistency",
+          headline: analysis.consistent_declarations + " evidence agreements, "
+            + analysis.conflicting_declarations + " discrepancies and "
+            + analysis.unverified_declarations + " unverified declarations.",
+          detail: "Compared explicit static HTML declarations with optional caller-supplied metadata across "
+            + analysis.pages_eligible + "/" + analysis.pages_sampled
+            + " eligible pages. This does not independently retrieve or authenticate external sources.",
+          total: analysis.checked_declarations,
+          shown: analysis.findings.length,
+          truncated: analysis.findings_truncated || analysis.coverage_limited,
+          counts: [
+            metric("citations_observed", "Citations", analysis.citations_observed, "info"),
+            metric("datasets_observed", "Dataset claims", analysis.datasets_observed, "info"),
+            metric("consistent_evidence", "Agreements", analysis.consistent_declarations, "success"),
+            metric("conflicting_evidence", "Discrepancies", analysis.conflicting_declarations, "warning"),
+            metric("unverified_evidence", "Unverified", analysis.unverified_declarations, "warning"),
+          ],
+          next_action: "Inspect discrepancies and confirm source publication, dataset release and methodology independently; no actual remote-source validity was checked.",
+        };
+        return {
+          structuredContent: { ...analysis, overview },
+          content: contentForOverview(overview, analysis.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code,
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "Provenance evidence could not be compared within its bounded supplied HTML input.";
+        const overview = failedOverview("report", "Provenance evidence comparison",
+          "Source evidence could not be assessed.", error);
+        return {
+          structuredContent: { ...analyzeProvenance([], {}), overview, error },
           content: contentForOverview(overview),
           isError: true,
         };

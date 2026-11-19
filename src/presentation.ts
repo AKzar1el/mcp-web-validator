@@ -3,6 +3,7 @@ import type { ValidationReport } from "./report.js";
 import type { SameLanguageDuplicateAnalysis } from "./modules/content-schema/same-language-duplicates.js";
 import type { PageContentQualityAnalysis } from "./modules/content-schema/empty-boilerplate-content.js";
 import type { ProductClaimResult } from "./modules/content-schema/product-claims.js";
+import type { ProvenanceResult } from "./modules/content-schema/citation-methodology-consistency.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
@@ -437,6 +438,26 @@ export function productClaimContent(analysis: ProductClaimResult): string {
       message: finding.message,
     })),
     nextStep: "Confirm any discrepancies against current tools/list output and exercise the affected tool. Registry exposure is not proof of successful behavior.",
+  });
+}
+
+export function provenanceContent(analysis: ProvenanceResult): string {
+  return toolContent({
+    title: "Citation, dataset, freshness and methodology evidence",
+    status: analysis.conflicting_declarations > 0 ? "attention needed"
+      : analysis.coverage_limited ? "partial" : "clean",
+    outcome: `${analysis.consistent_declarations} declarations agree with supplied or on-page evidence, ` +
+      `${analysis.conflicting_declarations} have observed inconsistencies, ` +
+      `${analysis.unverified_declarations} remain unverified ` +
+      `across ${analysis.pages_eligible}/${analysis.pages_sampled} supplied pages.`,
+    actions: analysis.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: finding.page_url,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: analysis.findings_truncated
+      ? "More evidence findings exist than the result cap; inspect sources and compare smaller authorized page batches."
+      : "Verify the underlying sources, dataset release and methodology independently before asserting factual accuracy or current freshness.",
   });
 }
 

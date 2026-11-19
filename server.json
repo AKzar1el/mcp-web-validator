@@ -1885,6 +1885,314 @@
       }
     },
     {
+      "name": "content.provenance",
+      "title": "Verify citation, dataset and methodology evidence",
+      "description": "Offline static comparison across one to eight supplied HTML pages. Checks explicit citation IDs/URLs, dataset version and as-of claims, publication/modification dates, methodology references, and only caller-supplied freshness limits. No source is fetched, no external fact is asserted, and missing evidence remains unverified.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pages": {
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Safe page label; no request is made."
+                },
+                "htmlContent": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200000,
+                  "description": "Static HTML source text supplied by caller; never fetched or stored."
+                }
+              },
+              "required": [
+                "url",
+                "htmlContent"
+              ]
+            },
+            "description": "Up to eight authorized HTML documents; combined limit 1,000,000 UTF-8 bytes."
+          },
+          "evidence": {
+            "description": "Optional caller-supplied source/dataset/methodology metadata; not independently authoritative.",
+            "type": "object",
+            "properties": {
+              "as_of": {
+                "description": "Optional caller-selected comparison day; no current date is inferred.",
+                "type": "string",
+                "maxLength": 48
+              },
+              "sources": {
+                "description": "Up to 24 caller-supplied source IDs and safe target URLs.",
+                "maxItems": 24,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "description": "Short ASCII source, dataset or methodology ID; no tokens or private identifiers."
+                    },
+                    "url": {
+                      "type": "string",
+                      "maxLength": 512,
+                      "format": "uri",
+                      "description": "Public-style HTTP(S) source label, never fetched and without query, userinfo or fragment."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "url"
+                  ]
+                }
+              },
+              "datasets": {
+                "description": "Up to 16 optional dataset metadata entries; not independently sourced.",
+                "maxItems": 16,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "description": "Short ASCII source, dataset or methodology ID; no tokens or private identifiers."
+                    },
+                    "version": {
+                      "description": "Optional exact dataset release/version string supplied by the caller.",
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "as_of": {
+                      "description": "Caller-supplied dataset snapshot reference date.",
+                      "type": "string",
+                      "maxLength": 48
+                    },
+                    "max_age_days": {
+                      "description": "Only this explicit caller-supplied freshness threshold can trigger age review.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 3650
+                    },
+                    "methodology_id": {
+                      "description": "Optional methodology ID associated with this dataset.",
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              },
+              "methodologies": {
+                "description": "Up to 16 methodology IDs and safe reference URLs supplied by the caller.",
+                "maxItems": 16,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "description": "Short ASCII source, dataset or methodology ID; no tokens or private identifiers."
+                    },
+                    "url": {
+                      "type": "string",
+                      "maxLength": 512,
+                      "format": "uri",
+                      "description": "Public-style HTTP(S) source label, never fetched and without query, userinfo or fragment."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "url"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "pages"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "supplied_static_html_and_evidence"
+          },
+          "pages_sampled": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "pages_eligible": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "citations_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "datasets_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "methodologies_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "checked_declarations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "consistent_declarations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "conflicting_declarations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unverified_declarations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "invalid_date_declarations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "evidence_supplied": {
+            "type": "boolean"
+          },
+          "coverage_limited": {
+            "type": "boolean"
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 320
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "evidence": {
+                  "type": "string",
+                  "enum": [
+                    "observed_html",
+                    "supplied_manifest",
+                    "reference_date"
+                  ]
+                },
+                "page_url": {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                "reference_id": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "evidence",
+                "page_url",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "pages_sampled",
+          "pages_eligible",
+          "citations_observed",
+          "datasets_observed",
+          "methodologies_observed",
+          "checked_declarations",
+          "consistent_declarations",
+          "conflicting_declarations",
+          "unverified_declarations",
+          "invalid_date_declarations",
+          "evidence_supplied",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "product.claims",
       "title": "Check landing-page claims against local MCP capabilities",
       "description": "Compare explicit local MCP product-page promises with this actual runtime's registered tool metadata. Supply HTML or one authorized public HTML URL. No arbitrary marketing semantics, no remote MCP credentials, no storage, no scripts and no claim of a successful tool invocation. Hosted tool claims must be verified by the hosted runtime.",

@@ -29,6 +29,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.deepEqual(names, [
       "audit.history",
       "content.duplicates",
+      "content.provenance",
       "content.quality",
       "css.local",
       "html.local",
@@ -105,6 +106,36 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.equal(duplicates.structuredContent?.pairs?.[0]?.similarity_percent, 100);
     assert.match(textContent(duplicates), /same-language/i);
     assert.doesNotMatch(JSON.stringify(duplicates), /safetopic50/);
+
+    const provenanceSource = "https://doi.org/10.1000/sample";
+    const provenancePage = '<html><head><meta property=article:published_time content=2026-11-01>'
+      + '<meta property=article:modified_time content=2026-11-10></head><body><main>'
+      + '<a rel=cite data-citation-id=study_2026 href="' + provenanceSource + '">Study</a>'
+      + '<div data-dataset-id=query_data data-dataset-version=v2 data-dataset-as-of=2026-11-10'
+      + ' data-methodology-id=weighted></div>'
+      + '<a data-methodology-id=weighted href="https://example.test/methods">Methods</a>'
+      + '</main></body></html>';
+    const provenance = await client.callTool({
+      name: "content.provenance",
+      arguments: {
+        pages: [{ url: "https://example.test/report", htmlContent: provenancePage }],
+        evidence: {
+          as_of: "2026-11-19",
+          sources: [{ id: "study_2026", url: provenanceSource }],
+          datasets: [{ id: "query_data", version: "v2", as_of: "2026-11-10",
+            methodology_id: "weighted", max_age_days: 14 }],
+          methodologies: [{ id: "weighted", url: "https://example.test/methods" }],
+        },
+      },
+    });
+    assert.equal(provenance.isError, undefined);
+    assert.equal(provenance.structuredContent?.citations_observed, 1);
+    assert.equal(provenance.structuredContent?.datasets_observed, 1);
+    assert.equal(provenance.structuredContent?.conflicting_declarations, 0);
+    assert.equal(provenance.structuredContent?.unverified_declarations, 0);
+    assert.match(textContent(provenance), /citation|methodology/i);
+    assert.doesNotMatch(JSON.stringify(provenance), /data-methodology-id=weighted/);
+
 
     const promised = await client.callTool({
       name: "product.claims",

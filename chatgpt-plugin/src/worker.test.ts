@@ -314,7 +314,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers ten accurately annotated tools", async () => {
+  it("discovers eleven accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -327,6 +327,7 @@ describe("hosted tool contract", () => {
       "audit_public_site",
       "compare_site_audits",
       "verify_product_claims",
+      "verify_content_provenance",
     ]);
     const noAuthSecuritySchemes = [{ type: "noauth" }];
     for (const tool of tools) {
@@ -1140,6 +1141,84 @@ describe("P1-04 product promise verification through hosted MCP HTTP", () => {
       expect(result.structuredContent.catalog_available).toBe(false);
     }
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("P1-05 provenance verification through hosted MCP HTTP", () => {
+  const page = "https://example.com/report";
+  const source = "https://doi.org/10.1000/sample";
+  const method = "https://example.com/methods";
+  const manifest = {
+    as_of: "2026-11-19",
+    sources: [{ id: "study_2026", url: source }],
+    datasets: [{ id: "query_data", version: "v2", as_of: "2026-11-10",
+      max_age_days: 14, methodology_id: "weighted" }],
+    methodologies: [{ id: "weighted", url: method }],
+  };
+  const html = (sourceTarget = source, version = "v2", snapshot = "2026-11-10") =>
+    '<html lang=en><head><meta property=article:published_time content=2026-11-01>'
+      + '<meta property=article:modified_time content=2026-11-10></head><body><main>'
+      + '<a rel=cite data-citation-id=study_2026 href="' + sourceTarget + '">Source</a>'
+      + '<div data-dataset-id=query_data data-dataset-version="' + version
+      + '" data-dataset-as-of="' + snapshot + '" data-methodology-id=weighted></div>'
+      + '<a data-methodology-id=weighted href="' + method + '">Method</a></main></body></html>';
+
+  it("uses the real Worker tool and does not fetch citation or dataset URLs", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const exposed = await listTools();
+    const tool = exposed.find((item) => item.name === "verify_content_provenance");
+    expect(tool?.annotations).toMatchObject({
+      readOnlyHint: true, openWorldHint: false, destructiveHint: false,
+    });
+    const result = await callTool("verify_content_provenance", {
+      pages: [{ url: page, htmlContent: html() }], evidence: manifest,
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      scope: "supplied_static_html_and_evidence", pages_sampled: 1, pages_eligible: 1,
+      citations_observed: 1, datasets_observed: 1, methodologies_observed: 1,
+      conflicting_declarations: 0, unverified_declarations: 0, coverage_limited: false,
+    });
+    expect(result.structuredContent.overview.status).toBe("passed");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports caller-evidence contradictions and preserves a bounded redacted response", async () => {
+    const result = await callTool("verify_content_provenance", {
+      pages: [{ url: page, htmlContent: html("https://example.com/alternate", "v99") }],
+      evidence: manifest,
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.conflicting_declarations).toBeGreaterThanOrEqual(2);
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(result.structuredContent.findings.map((finding: { code: string }) => finding.code))
+      .toEqual(expect.arrayContaining([
+        "citation_target_differs_from_supplied_evidence", "dataset_version_conflict",
+      ]));
+    expect(result.content[0].text).not.toContain(html());
+  });
+
+  it("without an evidence manifest reports uncertainty rather than a false clean verdict", async () => {
+    const result = await callTool("verify_content_provenance", {
+      pages: [{ url: page, htmlContent: html() }],
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.conflicting_declarations).toBe(0);
+    expect(result.structuredContent.unverified_declarations).toBeGreaterThan(0);
+    expect(result.structuredContent.coverage_limited).toBe(true);
+    expect(result.structuredContent.overview.status).toBe("partial");
+  });
+
+  it("rejects query-bearing input URL labels and oversized HTML through MCP validation", async () => {
+    for (const arguments_ of [
+      { pages: [{ url: page + "?token=FAKE_SECRET", htmlContent: html() }] },
+      { pages: [{ url: page, htmlContent: "x".repeat(200_001) }] },
+    ]) {
+      const result = await callTool("verify_content_provenance", arguments_);
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).not.toContain("FAKE_SECRET");
+    }
   });
 });
 

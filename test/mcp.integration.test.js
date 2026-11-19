@@ -161,6 +161,17 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.ok(Buffer.byteLength(JSON.stringify(boundedLinks), "utf8") < 18_000);
     assert.match(textContent(blockedLinks), /all results/i);
 
+    const redactedBlockedLink = await client.callTool({
+      name: "links.broken",
+      arguments: {
+        htmlContent: '<a href="https://FAKE_USER:FAKE_PASSWORD@example.com/private?token=FAKE_TOKEN">Blocked</a>',
+      },
+    });
+    assert.equal(redactedBlockedLink.isError, undefined);
+    assert.equal(redactedBlockedLink.structuredContent?.links?.[0]?.status, "blocked");
+    assert.equal(redactedBlockedLink.structuredContent?.links?.[0]?.url, "https://example.com/private");
+    assert.doesNotMatch(JSON.stringify(redactedBlockedLink), /FAKE_USER|FAKE_PASSWORD|FAKE_TOKEN/);
+
     const unreadableReport = await client.callTool({
       name: "report.validation",
       arguments: { htmlFilePath: "definitely-missing-report-input.html" },

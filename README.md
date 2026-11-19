@@ -55,11 +55,13 @@ The npm package exposes these exact runtime tool names:
 | `html.url` | Validate the markup returned by a public URL. | Fetches the URL, then submits the returned markup to the external Nu checker. |
 | `css.local` | Validate a local CSS file. | Reads the selected file and submits its CSS to the external W3C Jigsaw CSS Validator. |
 | `seo.metadata` | Audit titles, descriptions, canonical tags, robots noindex directives, headings, viewport metadata, image alt attributes, and Open Graph metadata. | Processes supplied HTML locally. |
-| `links.broken` | Check links extracted from supplied HTML. | Sends bounded HTTP requests to eligible public links. |
+| `links.broken` | Check links extracted from supplied HTML. | Sends bounded HTTP requests to eligible public links. Returned link URLs omit queries and embedded credentials; requests still use the original URLs. |
 | `schema.markup` | Parse JSON-LD blocks and report JSON syntax errors. | Processes supplied HTML locally. |
 | `report.validation` | Combine HTML/XHTML, optional CSS, SEO, JSON-LD, and bounded link checks in a Markdown report. | Reads selected files, contacts the validators, and checks eligible public links found in the markup; `.xhtml` inputs use XHTML parsing semantics for Nu validation. |
 | `audit.history` | Opt-in local site-audit snapshot history: `save`, `list`, or `get` by ID. | Stores comparison-relevant fields only in one local JSON file, with a hard cap of 10 versions (oldest automatically evicted). No database or network access. |
 | `screenshot.capture` | Capture desktop, tablet, mobile, or custom viewport screenshots. | Opens a selected local file or eligible public URL and writes PNG files to the selected output directory; existing matching files may be replaced. |
+
+Different links that differ only by query parameters may therefore appear under the same displayed URL. Do not submit private tokens in HTML or URL inputs.
 
 For direct Node.js integrations, `auditSeoMetadata(html, xRobotsTag)` and
 `auditSeoMetadataDetailed(html, xRobotsTag)` from `dist/seo-auditor.js` accept

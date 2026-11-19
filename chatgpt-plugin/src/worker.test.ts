@@ -314,7 +314,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers nine accurately annotated tools", async () => {
+  it("discovers ten accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -326,6 +326,7 @@ describe("hosted tool contract", () => {
       "audit_public_webpage",
       "audit_public_site",
       "compare_site_audits",
+      "verify_product_claims",
     ]);
     const noAuthSecuritySchemes = [{ type: "noauth" }];
     for (const tool of tools) {
@@ -1131,6 +1132,83 @@ describe("public webpage audit", () => {
     expect(result.isError).toBe(true);
     expect(result.structuredContent).toMatchObject({ page_fetched: false, failed_checks: ["fetch"] });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("P1-04 product promise verification through hosted MCP HTTP", () => {
+  const advertised = [
+    "validate_html", "audit_public_webpage", "audit_public_site", "validate_css",
+    "audit_seo_metadata", "check_broken_links", "validate_schema_markup",
+    "generate_validation_report",
+  ];
+  const landing = (codes = advertised, limit = 8) =>
+    '<!doctype html><html><body><main><section><h2>Public ChatGPT capabilities</h2>'
+      + codes.map((name) => '<p><code>' + name + '</code></p>').join("")
+      + '</section><div>Site batch Up to ' + limit + ' pages</div>'
+      + '<p>The hosted app is read-only. It cannot create screenshots.</p>'
+      + '<p>The separate local MCP is the only surface for responsive screenshots.</p>'
+      + '</main></body></html>';
+
+  it("compares actual registered hosted tools, schema bounds and read-only metadata", async () => {
+    const exposed = await listTools();
+    expect(exposed.map((tool) => tool.name)).toContain("verify_product_claims");
+    expect(exposed.map((tool) => tool.name)).toContain("audit_public_site");
+    const result = await callTool("verify_product_claims", { html: landing() });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      scope: "landing_html_vs_registered_mcp_metadata",
+      surface: "hosted",
+      catalog_available: true,
+      tool_claims_checked: 8,
+      contradicted_claims: 0,
+      unverified_claims: 0,
+      coverage_limited: false,
+      site_batch_limit: { advertised: 8, registered: 8 },
+    });
+    expect(result.structuredContent.consistent_claims).toBeGreaterThanOrEqual(8);
+    expect(result.structuredContent.registered_tools).toBe(exposed.length);
+    expect(result.structuredContent.overview.status).toBe("passed");
+  });
+
+  it("flags invented public tools and inflated site batches without echoing input secrets", async () => {
+    const html = landing([...advertised, "impossible_ai_rank_tracker"], 300)
+      .replace("</main>", '<script>FAKE_PRODUCT_SECRET</script></main>');
+    const result = await callTool("verify_product_claims", { html });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.contradicted_claims).toBe(2);
+    expect(result.structuredContent.findings.map((item: { code: string }) => item.code))
+      .toEqual(expect.arrayContaining(["product.tool_missing", "product.site_batch_overclaim"]));
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(JSON.stringify(result)).not.toContain("FAKE_PRODUCT_SECRET");
+  });
+
+  it("fetches exactly one authorized public product HTML document without extra requests", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      calls.push(url);
+      if (url === "https://example.com/product") return new Response(landing(), {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+      throw new Error("Unexpected fetch " + url);
+    }));
+    const result = await callTool("verify_product_claims", { public_url: "https://example.com/product" });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.tool_claims_checked).toBe(8);
+    expect(calls).toEqual(["https://example.com/product"]);
+  });
+
+  it("refuses missing or simultaneous HTML+URL without fetching", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    for (const args of [{}, {
+      html: landing(), public_url: "https://example.com/product",
+    }]) {
+      const result = await callTool("verify_product_claims", args);
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent.catalog_available).toBe(false);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

@@ -34,6 +34,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "html.local",
       "html.url",
       "links.broken",
+      "product.claims",
       "report.validation",
       "schema.markup",
       "screenshot.capture",
@@ -104,6 +105,22 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.equal(duplicates.structuredContent?.pairs?.[0]?.similarity_percent, 100);
     assert.match(textContent(duplicates), /same-language/i);
     assert.doesNotMatch(JSON.stringify(duplicates), /safetopic50/);
+
+    const promised = await client.callTool({
+      name: "product.claims",
+      arguments: {
+        htmlContent: '<html><body><main><section><h2>Local MCP tools</h2>'
+          + '<code>screenshot.capture</code><code>invented_rank_tool</code>'
+          + '</section><p>The local MCP provides responsive screenshots.</p></main></body></html>',
+      },
+    });
+    assert.equal(promised.isError, undefined);
+    assert.equal(promised.structuredContent?.catalog_available, true);
+    assert.equal(promised.structuredContent?.surface, "local");
+    assert.equal(promised.structuredContent?.contradicted_claims, 1);
+    assert(promised.structuredContent?.findings?.some((finding) =>
+      finding.code === "product.tool_missing" && finding.evidence_tool === "invented_rank_tool"));
+    assert.match(textContent(promised), /landing-page promises/i);
 
     const quality = await client.callTool({
       name: "content.quality",

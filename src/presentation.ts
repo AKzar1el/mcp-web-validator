@@ -2,6 +2,7 @@ import * as cheerio from "cheerio";
 import type { ValidationReport } from "./report.js";
 import type { SameLanguageDuplicateAnalysis } from "./modules/content-schema/same-language-duplicates.js";
 import type { PageContentQualityAnalysis } from "./modules/content-schema/empty-boilerplate-content.js";
+import type { ProductClaimResult } from "./modules/content-schema/product-claims.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
@@ -416,6 +417,26 @@ export function contentQualityContent(analysis: PageContentQualityAnalysis): str
     nextStep: analysis.findings_truncated
       ? "More review findings exist than the preview cap. Inspect the affected page families and narrow the sample."
       : "Inspect flagged pages in a browser, verify their purpose and unique value, then rerun the bounded comparison.",
+  });
+}
+
+export function productClaimContent(analysis: ProductClaimResult): string {
+  return toolContent({
+    title: "Landing-page promises versus registered MCP tools",
+    status: analysis.contradicted_claims > 0 ? "attention needed"
+      : analysis.coverage_limited ? "partial" : "clean",
+    outcome: analysis.catalog_available
+      ? analysis.checked_claims + " explicit or bounded claims checked; " +
+        analysis.consistent_claims + " consistent with the registered " + analysis.surface +
+        " tool catalog, " + analysis.contradicted_claims + " contradicted and " +
+        analysis.unverified_claims + " unverified."
+      : "The MCP tool registry was unavailable, so no claim is verified.",
+    actions: analysis.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: finding.claim,
+      message: finding.message,
+    })),
+    nextStep: "Confirm any discrepancies against current tools/list output and exercise the affected tool. Registry exposure is not proof of successful behavior.",
   });
 }
 

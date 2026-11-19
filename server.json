@@ -1883,6 +1883,215 @@
       "execution": {
         "taskSupport": "forbidden"
       }
+    },
+    {
+      "name": "product.claims",
+      "title": "Check landing-page claims against local MCP capabilities",
+      "description": "Compare explicit local MCP product-page promises with this actual runtime's registered tool metadata. Supply HTML or one authorized public HTML URL. No arbitrary marketing semantics, no remote MCP credentials, no storage, no scripts and no claim of a successful tool invocation. Hosted tool claims must be verified by the hosted runtime.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "htmlContent": {
+            "description": "Optional static landing-page HTML, bounded at 250,000 UTF-8 bytes.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 250000
+          },
+          "url": {
+            "description": "Alternative to HTML: one authorized public landing-page URL, fetched with existing SSRF safeguards.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "landing_html_vs_registered_mcp_metadata"
+          },
+          "surface": {
+            "type": "string",
+            "enum": [
+              "hosted",
+              "local"
+            ]
+          },
+          "catalog_available": {
+            "type": "boolean"
+          },
+          "registered_tools": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 64
+          },
+          "tool_claims_checked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20
+          },
+          "checked_claims": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "consistent_claims": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "contradicted_claims": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unverified_claims": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "advertised_tools": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "registered": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "name",
+                "registered"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "site_batch_limit": {
+            "type": "object",
+            "properties": {
+              "advertised": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "registered": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "advertised"
+            ],
+            "additionalProperties": false
+          },
+          "coverage_limited": {
+            "type": "boolean"
+          },
+          "limitations": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 320
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "verdict": {
+                  "type": "string",
+                  "enum": [
+                    "contradicted",
+                    "unverifiable"
+                  ]
+                },
+                "claim": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 240
+                },
+                "evidence_tool": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "verdict",
+                "claim",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "surface",
+          "catalog_available",
+          "registered_tools",
+          "tool_claims_checked",
+          "checked_claims",
+          "consistent_claims",
+          "contradicted_claims",
+          "unverified_claims",
+          "advertised_tools",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
     }
   ],
   "_meta": {

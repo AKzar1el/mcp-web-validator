@@ -25,6 +25,7 @@ import {
   cssValidationContent,
   contentDuplicateContent,
   contentQualityContent,
+  productClaimContent,
   multilingualClusterContent,
   failureContent,
   htmlValidationContent,
@@ -36,8 +37,14 @@ import {
   seoAuditContent,
 } from "./presentation.js";
 import { observeMainContent } from "./modules/content-schema/extract-main-content.js";
-import { analyzeSameLanguageDuplicates } from "./modules/content-schema/same-language-duplicates.js";
+import { analyzeSameLanguageDuplicates, safeObservedUrl } from "./modules/content-schema/same-language-duplicates.js";
 import { analyzePageContentQuality } from "./modules/content-schema/empty-boilerplate-content.js";
+import {
+  compareProductClaims,
+  registeredToolEvidence,
+  MAX_PRODUCT_CLAIM_HTML_BYTES,
+} from "./modules/content-schema/product-claims.js";
+import { observeProductClaims } from "./modules/content-schema/extract-product-claims.js";
 import {
   analyzeMultilingualClusters,
   safeMultilingualUrl,
@@ -171,6 +178,38 @@ const contentQualityOutputSchema = {
     affected_pages: z.number().int().nonnegative(),
     example_urls: z.array(z.string().max(512)).max(2),
   })).max(12),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const productClaimOutputSchema = {
+  scope: z.literal("landing_html_vs_registered_mcp_metadata"),
+  surface: z.enum(["hosted", "local"]),
+  catalog_available: z.boolean(),
+  registered_tools: z.number().int().nonnegative().max(64),
+  tool_claims_checked: z.number().int().nonnegative().max(20),
+  checked_claims: z.number().int().nonnegative(),
+  consistent_claims: z.number().int().nonnegative(),
+  contradicted_claims: z.number().int().nonnegative(),
+  unverified_claims: z.number().int().nonnegative(),
+  advertised_tools: z.array(z.object({
+    name: z.string().max(64), registered: z.boolean(),
+  })).max(20),
+  site_batch_limit: z.object({
+    advertised: z.number().int().positive(),
+    registered: z.number().int().positive().optional(),
+  }).optional(),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(320)).max(5),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    verdict: z.enum(["contradicted", "unverifiable"]),
+    claim: z.string().max(64),
+    message: z.string().max(240),
+    evidence_tool: z.string().max(64).optional(),
+  })).max(10),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
 };
@@ -1066,6 +1105,53 @@ export function createServer(): McpServer {
           ),
           true,
         );
+      }
+    },
+  );
+
+  server.registerTool(
+    "product.claims",
+    {
+      title: "Check landing-page claims against local MCP capabilities",
+      description:
+        "Compare explicit local MCP product-page promises with this actual runtime's registered tool metadata. Supply HTML or one authorized public HTML URL. No arbitrary marketing semantics, no remote MCP credentials, no storage, no scripts and no claim of a successful tool invocation. Hosted tool claims must be verified by the hosted runtime.",
+      inputSchema: {
+        htmlContent: z.string().min(1).max(MAX_PRODUCT_CLAIM_HTML_BYTES).optional()
+          .describe("Optional static landing-page HTML, bounded at 250,000 UTF-8 bytes."),
+        url: z.string().url().max(512).refine((value) => Boolean(safeObservedUrl(value)),
+          "Use a query-free public HTTP(S) URL without credentials or fragments.").optional()
+          .describe("Alternative to HTML: one authorized public landing-page URL, fetched with existing SSRF safeguards."),
+      },
+      outputSchema: productClaimOutputSchema,
+      annotations: externalReadOnlyAnnotations,
+    },
+    async ({ htmlContent, url }) => {
+      const empty = compareProductClaims({
+        hasMain: false, hostedSectionFound: false, localSectionFound: false,
+        hostedTools: [], localTools: [], localScreenshotClaim: false,
+        hostedReadOnlyClaim: false, hostedNoScreenshotsClaim: false,
+        extractionTruncated: false,
+      }, [], "local");
+      try {
+        if (Boolean(htmlContent) === Boolean(url)) {
+          throw new Error("Provide exactly one of htmlContent or url.");
+        }
+        const html = htmlContent ?? (await fetchPublicText(url!, {
+          maxBytes: MAX_PRODUCT_CLAIM_HTML_BYTES,
+          acceptedContentTypes: ["text/html", "application/xhtml+xml"],
+        })).text;
+        const catalog = registeredToolEvidence(
+          (server as unknown as { _registeredTools?: unknown })._registeredTools,
+          (schema) => z.toJSONSchema(schema as z.ZodType),
+        );
+        const analysis = compareProductClaims(observeProductClaims(html), catalog, "local");
+        return result(analysis, productClaimContent(analysis));
+      } catch {
+        const error = "Landing-page promises could not be verified within the public URL or input limits.";
+        return result({ ...empty, error }, failureContent(
+          "Landing-page promise verification", error,
+          "Provide one authorized public HTML page or bounded static HTML, not both.",
+        ), true);
       }
     },
   );

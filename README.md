@@ -57,6 +57,7 @@ The npm package exposes these exact runtime tool names:
 | `seo.metadata` | Audit titles, descriptions, canonical tags, robots noindex directives, headings, viewport metadata, image alt attributes, and Open Graph metadata. | Processes supplied HTML locally. |
 | `content.duplicates` | Compare exact and conservative near-duplicate main content within the same language across up to eight supplied HTML pages. | Fully offline, with no network, browser execution or storage; returns only evidence pairs and coverage, never main text. |
 | `content.quality` | Review empty or short static main content, repeated substantive boilerplate within sampled same-language URL families, and possible low unique value. | Offline analysis of up to eight supplied HTML pages; results are review signals, **not** proof that a short page lacks value or that Google penalized it. |
+| `content.metadata` | Compare repeated, conflicting and mismatched title, description, canonical, Open Graph, Twitter and explicit robots metadata across 1-8 supplied same-origin HTML pages. | Fully offline; no page fetch, canonical selection, ranking or indexing verdict. Identical duplicate fields and social-title differences are advisory, not automatic SEO errors. |
 | `content.provenance` | Compare explicit citations, dataset releases/snapshot dates, publication chronology, and methodology links with optional supplied source evidence and opt-in freshness windows. | Fully offline for up to eight supplied HTML pages; no citation/dataset fetching, external fact checks, browser, storage or claim of scientific truth. Missing source evidence remains unverified. |
 | `content.competitors` | Compare static search-intent signals between one primary page and up to six user-supplied competitor pages. Optional caller-chosen intent and query-heading word overlap identify review leads, never ranking winners. | Fully offline; **does not fetch competitor sites, scrape SERPs, use GSC, run a semantic classifier or claim Google intent alignment**. |
 | `product.claims` | Compare explicit local MCP capability promises in supplied or fetched landing-page HTML against the local runtime's **actually registered** tools and metadata. | Processes supplied HTML offline or fetches exactly one authorized public page using SSRF-safe network rules; registration consistency is **not** successful execution or a full marketing truth verdict. |
@@ -79,7 +80,7 @@ fetches headers; the MCP `seo.metadata` tool still analyzes supplied HTML only.
 
 ## Hosted app tools
 
-The hosted app exposes fourteen tools:
+The hosted app exposes fifteen tools:
 
 | Tool | Purpose |
 | --- | --- |
@@ -95,6 +96,7 @@ The hosted app exposes fourteen tools:
 | `validate_schema_markup` | Check JSON-LD blocks in supplied HTML for JSON syntax errors. |
 | `validate_supported_schema` | Review supported JSON-LD node types and selected property structures, including Product offer prices, Article dates, breadcrumb positions and FAQ answer text. Unknown types remain unverified; no rich-result eligibility promise. |
 | `review_internal_links` | Review contextual internal links and accessible anchor labels across 1-8 already-supplied same-origin static HTML pages, with limited lexical heading comparison for supplied targets. No network requests, search metrics, destination verification or semantic relevance assertions. |
+| `review_metadata_consistency` | Offline consistency review of duplicate/conflicting title, description and canonical declarations, social metadata and robots directives, and repeated titles/descriptions between supplied same-origin pages. No network, selected-canonical or ranking claims. |
 | `check_broken_links` | Check up to 20 authorized public links extracted from supplied HTML. |
 | `generate_validation_report` | Combine the checks for supplied markup; `base_url` resolves relative links but does not fetch a page. |
 

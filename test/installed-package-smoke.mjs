@@ -59,7 +59,7 @@ try {
     tools.map(({ name }) => name).sort(),
     [
       "audit.history", "content.competitors", "content.duplicates", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "links.broken", "product.claims",
-      "report.validation", "schema.markup", "screenshot.capture", "seo.metadata", "site.hreflang",
+      "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang",
     ],
   );
 
@@ -107,6 +107,22 @@ try {
   assert.equal(provenance.structuredContent?.citations_observed, 1);
   assert.equal(provenance.structuredContent?.consistent_declarations, 1);
   assert.equal(provenance.structuredContent?.conflicting_declarations, 0);
+
+  phase = "schema_supported";
+  const supported = await client.callTool({
+    name: "schema.supported",
+    arguments: {
+      htmlContent: '<html><head><script type="application/ld+json">'
+        + '{"@context":"https://schema.org","@type":"Product","name":"Chair",'
+        + '"offers":{"@type":"Offer","price":0,"priceCurrency":"EUR"}}'
+        + '</script></head><body><main>Chair</main></body></html>',
+    },
+  });
+  assert.notEqual(supported.isError, true);
+  assert.equal(supported.structuredContent?.supported_nodes, 1);
+  assert.equal(supported.structuredContent?.warnings, 0);
+  assert.equal(supported.structuredContent?.errors, 0);
+  assert.equal(supported.structuredContent?.coverage_limited, true);
 
   phase = "content_competitors";
   const intent = await client.callTool({

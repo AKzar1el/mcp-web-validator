@@ -1208,6 +1208,214 @@
       }
     },
     {
+      "name": "schema.supported",
+      "title": "Review supported Schema.org JSON-LD structures",
+      "description": "Offline bounded structural review of explicit JSON-LD for Article/NewsArticle/BlogPosting, Product, BreadcrumbList, FAQPage, Organization and WebSite. Checks limited property shapes and review-profile recommendations; unknown contexts/types stay unverified. Does not resolve remote contexts or certify Schema.org validity, Google rich-result eligibility, content truth or rankings. Use schema.markup for existing syntax-only diagnostics.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "htmlContent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 250000,
+            "description": "Caller-supplied HTML containing JSON-LD script blocks, never fetched, at most 250 KB UTF-8."
+          }
+        },
+        "required": [
+          "htmlContent"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "bounded_jsonld_structural_profiles"
+          },
+          "blocks_seen": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "blocks_checked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 12
+          },
+          "blocks_skipped": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "nodes_examined": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 64
+          },
+          "supported_nodes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unsupported_nodes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "context_unverified_nodes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "types_checked": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "Article",
+                "NewsArticle",
+                "BlogPosting",
+                "Product",
+                "BreadcrumbList",
+                "FAQPage",
+                "Organization",
+                "WebSite"
+              ]
+            }
+          },
+          "errors": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "warnings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unverified": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coverage_limited": {
+            "type": "boolean"
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 320
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "error",
+                    "warning",
+                    "info"
+                  ]
+                },
+                "block": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "node": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "Article",
+                    "NewsArticle",
+                    "BlogPosting",
+                    "Product",
+                    "BreadcrumbList",
+                    "FAQPage",
+                    "Organization",
+                    "WebSite"
+                  ]
+                },
+                "property": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 290
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "block",
+                "node",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "blocks_seen",
+          "blocks_checked",
+          "blocks_skipped",
+          "nodes_examined",
+          "supported_nodes",
+          "unsupported_nodes",
+          "context_unverified_nodes",
+          "types_checked",
+          "errors",
+          "warnings",
+          "unverified",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "report.validation",
       "title": "Generate a validation report",
       "description": "Combines W3C HTML/CSS validation, local SEO/accessibility checks, JSON-LD syntax checks, and a bounded public-link check into a Markdown and structured report.",

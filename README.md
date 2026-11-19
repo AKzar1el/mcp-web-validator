@@ -63,6 +63,7 @@ The npm package exposes these exact runtime tool names:
 | `site.hreflang` | Compare up to 16 supplied localized HTML pages for hreflang return links, self references, locale conflicts, `x-default` and canonical target clusters. | Fully offline and cross-domain aware; no crawling, private credentials, local-file access or storage. Unseen targets are unverified, not broken. |
 | `links.broken` | Check links extracted from supplied HTML. | Sends bounded HTTP requests to eligible public links. Returned link URLs omit queries and embedded credentials; requests still use the original URLs. |
 | `schema.markup` | Parse JSON-LD blocks and report JSON syntax errors. | Processes supplied HTML locally. |
+| `schema.supported` | Review explicit JSON-LD structures for a limited set of Article, Product, BreadcrumbList, FAQPage, Organization and WebSite profiles. | Fully offline; checks bounded property shapes and review recommendations, **not** complete Schema.org validity, Google rich-result eligibility, content correctness or external contexts. The original syntax checker remains unchanged. |
 | `report.validation` | Combine HTML/XHTML, optional CSS, SEO, JSON-LD, and bounded link checks in a Markdown report. | Reads selected files, contacts the validators, and checks eligible public links found in the markup; `.xhtml` inputs use XHTML parsing semantics for Nu validation. |
 | `audit.history` | Opt-in local site-audit snapshot history: `save`, `list`, or `get` by ID. | Stores comparison-relevant fields only in one local JSON file, with a hard cap of 10 versions (oldest automatically evicted). No database or network access. |
 | `screenshot.capture` | Capture desktop, tablet, mobile, or custom viewport screenshots. | Opens a selected local file or eligible public URL and writes PNG files to the selected output directory; existing matching files may be replaced. |
@@ -77,7 +78,7 @@ fetches headers; the MCP `seo.metadata` tool still analyzes supplied HTML only.
 
 ## Hosted app tools
 
-The hosted app exposes twelve tools:
+The hosted app exposes thirteen tools:
 
 | Tool | Purpose |
 | --- | --- |
@@ -91,6 +92,7 @@ The hosted app exposes twelve tools:
 | `validate_css` | Parse supplied CSS for syntax errors inside the Worker. |
 | `audit_seo_metadata` | Audit supplied HTML for covered on-page SEO, robots noindex, and accessibility signals. |
 | `validate_schema_markup` | Check JSON-LD blocks in supplied HTML for JSON syntax errors. |
+| `validate_supported_schema` | Review supported JSON-LD node types and selected property structures, including Product offer prices, Article dates, breadcrumb positions and FAQ answer text. Unknown types remain unverified; no rich-result eligibility promise. |
 | `check_broken_links` | Check up to 20 authorized public links extracted from supplied HTML. |
 | `generate_validation_report` | Combine the checks for supplied markup; `base_url` resolves relative links but does not fetch a page. |
 

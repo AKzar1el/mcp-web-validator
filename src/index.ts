@@ -28,6 +28,7 @@ import {
   productClaimContent,
   provenanceContent,
   intentComparisonContent,
+  supportedSchemaContent,
   multilingualClusterContent,
   failureContent,
   htmlValidationContent,
@@ -66,6 +67,13 @@ import {
   MAX_INTENT_QUERY_BYTES,
 } from "./modules/content-schema/competitor-intent-comparison.js";
 import { observeIntentHtml } from "./modules/content-schema/extract-competitor-intent.js";
+import {
+  MAX_SUPPORTED_SCHEMA_HTML_BYTES,
+  MAX_SUPPORTED_SCHEMA_FINDINGS,
+  SUPPORTED_SCHEMA_TYPES,
+  type SupportedSchemaReview,
+} from "./modules/content-schema/structured-data-validation.js";
+import { reviewSupportedSchemaHtml } from "./modules/content-schema/extract-structured-data.js";
 import {
   analyzeMultilingualClusters,
   safeMultilingualUrl,
@@ -346,6 +354,35 @@ const intentComparisonOutputSchema = {
     message: z.string().max(320),
     competitors_supporting: z.number().int().min(0).max(6).optional(),
   })).max(10),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const supportedSchemaOutputSchema = {
+  scope: z.literal("bounded_jsonld_structural_profiles"),
+  blocks_seen: z.number().int().nonnegative(),
+  blocks_checked: z.number().int().nonnegative().max(12),
+  blocks_skipped: z.number().int().nonnegative(),
+  nodes_examined: z.number().int().nonnegative().max(64),
+  supported_nodes: z.number().int().nonnegative(),
+  unsupported_nodes: z.number().int().nonnegative(),
+  context_unverified_nodes: z.number().int().nonnegative(),
+  types_checked: z.array(z.enum(SUPPORTED_SCHEMA_TYPES)).max(8),
+  errors: z.number().int().nonnegative(),
+  warnings: z.number().int().nonnegative(),
+  unverified: z.number().int().nonnegative(),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(320)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["error", "warning", "info"]),
+    block: z.number().int().nonnegative(),
+    node: z.number().int().nonnegative(),
+    type: z.enum(SUPPORTED_SCHEMA_TYPES).optional(),
+    property: z.string().max(40).optional(),
+    message: z.string().max(290),
+  })).max(MAX_SUPPORTED_SCHEMA_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
 };
@@ -1025,6 +1062,44 @@ export function createServer(): McpServer {
           ),
           true,
         );
+      }
+    },
+  );
+
+  server.registerTool(
+    "schema.supported",
+    {
+      title: "Review supported Schema.org JSON-LD structures",
+      description:
+        "Offline bounded structural review of explicit JSON-LD for Article/NewsArticle/BlogPosting, Product, BreadcrumbList, FAQPage, Organization and WebSite. Checks limited property shapes and review-profile recommendations; unknown contexts/types stay unverified. Does not resolve remote contexts or certify Schema.org validity, Google rich-result eligibility, content truth or rankings. Use schema.markup for existing syntax-only diagnostics.",
+      inputSchema: {
+        htmlContent: z.string().min(1).max(MAX_SUPPORTED_SCHEMA_HTML_BYTES)
+          .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_SUPPORTED_SCHEMA_HTML_BYTES,
+            "Static HTML must be at most 250,000 UTF-8 bytes.")
+          .describe("Caller-supplied HTML containing JSON-LD script blocks, never fetched, at most 250 KB UTF-8."),
+      },
+      outputSchema: supportedSchemaOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ htmlContent }) => {
+      try {
+        const analysis: SupportedSchemaReview = reviewSupportedSchemaHtml(htmlContent);
+        return result(analysis, supportedSchemaContent(analysis));
+      } catch {
+        const error = "Supported JSON-LD review could not complete within the static input limits.";
+        const empty: SupportedSchemaReview = {
+          scope: "bounded_jsonld_structural_profiles",
+          blocks_seen: 0, blocks_checked: 0, blocks_skipped: 0, nodes_examined: 0,
+          supported_nodes: 0, unsupported_nodes: 0, context_unverified_nodes: 0,
+          types_checked: [], errors: 0, warnings: 0, unverified: 0,
+          coverage_limited: true,
+          limitations: ["The bounded JSON-LD review could not process this supplied input."],
+          total_findings: 0, findings: [], findings_truncated: false,
+        };
+        return result({ ...empty, error }, failureContent(
+          "Supported JSON-LD review", error,
+          "Provide one bounded static HTML page and review unknown types with a complete standards-aware validator.",
+        ), true);
       }
     },
   );

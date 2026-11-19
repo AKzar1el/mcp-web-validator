@@ -314,7 +314,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers twelve accurately annotated tools", async () => {
+  it("discovers thirteen accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -329,6 +329,7 @@ describe("hosted tool contract", () => {
       "verify_product_claims",
       "verify_content_provenance",
       "compare_competitor_intent",
+      "validate_supported_schema",
     ]);
     const noAuthSecuritySchemes = [{ type: "noauth" }];
     for (const tool of tools) {
@@ -1365,6 +1366,79 @@ describe("P1-06 competitor intent comparison through hosted MCP HTTP", () => {
     expect(result.structuredContent.coverage_limited).toBe(true);
     expect(result.structuredContent.limitations.join(" ")).toContain("not Google's interpretation");
     expect(result.structuredContent.competitors_submitted).toBe(1);
+  });
+});
+
+describe("P1-07 supported structured-data review through hosted MCP HTTP", () => {
+  const valid = '<html><head><script type="application/ld+json">'
+    + '{"@context":"https://schema.org","@graph":['
+    + '{"@type":"Article","headline":"Useful article","author":{"@type":"Person","name":"A"}},'
+    + '{"@type":"Product","name":"Chair","offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"}}'
+    + ']}</script></head><body><main>Human-visible content.</main></body></html>';
+  const broken = '<html><head><script type="application/ld+json">'
+    + '{"@context":"https://schema.org","@type":"Product","name":43,'
+    + '"offers":{"@type":"Offer","price":"NO_PRICE","priceCurrency":"euros"}}'
+    + '</script></head></html>';
+
+  it("discovers the no-network tool and invokes it with actual HTTP MCP messages", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const tools = await listTools();
+    expect(tools.find((tool) => tool.name === "validate_supported_schema")?.annotations)
+      .toMatchObject({ readOnlyHint: true, openWorldHint: false, destructiveHint: false });
+    const result = await callTool("validate_supported_schema", { html: valid });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      scope: "bounded_jsonld_structural_profiles",
+      blocks_seen: 1, supported_nodes: 2, errors: 0, warnings: 0,
+      coverage_limited: true,
+    });
+    expect(result.structuredContent.types_checked).toEqual(["Article", "Product"]);
+    expect(result.structuredContent.overview.status).toBe("partial");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("Useful article");
+  });
+
+  it("returns fixed structural review findings without echoing price/name secrets", async () => {
+    const result = await callTool("validate_supported_schema", { html: broken });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.errors).toBe(0);
+    expect(result.structuredContent.warnings).toBeGreaterThanOrEqual(3);
+    expect(result.structuredContent.findings.map((finding: { code: string }) => finding.code))
+      .toEqual(expect.arrayContaining([
+        "invalid_field_type", "invalid_price", "invalid_currency",
+      ]));
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(JSON.stringify(result)).not.toContain("NO_PRICE");
+  });
+
+  it("rejects UTF-8 oversized HTML and preserves the old syntax-only API", async () => {
+    const invalid = await callTool("validate_supported_schema", { html: "é".repeat(125_001) });
+    expect(invalid.isError).toBe(true);
+    const old = await callTool("validate_schema_markup", { html: broken });
+    expect(old.isError).toBeUndefined();
+    expect(old.structuredContent.blocks_checked).toBe(1);
+    expect(old.structuredContent.total_issues).toBe(0);
+    const malformed = await callTool("validate_supported_schema", {
+      html: '<script type="application/ld+json">{"FAKE_SECRET":,}</script>',
+    });
+    expect(malformed.isError).toBeUndefined();
+    expect(malformed.structuredContent.errors).toBe(1);
+    expect(JSON.stringify(malformed)).not.toContain("FAKE_SECRET");
+  });
+
+  it("leaves unrecognized remote contexts and unsupported types unverified", async () => {
+    const result = await callTool("validate_supported_schema", {
+      html: '<script type="application/ld+json">'
+        + '{"@context":"https://FAKE_PRIVATE.example/context","@type":"Product","name":"SECRET"}'
+        + '</script>',
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.supported_nodes).toBe(0);
+    expect(result.structuredContent.context_unverified_nodes).toBeGreaterThan(0);
+    expect(result.structuredContent.coverage_limited).toBe(true);
+    expect(result.structuredContent.overview.status).toBe("partial");
+    expect(JSON.stringify(result)).not.toContain("FAKE_PRIVATE");
   });
 });
 

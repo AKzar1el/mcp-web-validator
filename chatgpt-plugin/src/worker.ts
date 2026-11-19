@@ -55,6 +55,15 @@ import {
   MAX_INTENT_TOTAL_BYTES,
   MAX_INTENT_QUERY_BYTES,
 } from "./modules/content-schema/competitor-intent-comparison";
+import {
+  reviewSupportedSchemaHtml,
+  reviewSupportedJsonLd,
+  MAX_SUPPORTED_SCHEMA_HTML_BYTES,
+} from "./modules/content-schema/structured-data-validation";
+import {
+  MAX_SUPPORTED_SCHEMA_FINDINGS,
+  SUPPORTED_SCHEMA_TYPES,
+} from "../../src/modules/content-schema/structured-data-validation";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -350,6 +359,36 @@ const competitorIntentOutputSchema = z.object({
     message: z.string().max(320),
     competitors_supporting: z.number().int().min(0).max(6).optional(),
   })).max(10),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+});
+
+const supportedSchemaOutputSchema = z.object({
+  scope: z.literal("bounded_jsonld_structural_profiles"),
+  blocks_seen: z.number().int().nonnegative(),
+  blocks_checked: z.number().int().nonnegative().max(12),
+  blocks_skipped: z.number().int().nonnegative(),
+  nodes_examined: z.number().int().nonnegative().max(64),
+  supported_nodes: z.number().int().nonnegative(),
+  unsupported_nodes: z.number().int().nonnegative(),
+  context_unverified_nodes: z.number().int().nonnegative(),
+  types_checked: z.array(z.enum(SUPPORTED_SCHEMA_TYPES)).max(8),
+  errors: z.number().int().nonnegative(),
+  warnings: z.number().int().nonnegative(),
+  unverified: z.number().int().nonnegative(),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(320)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["error", "warning", "info"]),
+    block: z.number().int().nonnegative(),
+    node: z.number().int().nonnegative(),
+    type: z.enum(SUPPORTED_SCHEMA_TYPES).optional(),
+    property: z.string().max(40).optional(),
+    message: z.string().max(290),
+  })).max(MAX_SUPPORTED_SCHEMA_FINDINGS),
   findings_truncated: z.boolean(),
   overview: overviewSchema,
   error: z.string().optional(),
@@ -2136,6 +2175,72 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           "Competitor comparison could not be completed.", error);
         return {
           structuredContent: { ...emptyIntentComparison(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "validate_supported_schema",
+    {
+      title: "Review supported Schema.org JSON-LD structures",
+      description:
+        "Bounded offline JSON-LD structure review for Article, NewsArticle, BlogPosting, Product, BreadcrumbList, FAQPage, Organization and WebSite. Reports limited property/profile findings without fetching remote contexts or validating rich-result eligibility. Existing validate_schema_markup remains the independent syntax-only check. Unknown types and contexts remain unverified.",
+      inputSchema: {
+        html: z.string().min(1).max(MAX_SUPPORTED_SCHEMA_HTML_BYTES)
+          .refine((value) => new TextEncoder().encode(value).byteLength <= MAX_SUPPORTED_SCHEMA_HTML_BYTES,
+            "Static HTML must not exceed 250,000 UTF-8 bytes.")
+          .describe("Caller-supplied HTML containing explicit JSON-LD scripts, 250 KB UTF-8 maximum; never fetched."),
+      },
+      outputSchema: supportedSchemaOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthWidget({
+        invoking: "Reviewing supported JSON-LD structures...",
+        invoked: "Supported JSON-LD structural review complete.",
+      }),
+    },
+    async ({ html }) => {
+      try {
+        const analysis = reviewSupportedSchemaHtml(html);
+        const overview: ResultOverview = {
+          kind: "schema",
+          status: analysis.errors > 0 || analysis.warnings > 0 ? "needs_attention" : "partial",
+          title: "Supported JSON-LD structural review",
+          headline: analysis.supported_nodes + " supported node profiles inspected; "
+            + analysis.errors + " syntax/document errors, " + analysis.warnings +
+            " review warnings and " + analysis.unverified + " unresolved signals.",
+          detail: "Only a fixed JSON-LD subset and selected property shapes are reviewed across "
+            + analysis.blocks_checked + "/" + analysis.blocks_seen
+            + " supplied blocks. Google rich-result eligibility, truthful content, remote contexts and rankings are not assessed.",
+          total: analysis.total_findings,
+          shown: analysis.findings.length,
+          truncated: analysis.findings_truncated || analysis.coverage_limited,
+          counts: [
+            metric("blocks_checked", "JSON-LD blocks inspected", analysis.blocks_checked, "info"),
+            metric("supported_nodes", "Recognized profiles", analysis.supported_nodes, "success"),
+            metric("syntax_errors", "Syntax/document errors", analysis.errors, "error"),
+            metric("review_warnings", "Review warnings", analysis.warnings, "warning"),
+            metric("unverified", "Unverified context/type signals", analysis.unverified, "info"),
+          ],
+          next_action: "Review the flagged fields and confirm eligibility and content relevance with official supported-type documentation and the Google Rich Results Test.",
+        };
+        return {
+          structuredContent: { ...analysis, overview },
+          content: contentForOverview(overview, analysis.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code,
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "Supported JSON-LD review could not complete within the bounded static input.";
+        const overview = failedOverview("schema", "Supported JSON-LD structural review",
+          "The supplied structured data could not be reviewed.", error);
+        return {
+          structuredContent: { ...reviewSupportedJsonLd([]), overview, error },
           content: contentForOverview(overview),
           isError: true,
         };

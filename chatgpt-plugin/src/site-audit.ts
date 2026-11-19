@@ -25,6 +25,12 @@ import {
 } from "./network";
 import { validateHtmlDetailed, type ValidationMessage } from "./validators";
 import { buildSiteIndexabilityGraph, extractPageIndexabilitySignals, type PageIndexabilitySignals, type SiteIndexabilityGraph } from "./indexability-graph";
+import {
+  analyzeSameLanguageDuplicates,
+  observeMainContent,
+  type MainContentObservation,
+  type SameLanguageDuplicateAnalysis,
+} from "./modules/content-schema/same-language-duplicates";
 
 export type SitePageStatus = "passed" | "needs_attention" | "partial" | "failed" | "skipped";
 export type HtmlValidationStatus = "completed" | "timeout" | "unavailable" | "not_run";
@@ -95,7 +101,14 @@ export interface PublicSiteAuditResult {
   issue_groups: SiteAuditIssueGroup[];
   issue_groups_truncated: boolean;
   indexability_graph: SiteIndexabilityGraph;
+  content_duplicates: SameLanguageDuplicateAnalysis;
 }
+
+type AuditedPage = SiteAuditPageSummary & {
+  findings: SiteAuditFinding[];
+  findingsTruncated: boolean;
+  mainContent?: MainContentObservation;
+};
 
 interface RobotsRule {
   allow: boolean;
@@ -831,7 +844,7 @@ function clampScore(value: number): number {
 
 async function auditFetchedPage(
   fetched: FetchedPublicHtml,
-): Promise<SiteAuditPageSummary & { findings: SiteAuditFinding[]; findingsTruncated: boolean }> {
+): Promise<AuditedPage> {
   const seo = auditSeoMetadata(fetched.html, { xRobotsTag: fetched.xRobotsTag });
   const schema = validateSchemaMarkup(fetched.html);
   let htmlMessages: ValidationMessage[] = [];
@@ -900,12 +913,13 @@ async function auditFetchedPage(
       : { failure_code: htmlValidationStatus === "timeout" ? "html_validation_timeout" : "html_validation_unavailable" }),
     top_findings: actionableFindings(findings),
     indexability: extractPageIndexabilitySignals(fetched.html, fetched.finalUrl, fetched.xRobotsTag),
+    mainContent: observeMainContent(fetched.html, safeOutputUrl(fetched.finalUrl)),
     findings,
     findingsTruncated,
   };
 }
 
-async function auditPage(url: URL, origin: string, robotsRules: RobotsRule[], prefetched?: FetchedPublicHtml) {
+async function auditPage(url: URL, origin: string, robotsRules: RobotsRule[], prefetched?: FetchedPublicHtml): Promise<AuditedPage> {
   try {
     const fetched = prefetched ?? await fetchPublicHtml(url.href, {
       allowedOrigin: origin,
@@ -1086,7 +1100,12 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
   const auditedPages = await mapWithCrawlConcurrency(selected, (candidate) =>
     auditPage(candidate, origin, discovery.rules, crawlKey(candidate) === prefetchedKey ? seed : undefined),
   );
-  const pages = auditedPages.map(({ findings: _findings, findingsTruncated: _findingsTruncated, ...page }) => page);
+  const pages = auditedPages.map(({
+    findings: _findings,
+    findingsTruncated: _findingsTruncated,
+    mainContent: _mainContent,
+    ...page
+  }) => page);
   const grouped = groupFindings(auditedPages);
   const pagesAudited = pages.filter((page) => page.status === "passed" || page.status === "needs_attention").length;
   const pagesPartial = pages.filter((page) => page.status === "partial").length;
@@ -1103,6 +1122,15 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
       && pagesSkippedRobots === 0
       && pages.every((page) => page.page_fetched && page.html_validation_status === "completed"),
   });
+  const duplicates = analyzeSameLanguageDuplicates(
+    auditedPages.flatMap((page) => page.mainContent ? [page.mainContent] : []),
+    {
+      sampledPages: selected.length,
+      coverageLimited: discovery.discovery !== "sitemap" || !!discovery.discoveryError
+        || discovery.truncated || hasMorePages || pageOffset > 0 || pagesSkippedRobots > 0
+        || pages.some((page) => !page.page_fetched),
+    },
+  );
 
   return {
     site_url: seedUrl.href,
@@ -1126,5 +1154,6 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
     issue_groups: grouped.issueGroups,
     issue_groups_truncated: grouped.truncated,
     indexability_graph: graph,
+    content_duplicates: duplicates,
   };
 }

@@ -23,6 +23,7 @@ import {
 import { fetchPublicText, getErrorMessage, readTextFile } from "./network.js";
 import {
   cssValidationContent,
+  contentDuplicateContent,
   failureContent,
   htmlValidationContent,
   linkCheckContent,
@@ -32,6 +33,8 @@ import {
   screenshotPartialCaptureContent,
   seoAuditContent,
 } from "./presentation.js";
+import { observeMainContent } from "./modules/content-schema/extract-main-content.js";
+import { analyzeSameLanguageDuplicates } from "./modules/content-schema/same-language-duplicates.js";
 import { PACKAGE_VERSION } from "./version.js";
 import {
   MAX_AUDIT_HISTORY,
@@ -116,6 +119,28 @@ const linkStatusSchema = z.object({
   ok: z.boolean(),
   message: z.string().optional(),
 });
+
+const duplicateAnalysisOutputSchema = {
+  scope: z.literal("sampled_pages_only"),
+  sampled_pages: z.number().int().min(0).max(8),
+  eligible_pages: z.number().int().min(0).max(8),
+  skipped_pages: z.number().int().min(0).max(8),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string()),
+  total_pairs: z.number().int().nonnegative(),
+  pairs: z.array(z.object({
+    first_url: z.string(),
+    second_url: z.string(),
+    language: z.string(),
+    kind: z.enum(["exact", "near"]),
+    confidence: z.enum(["observed", "potential"]),
+    similarity_percent: z.number().int().min(0).max(100),
+    first_words: z.number().int().nonnegative(),
+    second_words: z.number().int().nonnegative(),
+  })).max(8),
+  pairs_truncated: z.boolean(),
+  error: z.string().optional(),
+};
 
 const screenshotSchema = z.object({
   viewportName: z.string(),
@@ -564,6 +589,48 @@ export function createServer(): McpServer {
           ),
           true,
         );
+      }
+    },
+  );
+
+  server.registerTool(
+    "content.duplicates",
+    {
+      title: "Compare same-language main content",
+      description:
+        "Compares static main text across one to eight HTML pages supplied by the caller. Reports high-confidence exact matches and conservative near matches only within the same language (and script). No network requests or storage. Output is limited to this sample, not site-wide uniqueness.",
+      inputSchema: {
+        pages: z.array(z.object({
+          url: z.string().url().max(512).refine((value) => {
+            const url = new URL(value);
+            return ["http:", "https:"].includes(url.protocol)
+              && !url.username && !url.password && !url.search && !url.hash;
+          }, "Use a query-free HTTP(S) URL without credentials or fragments.")
+            .describe("Public-style absolute page URL for comparison only; never fetched or echoed with query strings."),
+          htmlContent: z.string().min(1).max(250_000).refine(
+            (value) => Buffer.byteLength(value, "utf8") <= 250_000,
+            "Each page must be at most 250,000 UTF-8 bytes.",
+          ).describe("Static HTML of the corresponding page, limited to 250,000 UTF-8 bytes."),
+        })).min(1).max(8)
+          .describe("One to eight HTML pages to compare; total HTML must be at most 1 MiB."),
+      },
+      outputSchema: duplicateAnalysisOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ pages }) => {
+      const empty = analyzeSameLanguageDuplicates([], { sampledPages: 0, coverageLimited: true });
+      try {
+        if (pages.reduce((total, page) => total + Buffer.byteLength(page.htmlContent, "utf8"), 0) > 1_000_000) {
+          throw new Error("Total HTML input exceeds the 1,000,000-byte comparison limit.");
+        }
+        const analysis = analyzeSameLanguageDuplicates(pages.map(({ htmlContent, url }) =>
+          observeMainContent(htmlContent, url)));
+        return result(analysis, contentDuplicateContent(analysis));
+      } catch {
+        const error = "Main-content comparison could not be completed within its input limits.";
+        return result({ ...empty, error }, failureContent(
+          "Main-content comparison", error, "Use up to eight public-style URLs with bounded, valid HTML input.",
+        ), true);
       }
     },
   );

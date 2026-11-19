@@ -6,10 +6,12 @@ import type {
 } from "./site-audit";
 
 export type ComparisonStatus = "comparable" | "partial" | "not_comparable";
-// Historical audit snapshots predate the optional indexability graph.
+// Historical audit snapshots predate the optional indexability graph and
+// same-language duplicate-content analysis. Neither is used for comparison.
 // This comparator only relies on page counts, URLs and grouped findings.
-export type ComparableSiteAudit = Omit<PublicSiteAuditResult, "indexability_graph"> & {
+export type ComparableSiteAudit = Omit<PublicSiteAuditResult, "indexability_graph" | "content_duplicates"> & {
   indexability_graph?: PublicSiteAuditResult["indexability_graph"];
+  content_duplicates?: PublicSiteAuditResult["content_duplicates"];
 };
 export type PageChangeKind =
   | "regressed"

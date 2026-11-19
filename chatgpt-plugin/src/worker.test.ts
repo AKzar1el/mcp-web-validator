@@ -1135,6 +1135,41 @@ describe("public webpage audit", () => {
 });
 
 describe("public site audit", () => {
+  it("reports same-language duplicate main content through the real hosted HTTP MCP contract", async () => {
+    const main = Array.from({ length: 130 }, (_, i) => `releaseconcept${i}`).join(" ");
+    const document = (lang: string) => `<!doctype html><html lang="${lang}"><head><title>Content page</title></head><body><nav>${"navigation ".repeat(130)}</nav><main><p>${main}</p></main></body></html>`;
+    const visited: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      visited.push(url);
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response("<urlset><url><loc>https://example.com/</loc></url><url><loc>https://example.com/copy</loc></url></urlset>", { headers: { "content-type": "application/xml" } });
+      }
+      if (url === "https://example.com/") return new Response(document("en-US"), { headers: { "content-type": "text/html" } });
+      if (url === "https://example.com/copy") return new Response(document("en-GB"), { headers: { "content-type": "text/html" } });
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error("Unexpected URL " + url);
+    }));
+    const result = await callTool("audit_public_site", { site_url: "https://example.com/", max_pages: 2 });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.content_duplicates).toMatchObject({
+      scope: "sampled_pages_only", eligible_pages: 2, total_pairs: 1,
+      pairs: [{ kind: "exact", language: "en", similarity_percent: 100 }],
+    });
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(result.structuredContent.overview.counts).toContainEqual(expect.objectContaining({
+      key: "content_duplicate_pairs", value: 1,
+    }));
+    expect(result.content[0].text).toMatch(/duplicate/i);
+    expect(JSON.stringify(result)).not.toContain("releaseconcept50");
+    expect(visited.filter((url) => url === "https://example.com/" || url === "https://example.com/copy")).toEqual([
+      "https://example.com/", "https://example.com/copy",
+    ]);
+  });
+
   it("returns bounded cross-page canonical and sitemap/noindex evidence using already fetched HTML", async () => {
     const requested = new Set<string>();
     vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {

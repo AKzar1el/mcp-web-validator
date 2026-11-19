@@ -1188,6 +1188,35 @@ describe("bounded audits", () => {
 });
 
 describe("link checks", () => {
+  it("redacts query values in returned links but still checks distinct full URLs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const first = "https://example.com/checkout?token=FAKE_TOKEN_A";
+    const second = "https://example.com/checkout?token=FAKE_TOKEN_B";
+
+    const links = await checkBrokenLinks(
+      `<a href="${first}">First</a><a href="${second}">Second</a>`, undefined, 2,
+    );
+    expect(links).toEqual([
+      { url: "https://example.com/checkout", status: 204, ok: true, message: undefined },
+      { url: "https://example.com/checkout", status: 204, ok: true, message: undefined },
+    ]);
+    expect(fetchMock.mock.calls.map(([url]) => url.toString())).toEqual([first, second]);
+    expect(JSON.stringify(links)).not.toContain("FAKE_TOKEN");
+  });
+
+  it("redacts query values after network failure without exposing them in results", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new DOMException("Timed out", "AbortError"));
+    vi.stubGlobal("fetch", fetchMock);
+    const links = await checkBrokenLinks(
+      '<a href="https://example.com/failure?token=FAKE_TOKEN">Failed</a>', undefined, 1,
+    );
+    expect(links).toEqual([
+      { url: "https://example.com/failure", status: "failed", ok: false, message: "Connection failed or timed out." },
+    ]);
+    expect(JSON.stringify(links)).not.toContain("FAKE_TOKEN");
+  });
+
   it("confirms a HEAD 500 failure with GET before marking a public link broken", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 500 }))

@@ -1030,6 +1030,63 @@ test("link checker resolves relative links, deduplicates, and caps requests", as
   }
 });
 
+test("link checker hides query values in results without changing checked URLs or collapsing requests", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input) => {
+    requested.push(String(input));
+    return new Response(null, { status: 204 });
+  };
+  const first = "https://1.1.1.1/checkout?token=FAKE_TOKEN_A&email=alice%40example.test";
+  const second = "https://1.1.1.1/checkout?token=FAKE_TOKEN_B";
+  try {
+    const links = await checkBrokenLinks(
+      `<a href="${first}">First</a><a href="${second}">Second</a>`,
+      undefined,
+      2,
+    );
+    assert.deepEqual(requested, [first, second]);
+    assert.deepEqual(links, [
+      { url: "https://1.1.1.1/checkout", status: 204, ok: true, message: undefined },
+      { url: "https://1.1.1.1/checkout", status: 204, ok: true, message: undefined },
+    ]);
+    assert.doesNotMatch(JSON.stringify(links), /FAKE_TOKEN|alice/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker hides embedded credentials even when a URL is blocked", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("Blocked URL must not be fetched"); };
+  try {
+    const links = await checkBrokenLinks(
+      '<a href="https://FAKE_USER:FAKE_PASSWORD@1.1.1.1/private?token=FAKE_TOKEN">Blocked</a>',
+      undefined,
+      1,
+    );
+    assert.equal(links[0].status, "blocked");
+    assert.equal(links[0].url, "https://1.1.1.1/private");
+    assert.doesNotMatch(JSON.stringify(links), /FAKE_USER|FAKE_PASSWORD|FAKE_TOKEN/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker redacts full URLs repeated by transport failures", async () => {
+  const originalFetch = globalThis.fetch;
+  const url = "https://1.1.1.1/private?access_token=FAKE_TOKEN";
+  globalThis.fetch = async () => { throw new TypeError(`Could not fetch ${url}`); };
+  try {
+    const links = await checkBrokenLinks(`<a href="${url}">Failed</a>`, undefined, 1);
+    assert.equal(links[0].status, "failed");
+    assert.equal(links[0].url, "https://1.1.1.1/private");
+    assert.doesNotMatch(JSON.stringify(links), /FAKE_TOKEN/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("link checker resolves relative links from the first public base element", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];

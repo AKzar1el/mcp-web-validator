@@ -12,6 +12,9 @@ export interface MainContentObservation {
   language: string | undefined;
   text: string;
   source: MainContentSource;
+  /** Optional bounded main-text blocks for P1-03; never returned to clients. */
+  blocks?: string[];
+  blocksTruncated?: boolean;
 }
 
 export interface ContentDuplicatePair {
@@ -62,7 +65,7 @@ interface PreparedDocument {
   shingles: Set<string>;
 }
 
-function safeObservedUrl(value: string): string | undefined {
+export function safeObservedUrl(value: string): string | undefined {
   try {
     if (value.length > MAX_RESULT_URL_CHARS) return undefined;
     const url = new URL(value);
@@ -75,7 +78,7 @@ function safeObservedUrl(value: string): string | undefined {
 }
 
 /** Same base language, but preserve explicit script differences (sr-Cyrl vs sr-Latn). */
-function comparisonLanguage(value: string | undefined): string | undefined {
+export function comparisonLanguage(value: string | undefined): string | undefined {
   if (!value || value.length > 48) return undefined;
   try {
     const locale = new Intl.Locale(value.trim());
@@ -88,7 +91,7 @@ function comparisonLanguage(value: string | undefined): string | undefined {
   }
 }
 
-function tokensFromText(text: string, language: string): string[] {
+export function tokensFromText(text: string, language: string): string[] {
   const segmenter = new Intl.Segmenter(language, { granularity: "word" });
   const tokens: string[] = [];
   for (const part of segmenter.segment(text)) {

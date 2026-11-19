@@ -168,6 +168,30 @@ const contentDuplicateSchema = z.object({
   pairs_truncated: z.boolean(),
 });
 
+const contentQualitySchema = z.object({
+  scope: z.literal("sampled_pages_only"),
+  sampled_pages: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  eligible_pages: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  skipped_pages: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  families_compared: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  empty_main_pages: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  short_main_pages: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  repeated_boilerplate_pages: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  possible_low_value_pages: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(300)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    confidence: z.enum(["observed", "potential"]),
+    message: z.string().max(320),
+    affected_pages: z.number().int().nonnegative(),
+    example_urls: z.array(z.string().max(512)).max(2),
+  })).max(12),
+  findings_truncated: z.boolean(),
+});
+
 const multilingualClusterSchema = z.object({
   scope: z.literal("sampled_pages_only"),
   sampled_pages: z.number().int().nonnegative().max(16),
@@ -210,6 +234,7 @@ const siteAuditOutputSchema = {
   issue_groups_truncated: z.boolean(),
   indexability_graph: siteIndexabilityGraphSchema.optional(),
   content_duplicates: contentDuplicateSchema.optional(),
+  content_quality: contentQualitySchema.optional(),
   multilingual_clusters: multilingualClusterSchema.optional(),
   overview: overviewSchema,
   error: z.string().optional(),
@@ -854,6 +879,7 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
   const hasIndexabilityFindings = indexabilityFindings.length > 0;
   const duplicatePairs = result.content_duplicates.pairs;
   const duplicatePairCount = result.content_duplicates.total_pairs;
+  const qualityFindingCount = result.content_quality.total_findings;
   const multilingualFindingCount = result.multilingual_clusters.total_findings;
   const hasCoverageGap = result.discovery_error !== undefined
     || result.indexability_graph.coverage_limited
@@ -865,7 +891,7 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     ? "failed"
     : hasCoverageGap
       ? "partial"
-      : totals.errors > 0 || totals.warnings > 0 || hasIndexabilityFindings || duplicatePairCount > 0 || multilingualFindingCount > 0
+      : totals.errors > 0 || totals.warnings > 0 || hasIndexabilityFindings || duplicatePairCount > 0 || multilingualFindingCount > 0 || qualityFindingCount > 0
         ? "needs_attention"
         : "passed";
   const headline = status === "failed"
@@ -873,13 +899,15 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     : status === "partial"
       ? `Public site audit is partial: ${plural(completed, "page")} completed with coverage limits.`
       : totals.errors > 0 || totals.warnings > 0
-        ? `Public site audit found ${summarizeSeverities({ errors: totals.errors, warnings: totals.warnings, info: 0 })}${hasIndexabilityFindings ? ` plus ${plural(indexabilityFindings.length, "sampled cross-page finding")}` : ""}${duplicatePairCount ? ` and ${plural(duplicatePairCount, "same-language duplicate-content pair")}` : ""}${multilingualFindingCount ? ` and ${plural(multilingualFindingCount, "multilingual cluster finding")}` : ""}.`
+        ? `Public site audit found ${summarizeSeverities({ errors: totals.errors, warnings: totals.warnings, info: 0 })}${hasIndexabilityFindings ? ` plus ${plural(indexabilityFindings.length, "sampled cross-page finding")}` : ""}${duplicatePairCount ? ` and ${plural(duplicatePairCount, "same-language duplicate-content pair")}` : ""}${multilingualFindingCount ? ` and ${plural(multilingualFindingCount, "multilingual cluster finding")}` : ""}${qualityFindingCount ? ` and ${plural(qualityFindingCount, "content-quality review finding")}` : ""}.`
       : hasIndexabilityFindings
         ? `Public site audit found ${plural(indexabilityFindings.length, "sampled cross-page indexability finding")}${multilingualFindingCount ? ` and ${plural(multilingualFindingCount, "multilingual cluster finding")}` : ""}.`
       : duplicatePairCount
         ? `Public site audit found ${plural(duplicatePairCount, "same-language duplicate-content pair")} in the selected pages.`
       : multilingualFindingCount
         ? `Public site audit found ${plural(multilingualFindingCount, "multilingual cluster finding")} in the selected pages.`
+      : qualityFindingCount
+        ? `Public site audit found ${plural(qualityFindingCount, "potential content-quality issue")} in the selected pages.`
       : "Public site audit found no errors or warnings in the completed checks.";
   const scoreDetail = result.audit_health_score === undefined
     ? "No full HTML-and-metadata score was available."
@@ -889,7 +917,7 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     : result.discovery_error
       ? `Discovery was incomplete (${result.discovery_error}); selected-page coverage is not site-wide coverage. `
       : "";
-  const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_selected, "page")} were selected. ${discoveryDetail}${scoreDetail} Main-content duplication comparison covered ${result.content_duplicates.eligible_pages}/${result.content_duplicates.sampled_pages} selected pages. Hreflang/canonical analysis observed ${result.multilingual_clusters.eligible_pages}/${result.multilingual_clusters.sampled_pages} selected pages; unvisited alternate targets are unverified. Both checks concern sampled static HTML only. Link checks are intentionally not run by this bounded site tool; no Google indexing decision is inferred.`;
+  const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_selected, "page")} were selected. ${discoveryDetail}${scoreDetail} Main-content duplication comparison covered ${result.content_duplicates.eligible_pages}/${result.content_duplicates.sampled_pages} selected pages. Main-text quality review observed ${result.content_quality.eligible_pages}/${result.content_quality.sampled_pages} pages; short text and repetition are review signals, not rankings or usefulness verdicts. Hreflang/canonical analysis observed ${result.multilingual_clusters.eligible_pages}/${result.multilingual_clusters.sampled_pages} selected pages; unvisited alternate targets are unverified. These checks concern sampled static HTML only. Link checks are intentionally not run by this bounded site tool; no Google indexing decision is inferred.`;
   const incompletePageGuidance = result.pages_partial > 0 || result.pages_failed > 0
     ? " Review partial and failed page coverage, then retry affected batches after resolving failures."
     : "";
@@ -905,8 +933,8 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
       ? "Discovery or page selection reached a coverage limit; review the sitemap and continue permitted batches before claiming a site-wide audit."
     : result.indexability_graph.coverage_limited
       ? "Review the indexability graph limitations and incomplete observations; do not treat missing graph findings as a complete site pass."
-    : totals.errors > 0 || totals.warnings > 0 || hasIndexabilityFindings || duplicatePairCount > 0 || multilingualFindingCount > 0
-      ? "Review on-page, sampled canonical/hreflang and same-language duplicate-content evidence; verify target pages before changing canonicals or content."
+    : totals.errors > 0 || totals.warnings > 0 || hasIndexabilityFindings || duplicatePairCount > 0 || multilingualFindingCount > 0 || qualityFindingCount > 0
+      ? "Review on-page, sampled canonical/hreflang, duplicate-content, and main-text quality evidence; inspect actual rendered pages before changing content or canonicals."
       : result.pages_partial > 0 || result.pages_failed > 0
         ? "Review partial and failed page coverage, then retry the affected batch."
         : undefined;
@@ -916,9 +944,9 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     title: "Public site audit",
     headline,
     detail,
-    total: totals.errors + totals.warnings + totals.notes + indexabilityFindings.length + duplicatePairCount + multilingualFindingCount,
-    shown: result.issue_groups.length + indexabilityFindings.length + duplicatePairs.length + result.multilingual_clusters.findings.length,
-    truncated: result.truncated || result.issue_groups_truncated || result.indexability_graph.findings_truncated || result.content_duplicates.pairs_truncated || result.multilingual_clusters.findings_truncated,
+    total: totals.errors + totals.warnings + totals.notes + indexabilityFindings.length + duplicatePairCount + multilingualFindingCount + qualityFindingCount,
+    shown: result.issue_groups.length + indexabilityFindings.length + duplicatePairs.length + result.multilingual_clusters.findings.length + result.content_quality.findings.length,
+    truncated: result.truncated || result.issue_groups_truncated || result.indexability_graph.findings_truncated || result.content_duplicates.pairs_truncated || result.multilingual_clusters.findings_truncated || result.content_quality.findings_truncated,
     counts: [
       metric("pages_audited", "Pages audited", result.pages_audited, "success"),
       metric("pages_partial", "Pages partial", result.pages_partial, "warning"),
@@ -928,6 +956,7 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
       metric("warnings", "Warnings", totals.warnings, "warning"),
       metric("indexability_findings", "Cross-page signals", indexabilityFindings.length, "warning"),
       metric("content_duplicate_pairs", "Duplicate content pairs", duplicatePairCount, "warning"),
+      metric("content_quality_findings", "Content quality review findings", qualityFindingCount, "warning"),
       metric("multilingual_cluster_findings", "Multilingual findings", multilingualFindingCount, "warning"),
       ...(result.audit_health_score === undefined
         ? []
@@ -1556,7 +1585,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
     {
       title: "Audit public site",
       description:
-        `Use this for a bounded, sitemap-first audit of a public website the user owns or is authorized to inspect. It fetches at most ${SITE_AUDIT_MAX_PAGES} same-origin HTML pages per call, respects robots.txt, and returns compact page summaries plus deduplicated findings, a sampled canonical/noindex graph, same-language duplicate main-content pairs, and 16-locale hreflang/canonical cluster evidence. Unvisited alternate targets remain unverified; use the local site.hreflang tool with supplied HTML for up to 16 pages. It does not recursively follow HTML links, authenticate, execute JavaScript, fetch assets, or run site-wide link checks. To continue a batch, pass both the returned page offset and discovery fingerprint; changed sitemaps require restarting at offset 0.`,
+        `Use this for a bounded, sitemap-first audit of a public website the user owns or is authorized to inspect. It fetches at most ${SITE_AUDIT_MAX_PAGES} same-origin HTML pages per call, respects robots.txt, and returns compact page summaries plus deduplicated findings, a sampled canonical/noindex graph, same-language duplicate main-content pairs, evidence-limited empty/short/repeated-boilerplate main-text review, and 16-locale hreflang/canonical clusters. Content quality results are static-text review signals, not usefulness or Google ranking verdicts. Unvisited alternate targets remain unverified; use the local site.hreflang tool with supplied HTML for up to 16 pages. It does not recursively follow HTML links, authenticate, execute JavaScript, fetch assets, or run site-wide link checks. To continue a batch, pass both the returned page offset and discovery fingerprint; changed sitemaps require restarting at offset 0.`,
       inputSchema: {
         site_url: publicPageUrlInput.describe("Authorized public website URL. The final public origin becomes the crawl boundary."),
         max_pages: z
@@ -1614,6 +1643,11 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
               severity: "warning" as const,
               label: "Main content",
               message: `${pair.kind === "exact" ? "Exact" : "Near"} same-language duplicate (${pair.similarity_percent}%, ${pair.language}): ${pair.first_url} and ${pair.second_url}. Static sample only.`,
+            })),
+            ...result.content_quality.findings.map((finding) => ({
+              severity: finding.severity,
+              label: "Content quality",
+              message: finding.message,
             })),
             ...result.multilingual_clusters.findings.map((finding) => ({
               severity: finding.severity,

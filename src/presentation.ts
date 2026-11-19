@@ -1,6 +1,7 @@
 import * as cheerio from "cheerio";
 import type { ValidationReport } from "./report.js";
 import type { SameLanguageDuplicateAnalysis } from "./modules/content-schema/same-language-duplicates.js";
+import type { PageContentQualityAnalysis } from "./modules/content-schema/empty-boilerplate-content.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
@@ -397,6 +398,24 @@ export function contentDuplicateContent(analysis: SameLanguageDuplicateAnalysis)
     nextStep: analysis.pairs_truncated
       ? "More matches exist than the result cap; review these pairs and repeat on a narrower page sample."
       : "Review matched pages manually; this static-text comparison cannot infer search-engine canonicalization or semantic equivalence.",
+  });
+}
+
+export function contentQualityContent(analysis: PageContentQualityAnalysis): string {
+  return toolContent({
+    title: "Sampled main-content quality review",
+    status: analysis.total_findings ? "attention needed" : analysis.coverage_limited ? "partial" : "clean",
+    outcome: analysis.total_findings
+      ? `${countLabel(analysis.total_findings, "potential content-quality finding")} across ${analysis.eligible_pages}/${analysis.sampled_pages} sampled pages.`
+      : `No checked content-quality signals were found across ${analysis.eligible_pages}/${analysis.sampled_pages} sampled pages. This is not a usefulness or site-wide verdict.`,
+    actions: analysis.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: finding.example_urls.join(", "),
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: analysis.findings_truncated
+      ? "More review findings exist than the preview cap. Inspect the affected page families and narrow the sample."
+      : "Inspect flagged pages in a browser, verify their purpose and unique value, then rerun the bounded comparison.",
   });
 }
 

@@ -32,6 +32,10 @@ import {
   type SameLanguageDuplicateAnalysis,
 } from "./modules/content-schema/same-language-duplicates";
 import {
+  analyzePageContentQuality,
+  type PageContentQualityAnalysis,
+} from "./modules/content-schema/empty-boilerplate-content";
+import {
   analyzeMultilingualClusters,
   observeMultilingualPage,
   type MultilingualPageObservation,
@@ -108,6 +112,7 @@ export interface PublicSiteAuditResult {
   issue_groups_truncated: boolean;
   indexability_graph: SiteIndexabilityGraph;
   content_duplicates: SameLanguageDuplicateAnalysis;
+  content_quality: PageContentQualityAnalysis;
   multilingual_clusters: MultilingualClusterAnalysis;
 }
 
@@ -1141,6 +1146,15 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
         || pages.some((page) => !page.page_fetched),
     },
   );
+  const contentQuality = analyzePageContentQuality(
+    auditedPages.flatMap((page) => page.mainContent ? [page.mainContent] : []),
+    {
+      sampledPages: selected.length,
+      coverageLimited: discovery.discovery !== "sitemap" || !!discovery.discoveryError
+        || discovery.truncated || hasMorePages || pageOffset > 0 || pagesSkippedRobots > 0
+        || pages.some((page) => !page.page_fetched),
+    },
+  );
   const multilingual = analyzeMultilingualClusters(
     auditedPages.flatMap((page) => page.multilingual ? [page.multilingual] : []),
     {
@@ -1174,6 +1188,7 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
     issue_groups_truncated: grouped.truncated,
     indexability_graph: graph,
     content_duplicates: duplicates,
+    content_quality: contentQuality,
     multilingual_clusters: multilingual,
   };
 }

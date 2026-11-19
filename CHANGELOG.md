@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The project follows [Se
 
 ### Hosted app
 
+- Accept public webpage URLs in `validate_html` (including legacy URL-as-HTML input) via the existing safe page fetch, avoiding misleading Nu diagnostics for URL text.
 - Fix Nu HTML validation in the Cloudflare Worker by using supported manual redirect handling and rejecting non-success responses without forwarding submitted markup.
 
 ### Security

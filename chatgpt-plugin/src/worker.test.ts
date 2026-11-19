@@ -439,6 +439,75 @@ describe("validation report", () => {
 });
 
 describe("polished tool responses", () => {
+  it("fetches and validates a public page when validate_html receives url", async () => {
+    const html = '<!doctype html><html lang="en"><head><title>Page</title></head><body><h1>Page</h1></body></html>';
+    const fetchMock = vi.fn(async (target: RequestInfo | URL, options?: RequestInit) => {
+      if (String(target) === "https://example.com/page" && options?.method === "GET") {
+        return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
+      }
+      if (String(target) === "https://html5.validator.nu/?out=json" && options?.method === "POST") {
+        return Response.json({ messages: [{ type: "error", message: "Missing alt" }] });
+      }
+      throw new Error(`Unexpected fetch: ${String(target)}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callTool("validate_html", { url: "https://example.com/page" });
+
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      fetched_url: "https://example.com/page",
+      total_messages: 1,
+      overview: { kind: "html", status: "needs_attention" },
+    });
+    expect(result.structuredContent.overview.detail).toContain("Fetched and validated https://example.com/page.");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET", redirect: "manual", credentials: "omit" });
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: "POST", redirect: "manual", body: html });
+  });
+
+  it("treats a standalone URL in the legacy html field as a webpage, not as HTML source", async () => {
+    const html = '<!doctype html><html lang="en"><head><title>Example</title></head><body></body></html>';
+    const fetchMock = vi.fn(async (target: RequestInfo | URL, options?: RequestInit) => {
+      if (String(target) === "https://example.com/") {
+        return new Response(html, { headers: { "content-type": "text/html" } });
+      }
+      if (String(target) === "https://html5.validator.nu/?out=json" && options?.method === "POST") {
+        return Response.json({ messages: [] });
+      }
+      throw new Error(`Unexpected fetch: ${String(target)}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callTool("validate_html", { html: "  https://example.com/ \n" });
+
+    expect(result.structuredContent).toMatchObject({
+      fetched_url: "https://example.com/",
+      total_messages: 0,
+      overview: { status: "passed" },
+    });
+    expect(fetchMock.mock.calls.map(([, options]) => options?.method)).toEqual(["GET", "POST"]);
+    expect(fetchMock.mock.calls[1]?.[1]?.body).toBe(html);
+  });
+
+  it("refuses private URL validation and ambiguous inputs without network requests", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const privateUrl = await callTool("validate_html", { url: "http://127.0.0.1/admin" });
+    expect(privateUrl.isError).toBe(true);
+    expect(privateUrl.structuredContent.overview.status).toBe("failed");
+    expect(privateUrl.structuredContent.error).toContain("public HTTP(S) URL");
+
+    const both = await callTool("validate_html", {
+      html: "<!doctype html><title>Test</title>",
+      url: "https://example.com/",
+    });
+    expect(both.isError).toBe(true);
+    expect(both.structuredContent.error).toContain("not both");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("returns a truthful HTML overview and limits Fix first copy to three prioritized findings", async () => {
     vi.stubGlobal(
       "fetch",

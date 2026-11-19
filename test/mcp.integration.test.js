@@ -43,6 +43,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "screenshot.capture",
       "seo.metadata",
       "site.hreflang",
+      "site.links",
     ]);
 
     const seoTool = tools.find((tool) => tool.name === "seo.metadata");
@@ -184,6 +185,39 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.equal(supported.structuredContent?.coverage_limited, true);
     assert.match(textContent(supported), /JSON-LD structural review/i);
     assert.doesNotMatch(JSON.stringify(supported), /A review/);
+
+    const internalLinks = await client.callTool({
+      name: "site.links",
+      arguments: {
+        pages: [
+          {
+            url: "https://example.test/guides/work",
+            htmlContent: '<html><head><title>Work guide</title></head><body>'
+              + '<nav><a href="/products/chairs">Navigation</a></nav>'
+              + '<main><h1>Work guide</h1>'
+              + '<a href="/products/chairs">read more</a>'
+              + '<a href="/products/chairs"><img src="chair.png" alt=""></a>'
+              + '<a href="/unknown">An unknown guide</a>'
+              + '</main></body></html>',
+          },
+          {
+            url: "https://example.test/products/chairs",
+            htmlContent: '<html><head><title>Ergonomic office chairs</title></head>'
+              + '<main><h1>Office chairs</h1></main></html>',
+          },
+        ],
+      },
+    });
+    assert.equal(internalLinks.isError, undefined);
+    assert.equal(internalLinks.structuredContent?.pages_sampled, 2);
+    assert.equal(internalLinks.structuredContent?.internal_links_observed, 3);
+    assert.equal(internalLinks.structuredContent?.linked_sample_targets, 1);
+    assert.equal(internalLinks.structuredContent?.unmatched_internal_links, 1);
+    assert.equal(internalLinks.structuredContent?.generic_anchor_links, 1);
+    assert.equal(internalLinks.structuredContent?.missing_anchor_labels, 1);
+    assert(internalLinks.structuredContent?.coverage_limited);
+    assert.match(textContent(internalLinks), /internal links and anchor/i);
+    assert.doesNotMatch(JSON.stringify(internalLinks), /An unknown guide/);
 
     const brokenSchema = await client.callTool({
       name: "schema.supported",

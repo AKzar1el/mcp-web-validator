@@ -6,6 +6,7 @@ import type { ProductClaimResult } from "./modules/content-schema/product-claims
 import type { ProvenanceResult } from "./modules/content-schema/citation-methodology-consistency.js";
 import type { IntentComparison } from "./modules/content-schema/competitor-intent-comparison.js";
 import type { SupportedSchemaReview } from "./modules/content-schema/structured-data-validation.js";
+import type { InternalLinkReview } from "./modules/site-architecture/internal-link-quality.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
@@ -494,6 +495,22 @@ export function supportedSchemaContent(analysis: SupportedSchemaReview): string 
     nextStep: analysis.findings_truncated
       ? "Review the first prioritized findings and rerun a smaller supported JSON-LD sample for the rest."
       : "Review structural findings, then use the official Rich Results Test and inspect page content for actual feature eligibility.",
+  });
+}
+
+export function internalLinkContent(analysis: InternalLinkReview): string {
+  return toolContent({
+    title: "Sampled internal links and anchor evidence",
+    status: analysis.missing_anchor_labels > 0 ? "attention needed" : "partial",
+    outcome: `${analysis.internal_links_observed} contextual same-origin links across ${analysis.pages_sampled} supplied pages; ` +
+      `${analysis.linked_sample_targets} sampled targets referenced, ${analysis.missing_anchor_labels} without observed accessible names, ` +
+      `${analysis.generic_anchor_links} generic anchors, ${analysis.unmatched_internal_links} unsupplied target links.`,
+    actions: analysis.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: `Supplied page ${finding.source_page}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Review contextual anchor labels against actual page purpose; supply more authorized target pages to inspect the sample. Unvisited links have not been tested, and lexical overlap is not a ranking signal.",
   });
 }
 

@@ -21,6 +21,7 @@ Data flow by tool:
 | `audit_seo_metadata` | Analyzes supplied HTML inside the Worker. | `readOnlyHint: true`, `openWorldHint: false`, `destructiveHint: false` |
 | `validate_schema_markup` | Parses JSON-LD blocks inside the Worker. | `readOnlyHint: true`, `openWorldHint: false`, `destructiveHint: false` |
 | `validate_supported_schema` | Performs a limited structural review of eight supported Schema.org JSON-LD node types from one caller-supplied static HTML page. Checks selected Article, Product/Offer, BreadcrumbList, FAQPage, Organization and WebSite profile properties without external contexts, requests or storage. This is **not** complete Schema.org validation or certification of eligibility for Google rich results; unknown types and recommendations remain review signals. The existing `validate_schema_markup` syntax-only tool is unchanged. | `readOnlyHint: true`, `openWorldHint: false`, `destructiveHint: false` |
+| `review_internal_links` | Analyzes 1-8 caller-supplied same-origin HTML pages for main-content internal/external links, missing accessible anchor names, generic anchors, repeated labels, internal nofollow and strict lexical overlap with sampled destination headings. Does **not** fetch links or pages, verify unknown targets, inspect live accessibility trees, infer semantic relevance, PageRank or search rankings. Navigation/chrome excluded and no storage/credentials. | `readOnlyHint: true`, `openWorldHint: false`, `destructiveHint: false` |
 | `check_broken_links` | Makes capped `HEAD` requests, with a bounded `GET` fallback where required, to up to 20 eligible public HTTP(S) links. Redirects are not followed and response bodies are not retained. Returned link URLs omit queries and embedded credentials, while requests still use original URLs. | `readOnlyHint: true`, `openWorldHint: true`, `destructiveHint: false` |
 | `generate_validation_report` | Combines external Nu HTML validation with local CSS, SEO, and JSON-LD checks for supplied markup; public link requests occur only when explicitly enabled. `base_url` resolves relative links and does not fetch a page. | `readOnlyHint: true`, `openWorldHint: true`, `destructiveHint: false` |
 
@@ -31,7 +32,7 @@ DigestSEO does not retain tool inputs, fetched HTML, robots files, sitemaps, or 
 - MCP URL: `https://web-validator-mcp.digestseo.com/mcp`
 - Health URL: `https://web-validator-mcp.digestseo.com/health`
 - Authentication: none
-- Expected discovery after the proposed P1-07 deployment: thirteen tools and two UI resources: the current MCP Apps resource `ui://web-validator/results-v5.html` and the legacy compatibility resource `ui://web-validator/results-v4.html`. Existing production remains on its previously deployed catalog until the new Worker is separately deployed and scanned.
+- Expected discovery after the proposed P1-08 deployment: fourteen tools and two UI resources: the current MCP Apps resource `ui://web-validator/results-v5.html` and the legacy compatibility resource `ui://web-validator/results-v4.html`. Existing production remains on its previously deployed catalog until the new Worker is separately deployed and scanned.
 - CSP app domain: `https://web-validator-mcp.digestseo.com`
 
 The endpoint is universal, not a per-workspace URL template.

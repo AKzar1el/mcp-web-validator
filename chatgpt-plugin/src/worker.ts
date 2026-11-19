@@ -64,6 +64,15 @@ import {
   MAX_SUPPORTED_SCHEMA_FINDINGS,
   SUPPORTED_SCHEMA_TYPES,
 } from "../../src/modules/content-schema/structured-data-validation";
+import {
+  reviewInternalLinks,
+  emptyInternalLinkReview,
+  safeLinkPageUrl,
+  observeInternalLinks,
+  MAX_LINK_HTML_BYTES,
+  MAX_LINK_TOTAL_HTML_BYTES,
+  MAX_LINK_FINDINGS,
+} from "./modules/site-architecture/internal-link-quality";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -389,6 +398,63 @@ const supportedSchemaOutputSchema = z.object({
     property: z.string().max(40).optional(),
     message: z.string().max(290),
   })).max(MAX_SUPPORTED_SCHEMA_FINDINGS),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+});
+
+const internalLinkPageInputSchema = z.object({
+  url: z.string().url().max(512).refine((value) => Boolean(safeLinkPageUrl(value)),
+    "Use a query-free HTTP(S) URL without credentials, fragments or nonstandard ports."),
+  htmlContent: z.string().min(1).max(MAX_LINK_HTML_BYTES)
+    .refine((value) => new TextEncoder().encode(value).byteLength <= MAX_LINK_HTML_BYTES,
+      "Each supplied HTML page must be at most 160,000 UTF-8 bytes."),
+});
+const internalLinkOutputPageSchema = z.object({
+  page: z.number().int().min(1).max(8),
+  main_present: z.boolean(),
+  internal_links: z.number().int().nonnegative(),
+  external_links: z.number().int().nonnegative(),
+  linked_sample_pages: z.number().int().min(0).max(8),
+  unmatched_internal_links: z.number().int().nonnegative(),
+  missing_anchor_labels: z.number().int().nonnegative(),
+  generic_anchor_links: z.number().int().nonnegative(),
+  nofollow_internal_links: z.number().int().nonnegative(),
+  self_links: z.number().int().nonnegative(),
+  fragment_only_links: z.number().int().nonnegative(),
+  extraction_limited: z.boolean(),
+});
+const internalLinkOutputSchema = z.object({
+  scope: z.literal("caller_supplied_same_origin_html_only"),
+  pages_sampled: z.number().int().min(0).max(8),
+  pages_eligible: z.number().int().min(0).max(8),
+  origin: z.string().max(200),
+  internal_links_observed: z.number().int().nonnegative(),
+  external_links_observed: z.number().int().nonnegative(),
+  excluded_navigation_links: z.number().int().nonnegative(),
+  linked_sample_targets: z.number().int().min(0).max(8),
+  unmatched_internal_links: z.number().int().nonnegative(),
+  missing_anchor_labels: z.number().int().nonnegative(),
+  generic_anchor_links: z.number().int().nonnegative(),
+  low_heading_overlap_links: z.number().int().nonnegative(),
+  ambiguous_anchor_target_groups: z.number().int().nonnegative(),
+  nofollow_internal_links: z.number().int().nonnegative(),
+  self_links: z.number().int().nonnegative(),
+  fragment_only_links: z.number().int().nonnegative(),
+  skipped_non_http_links: z.number().int().nonnegative(),
+  pages: z.array(internalLinkOutputPageSchema).max(8),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(330)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    confidence: z.enum(["observed", "review"]),
+    source_page: z.number().int().min(1).max(8),
+    target_page: z.number().int().min(1).max(8).optional(),
+    count: z.number().int().nonnegative(),
+    message: z.string().max(320),
+  })).max(MAX_LINK_FINDINGS),
   findings_truncated: z.boolean(),
   overview: overviewSchema,
   error: z.string().optional(),
@@ -2241,6 +2307,75 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           "The supplied structured data could not be reviewed.", error);
         return {
           structuredContent: { ...reviewSupportedJsonLd([]), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "review_internal_links",
+    {
+      title: "Review sampled internal links and accessible anchor labels",
+      description:
+        "Offline, bounded analysis of 1-8 caller-supplied same-origin HTML pages. Looks at contextual same-origin links, missing accessible names, generic anchors, repeated target labels, internal nofollow, and lexical overlap with supplied target titles/H1. Unknown URLs remain unverified, not broken. No requests, crawls, search analytics, JavaScript or ranking inference.",
+      inputSchema: {
+        pages: z.array(internalLinkPageInputSchema).min(1).max(8)
+          .describe("One to eight authorized same-origin static HTML page samples, distinct URL labels and combined limit 900,000 UTF-8 bytes; none are fetched."),
+      },
+      outputSchema: internalLinkOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthWidget({
+        invoking: "Reviewing contextual internal link evidence...",
+        invoked: "Sampled internal link review complete.",
+      }),
+    },
+    async ({ pages }) => {
+      try {
+        const bytes = pages.reduce((total, p) =>
+          total + new TextEncoder().encode(p.htmlContent).byteLength, 0);
+        if (bytes > MAX_LINK_TOTAL_HTML_BYTES) throw new Error("Combined static HTML too large.");
+        const analysis = reviewInternalLinks(pages.map(({ url, htmlContent }) =>
+          observeInternalLinks(htmlContent, url)));
+        const overview: ResultOverview = {
+          kind: "report",
+          status: analysis.missing_anchor_labels > 0 ? "needs_attention" : "partial",
+          title: "Sampled contextual link and anchor evidence",
+          headline: analysis.internal_links_observed + " internal main-content links, " +
+            analysis.missing_anchor_labels + " without observed accessible names, " +
+            analysis.generic_anchor_links + " generic labels.",
+          detail: "Reviewed " + analysis.pages_sampled + " caller-supplied same-origin pages. " +
+            analysis.unmatched_internal_links + " target links could not be checked against the supplied page set. " +
+            "This is not live link checking, PageRank or semantic relevance.",
+          total: analysis.internal_links_observed,
+          shown: analysis.findings.length,
+          truncated: analysis.findings_truncated || analysis.pages.some((p) => p.extraction_limited),
+          counts: [
+            metric("internal_links", "Contextual internal links", analysis.internal_links_observed, "info"),
+            metric("sampled_targets", "Referenced sampled targets", analysis.linked_sample_targets, "info"),
+            metric("missing_names", "Missing accessible names", analysis.missing_anchor_labels, "warning"),
+            metric("generic_anchors", "Generic anchors", analysis.generic_anchor_links, "info"),
+            metric("unverified_targets", "Unobserved targets", analysis.unmatched_internal_links, "info"),
+          ],
+          next_action: "Review on-page anchor context, accessible link names and target relevance; supply other authorized pages to expand sampled coverage. No destination was fetched.",
+        };
+        return {
+          structuredContent: { ...analysis, overview },
+          content: contentForOverview(overview,
+            analysis.findings.map((finding) => ({
+              severity: finding.severity,
+              label: finding.code + " (page " + finding.source_page + ")",
+              message: finding.message,
+            }))),
+        };
+      } catch {
+        const error = "Internal link review could not complete within the supplied HTML and same-origin limits.";
+        const overview = failedOverview("report", "Contextual internal links",
+          "Sampled link evidence could not be compared.", error);
+        return {
+          structuredContent: { ...emptyInternalLinkReview(), overview, error },
           content: contentForOverview(overview),
           isError: true,
         };

@@ -59,7 +59,7 @@ try {
     tools.map(({ name }) => name).sort(),
     [
       "audit.history", "content.competitors", "content.duplicates", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "links.broken", "product.claims",
-      "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang",
+      "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links",
     ],
   );
 
@@ -123,6 +123,23 @@ try {
   assert.equal(supported.structuredContent?.warnings, 0);
   assert.equal(supported.structuredContent?.errors, 0);
   assert.equal(supported.structuredContent?.coverage_limited, true);
+
+  phase = "site_links";
+  const contextual = await client.callTool({
+    name: "site.links",
+    arguments: { pages: [
+      { url: "https://example.test/guides",
+        htmlContent: '<html><head><title>Guides</title></head><main><h1>Guides</h1>'
+          + '<a href="/chairs">Office chairs</a></main></html>' },
+      { url: "https://example.test/chairs",
+        htmlContent: '<html><head><title>Office chairs</title></head><main><h1>Office chairs</h1></main></html>' },
+    ] },
+  });
+  assert.notEqual(contextual.isError, true);
+  assert.equal(contextual.structuredContent?.internal_links_observed, 1);
+  assert.equal(contextual.structuredContent?.linked_sample_targets, 1);
+  assert.equal(contextual.structuredContent?.missing_anchor_labels, 0);
+  assert.equal(contextual.structuredContent?.coverage_limited, true);
 
   phase = "content_competitors";
   const intent = await client.callTool({

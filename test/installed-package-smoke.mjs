@@ -54,7 +54,7 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "css.local", "html.local", "html.url", "links.broken",
+      "audit.history", "content.duplicates", "css.local", "html.local", "html.url", "links.broken",
       "report.validation", "schema.markup", "screenshot.capture", "seo.metadata",
     ],
   );
@@ -68,6 +68,21 @@ try {
   });
   assert.notEqual(localAudit.isError, true);
   assert.ok(Array.isArray(localAudit.structuredContent?.issues));
+
+  const sampleWords = Array.from({ length: 120 }, (_, i) => `installedtestword${i}`).join(" ");
+  const duplicateContent = await client.callTool({
+    name: "content.duplicates",
+    arguments: {
+      pages: ["a", "b"].map((page) => ({
+        url: `https://example.test/${page}`,
+        htmlContent: `<!doctype html><html lang="en"><main><p>${sampleWords}</p></main></html>`,
+      })),
+    },
+  });
+  assert.notEqual(duplicateContent.isError, true);
+  assert.equal(duplicateContent.structuredContent?.total_pairs, 1);
+  assert.equal(duplicateContent.structuredContent?.pairs?.[0]?.kind, "exact");
+  assert.ok(!JSON.stringify(duplicateContent).includes("installedtestword50"));
 
   const fixture = path.join(scratch, "fixture.html");
   const outputDir = path.join(scratch, "screenshots");
@@ -87,7 +102,7 @@ try {
   assert.equal(screenshot.structuredContent?.screenshots?.length, 1);
   const imagePath = screenshot.structuredContent.screenshots[0].outputPath;
   assert.ok((await stat(imagePath)).size > 0);
-  console.log("Installed npm tarball MCP handshake, offline audit and sandboxed screenshot: PASS");
+  console.log("Installed npm tarball MCP handshake, offline audits, duplicate comparison and sandboxed screenshot: PASS");
 } finally {
   if (client) await client.close();
   await rm(scratch, { recursive: true, force: true });

@@ -32,6 +32,19 @@ test("P1-10 missing alt is observed; intentionally decorative empty alt is not a
   assert(findings(result, "image_name_unobserved").every((f) => f.severity === "warning"));
 });
 
+test("P1-10 distinguishes presentational image roles from explicit semantic images", () => {
+  const result = reviewMediaHtml(html(
+    '<img src="a.svg" role="presentation">' +
+    '<img src="b.svg" role="none">' +
+    '<img src="c.svg" role="img" alt="">' +
+    '<img src="d.svg" role="img" alt="" aria-label="Status icon">',
+  ));
+  assert.equal(result.images_without_explicit_alt, 2);
+  assert.equal(result.images_with_empty_alt, 2);
+  assert.equal(findings(result, "image_name_unobserved").length, 1);
+  assert.equal(findings(result, "image_name_unobserved")[0].element, 3);
+});
+
 test("P1-10 nonempty ARIA label or resolvable labelledby prevents false missing-name findings", () => {
   const result = reviewMediaHtml(html('<span id="label">Portrait</span>' +
     '<img src="a.jpg" aria-labelledby="label">' +

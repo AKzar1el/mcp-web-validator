@@ -129,6 +129,9 @@ export function reviewMediaHtml(htmlContent: string): MediaDiagnostics {
     const node = $(element);
     if (node.is("img")) {
       const alt = node.attr("alt");
+      const role = (node.attr("role") ?? "").trim().toLowerCase().split(/\s+/u)[0];
+      const explicitlyDecorative = role === "presentation" || role === "none";
+      const explicitlySemantic = role === "img" || role === "image";
       const sourcePresent = hasValue(node.attr("src")) || hasValue(node.attr("srcset"));
       if (!sourcePresent) {
         imageSourcesUnobserved++;
@@ -137,12 +140,16 @@ export function reviewMediaHtml(htmlContent: string): MediaDiagnostics {
       }
       if (alt === undefined) {
         imagesWithoutAlt++;
-        if (!namedBy(node)) {
+        if (!explicitlyDecorative && !namedBy(node)) {
           add("image_name_unobserved", "warning", "image", number,
             "No explicit alt or supported static name fallback was observed; review the intended image purpose.");
         }
       } else if (alt === "") {
         emptyAlt++;
+        if (explicitlySemantic && !namedBy(node)) {
+          add("image_name_unobserved", "warning", "image", number,
+            "An image explicitly given semantic image role has empty alt and no static name fallback.");
+        }
       } else if (alt.trim() === "") {
         add("image_whitespace_alt", "warning", "image", number,
           "Whitespace-only alt is neither an explicitly empty decorative alternative nor a meaningful text alternative.");

@@ -158,6 +158,60 @@ describe("indexability graph: sampled-only corroboration", () => {
     expect(result.findings.map((f) => f.code)).not.toContain("indexability.canonical_cycle");
   });
 
+  it("reports a sampled three-page canonical cycle once, without mislabeling its members as chains", () => {
+    const a = page("https://example.com/a", '<title>A</title><link rel=canonical href="/b">');
+    const b = page("https://example.com/b", '<title>B</title><link rel=canonical href="/c">');
+    const c = page("https://example.com/c", '<title>C</title><link rel=canonical href="/a">');
+    const tail = page("https://example.com/tail", '<title>Tail</title><link rel=canonical href="/a">');
+    const result = build([a, b, c, tail]);
+    expect(result.findings.filter((f) => f.code === "indexability.canonical_cycle")).toEqual([{
+      code: "indexability.canonical_cycle",
+      severity: "error",
+      confidence: "observed",
+      message: expect.any(String),
+      example_urls: ["https://example.com/a", "https://example.com/b", "https://example.com/c"],
+    }]);
+    expect(result.findings.filter((f) => f.code === "indexability.canonical_chain")
+      .map((f) => f.example_urls[0])).toEqual(["https://example.com/tail"]);
+  });
+
+  it("detects disjoint longer canonical cycles deterministically without inventing unsampled cycles", () => {
+    const ring = (prefix: string, size: number) => Array.from({ length: size }, (_, i) =>
+      page(`https://example.com/${prefix}${i}`, `<title>${prefix}${i}</title><link rel=canonical href="/${prefix}${(i + 1) % size}">`));
+    const sampled = [...ring("x", 4), ...ring("y", 3)];
+    const first = build(sampled);
+    expect(first.findings.filter((f) => f.code === "indexability.canonical_cycle")).toHaveLength(2);
+    expect(first.findings.filter((f) => f.code === "indexability.canonical_chain")).toHaveLength(0);
+    expect(first.findings).toEqual(build([...sampled].reverse()).findings);
+    const unsampled = ring("z", 3).slice(0, 2);
+    expect(build(unsampled, { discoveryComplete: false }).findings).toEqual([]);
+  });
+
+  it("retains observed canonical errors when 30 earlier sitemap warnings fill the bounded report", () => {
+    const warnings = Array.from({ length: 30 }, (_, i) =>
+      page(`https://example.com/noindex-${i}`, `<title>Noindex ${i}</title><meta name=robots content=noindex>`));
+    const a = page("https://example.com/a", '<title>A</title><link rel=canonical href="/b">');
+    const b = page("https://example.com/b", '<title>B</title><link rel=canonical href="/a">');
+    const sampled = [...warnings, a, b];
+    const result = build(sampled);
+    expect(result.findings_truncated).toBe(true);
+    expect(result.findings).toHaveLength(30);
+    expect(result.findings.filter((f) => f.code === "indexability.canonical_cycle")).toHaveLength(1);
+    expect(result.findings.filter((f) => f.code === "indexability.sitemap_noindex")).toHaveLength(29);
+    expect(result.findings).toEqual(build([...sampled].reverse()).findings);
+  });
+
+  it("caps large numbers of observed cycles and reports truncation without losing bounded ordering", () => {
+    const pages = Array.from({ length: 31 }, (_, cycle) => [0, 1, 2].map((member) =>
+      page(`https://example.com/c${cycle}-${member}`,
+        `<title>Cycle ${cycle}-${member}</title><link rel=canonical href="/c${cycle}-${(member + 1) % 3}">`))).flat();
+    const first = build(pages);
+    expect(first.findings).toHaveLength(30);
+    expect(first.findings_truncated).toBe(true);
+    expect(first.findings.every((f) => f.code === "indexability.canonical_cycle" && f.severity === "error")).toBe(true);
+    expect(first.findings).toEqual(build([...pages].reverse()).findings);
+  });
+
   it("is deterministic and leaves source page summaries untouched", () => {
     const a = page("https://example.com/a", '<title>A</title><link rel=canonical href="/b">');
     const b = page("https://example.com/b", '<title>B</title><link rel=canonical href="/a">');

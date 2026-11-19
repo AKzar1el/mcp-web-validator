@@ -8,6 +8,13 @@ import { boundedMcpArray, boundedMcpIssues, boundedMcpReport } from "./mcp-bound
 import { z } from "zod";
 import { captureScreenshots, PartialScreenshotCaptureError } from "./screenshot.js";
 import {
+  reviewMediaHtml,
+  emptyMediaDiagnostics,
+  MAX_MEDIA_HTML_BYTES,
+  MAX_MEDIA_ELEMENTS,
+  MAX_MEDIA_FINDINGS,
+} from "./modules/browser-ux/media-diagnostics.js";
+import {
   auditSeoMetadata,
   auditSeoMetadataDetailed,
   checkBrokenLinks,
@@ -31,6 +38,7 @@ import {
   supportedSchemaContent,
   internalLinkContent,
   metadataConsistencyContent,
+  mediaDiagnosticsContent,
   multilingualClusterContent,
   failureContent,
   htmlValidationContent,
@@ -561,6 +569,44 @@ const screenshotSchema = z.object({
   outputPath: z.string(),
   incompleteAssetCount: z.number().int().nonnegative().optional(),
 });
+
+const mediaReviewOutputSchema = {
+  scope: z.literal("caller_supplied_static_media_markup_only"),
+  images_observed: z.number().int().nonnegative(),
+  pictures_observed: z.number().int().nonnegative(),
+  videos_observed: z.number().int().nonnegative(),
+  source_elements_observed: z.number().int().nonnegative(),
+  track_elements_observed: z.number().int().nonnegative(),
+  media_elements_checked: z.number().int().nonnegative().max(MAX_MEDIA_ELEMENTS),
+  media_elements_truncated: z.boolean(),
+  images_without_explicit_alt: z.number().int().nonnegative(),
+  images_with_empty_alt: z.number().int().nonnegative(),
+  images_without_intrinsic_dimensions: z.number().int().nonnegative(),
+  lazy_images_without_intrinsic_dimensions: z.number().int().nonnegative(),
+  image_sources_unobserved: z.number().int().nonnegative(),
+  videos_without_observed_source: z.number().int().nonnegative(),
+  videos_without_caption_track: z.number().int().nonnegative(),
+  picture_fallbacks_unobserved: z.number().int().nonnegative(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(360)).max(3),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum([
+      "image_name_unobserved", "image_whitespace_alt", "linked_image_name_unobserved",
+      "image_source_unobserved", "image_lazy_dimensions_unobserved", "image_invalid_loading",
+      "image_invalid_decoding", "image_invalid_fetchpriority",
+      "picture_fallback_unobserved", "picture_source_srcset_unobserved",
+      "video_source_unobserved", "video_caption_track_unobserved",
+      "video_caption_source_unobserved", "video_autoplay_without_muted",
+    ]),
+    severity: z.enum(["warning", "info"]),
+    media_type: z.enum(["image", "picture", "video"]),
+    element: z.number().int().min(1).max(MAX_MEDIA_ELEMENTS),
+    message: z.string().max(240),
+  })).max(MAX_MEDIA_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
 
 const reportSummarySchema = z.object({
   overallScore: z.number().int().min(0).max(100).nullable(),
@@ -1354,6 +1400,35 @@ export function createServer(): McpServer {
           failureContent("Audit history", error, "Review snapshot JSON or local history file permissions and retry."),
           true,
         );
+      }
+    },
+  );
+
+  server.registerTool(
+    "media.diagnostics",
+    {
+      title: "Review static images, video and media-loading evidence",
+      description:
+        "Local-only, offline review of caller-supplied HTML image alt/name evidence, responsive picture fallbacks, intrinsic dimensions, lazy loading/decoding/fetchpriority hints, video sources and caption tracks. Bounded and redacted; never fetches or renders media, executes scripts, measures layout, validates caption contents or certifies accessibility/performance.",
+      inputSchema: {
+        htmlContent: z.string().min(1).max(MAX_MEDIA_HTML_BYTES)
+          .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_MEDIA_HTML_BYTES,
+            "Supplied static HTML must be at most 180,000 UTF-8 bytes.")
+          .describe("Caller-supplied static HTML markup to inspect offline; no URL, resource or local file is fetched."),
+      },
+      outputSchema: mediaReviewOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ htmlContent }) => {
+      try {
+        const review = reviewMediaHtml(htmlContent);
+        return result(review, mediaDiagnosticsContent(review));
+      } catch {
+        const error = "Static media declarations could not be reviewed within the input size and HTML limits.";
+        return result({ ...emptyMediaDiagnostics(), error }, failureContent(
+          "Static media diagnostics", error,
+          "Supply nonempty HTML markup within the declared UTF-8 byte limit.",
+        ), true);
       }
     },
   );

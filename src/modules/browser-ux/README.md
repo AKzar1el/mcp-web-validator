@@ -7,4 +7,9 @@
 - **Reuse:** `src/screenshot.ts`, `src/screenshot-proxy.ts`; static accessibility checks in `src/seo-auditor.ts`.
 - **Guardrail:** Browser/lab behavior stays local. Do not introduce browser automation or screenshots into the Worker. Field data is M06.
 
-This directory is documentation-only; do not count it as a working SEO check or add MCP wiring without a separate request.
+P1-10 now provides a real **local-only static** media analyzer at
+`media-diagnostics.ts`, exposed through the local `media.diagnostics` MCP
+tool. It inspects supplied markup without launching Chromium or fetching
+media; see `docs/p1-10-media-diagnostics.md` for exact evidence and bounds.
+Browser-verified resource loading, viewport comparison, Lighthouse and
+interactive WCAG checks are separate, still incomplete work.

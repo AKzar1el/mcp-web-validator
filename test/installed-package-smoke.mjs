@@ -58,7 +58,7 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "links.broken", "product.claims",
+      "audit.history", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "links.broken", "media.diagnostics", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links",
     ],
   );
@@ -73,6 +73,21 @@ try {
   });
   assert.notEqual(localAudit.isError, true);
   assert.ok(Array.isArray(localAudit.structuredContent?.issues));
+
+  phase = "media_diagnostics";
+  const media = await client.callTool({
+    name: "media.diagnostics",
+    arguments: { htmlContent: '<html><body><img src="photo.jpg" loading="lazy">' +
+      '<video><source src="movie.mp4"><track kind="captions" src="captions.vtt"></video>' +
+      '</body></html>' },
+  });
+  assert.notEqual(media.isError, true);
+  assert.equal(media.structuredContent?.images_observed, 1);
+  assert.equal(media.structuredContent?.videos_observed, 1);
+  assert.equal(media.structuredContent?.images_without_explicit_alt, 1);
+  assert.equal(media.structuredContent?.videos_without_caption_track, 0);
+  assert.equal(media.structuredContent?.coverage_limited, true);
+  assert.ok(!JSON.stringify(media).includes("movie.mp4"));
 
   const sampleWords = Array.from({ length: 120 }, (_, i) => `installedtestword${i}`).join(" ");
   phase = "content_duplicates";

@@ -8,6 +8,7 @@ import type { IntentComparison } from "./modules/content-schema/competitor-inten
 import type { SupportedSchemaReview } from "./modules/content-schema/structured-data-validation.js";
 import type { InternalLinkReview } from "./modules/site-architecture/internal-link-quality.js";
 import type { MetadataReview } from "./modules/content-schema/metadata-consistency.js";
+import type { MediaDiagnostics } from "./modules/browser-ux/media-diagnostics.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
@@ -529,6 +530,24 @@ export function metadataConsistencyContent(analysis: MetadataReview): string {
       message: `${finding.code}: ${finding.message}`,
     })),
     nextStep: "Review on-page declarations in context. Identical titles and social-metadata variations may be intentional; use authorized crawling and Search Console evidence before attributing search performance.",
+  });
+}
+
+export function mediaDiagnosticsContent(review: MediaDiagnostics): string {
+  const warningCount = review.findings.filter((finding) => finding.severity === "warning").length;
+  return toolContent({
+    title: "Static media markup diagnostics",
+    status: warningCount ? "attention needed" : "partial",
+    outcome: `${review.media_elements_checked} of ${review.images_observed + review.pictures_observed +
+      review.videos_observed} sampled media elements reviewed: ${review.images_observed} images, ` +
+      `${review.videos_observed} videos and ${review.pictures_observed} pictures. ` +
+      `${review.total_findings} review findings; media loading and playback not checked.`,
+    actions: review.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: `Static ${finding.media_type} element ${finding.element}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Inspect the flagged elements and verify their rendered behavior separately. Static metadata cannot prove actual resource availability, accessibility compliance, loading speed or video caption accuracy.",
   });
 }
 

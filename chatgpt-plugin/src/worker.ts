@@ -1306,21 +1306,33 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
     {
       title: "Validate HTML",
       description:
-        "Use this when raw HTML markup is supplied. Sends that markup to the Nu HTML Checker hosted at validator.nu and returns validation messages. For a live URL, use audit_public_webpage.",
-      inputSchema: { html: htmlInput },
+        "Validate supplied HTML markup or a single authorized public webpage URL with the Nu HTML Checker. Provide html for markup, or url for a live page. A standalone HTTP(S) URL in html is also fetched rather than treated as HTML. For combined SEO and JSON-LD checks on a live page, use audit_public_webpage.",
+      inputSchema: {
+        html: htmlInput.optional().describe("Raw HTML markup or one standalone HTTP(S) webpage URL; omit when providing url."),
+        url: publicPageUrlInput.optional().describe("Public webpage to fetch and validate as HTML; omit when providing html."),
+      },
       outputSchema: {
         messages: z.array(validationMessageSchema),
         total_messages: z.number().int().nonnegative(),
         truncated: z.boolean(),
         overview: overviewSchema,
+        fetched_url: z.string().optional(),
         error: z.string().optional(),
       },
       annotations: externalReadOnlyAnnotations,
       ...withNoAuthWidget({ invoking: "Validating HTML…", invoked: "HTML validation complete." }),
     },
-    async ({ html }) => {
+    async ({ html, url }) => {
       try {
-        const result = await validateHtmlDetailed(html);
+        if (Boolean(html) === Boolean(url)) {
+          throw new PublicHtmlFetchError("invalid_url", "Provide either HTML markup or one public webpage URL, not both.");
+        }
+        // Some MCP clients put a URL in the legacy html argument. Never pass
+        // that string to Nu as if it were a document: fetch it with the same
+        // public URL and redirect protections as audit_public_webpage.
+        const standaloneUrl = html && /^https?:\/\/\S+$/i.test(html.trim()) ? html.trim() : undefined;
+        const fetched = url || standaloneUrl ? await fetchPublicHtml(url ?? standaloneUrl!) : undefined;
+        const result = await validateHtmlDetailed(fetched?.html ?? html!, fetched?.contentType);
         const messages = result.messages;
         const counts = {
           errors: result.counts.error,
@@ -1339,9 +1351,9 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           status: needsAttention ? "needs_attention" : "passed",
           title: "HTML validation",
           headline,
-          detail: result.total === 0
+          detail: `${fetched ? `Fetched and validated ${fetched.finalUrl}. ` : ""}${result.total === 0
             ? "The Nu HTML Checker returned no diagnostics."
-            : `${plural(result.total, "diagnostic")} returned${result.truncated ? `; showing the first ${messages.length}` : ""}.`,
+            : `${plural(result.total, "diagnostic")} returned${result.truncated ? `; showing the first ${messages.length}` : ""}.`}`,
           total: result.total,
           shown: messages.length,
           truncated: result.truncated,
@@ -1358,6 +1370,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
             total_messages: result.total,
             truncated: result.truncated,
             overview,
+            ...(fetched ? { fetched_url: fetched.finalUrl } : {}),
           },
           content: contentForOverview(overview, validationFindings(messages)),
         };
@@ -1366,7 +1379,9 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
         "W3C HTML validation failed:",
         cause instanceof Error ? cause.message : "Unknown upstream error",
       );
-      const error = "HTML validation is temporarily unavailable. Please try again shortly.";
+      const error = cause instanceof PublicHtmlFetchError
+        ? cause.message
+        : "HTML validation is temporarily unavailable. Please try again shortly.";
       const overview = failedOverview("html", "HTML validation", "HTML validation could not be completed.", error);
       return {
         structuredContent: { messages: [], total_messages: 0, truncated: false, overview, error },

@@ -55,11 +55,22 @@ The npm package exposes these exact runtime tool names:
 | `html.url` | Validate the markup returned by a public URL. | Fetches the URL, then submits the returned markup to the external Nu checker. |
 | `css.local` | Validate a local CSS file. | Reads the selected file and submits its CSS to the external W3C Jigsaw CSS Validator. |
 | `seo.metadata` | Audit titles, descriptions, canonical tags, robots noindex directives, headings, viewport metadata, image alt attributes, and Open Graph metadata. | Processes supplied HTML locally. |
-| `links.broken` | Check links extracted from supplied HTML. | Sends bounded HTTP requests to eligible public links. |
+| `content.duplicates` | Compare exact and conservative near-duplicate main content within the same language across up to eight supplied HTML pages. | Fully offline, with no network, browser execution or storage; returns only evidence pairs and coverage, never main text. |
+| `content.quality` | Review empty or short static main content, repeated substantive boilerplate within sampled same-language URL families, and possible low unique value. | Offline analysis of up to eight supplied HTML pages; results are review signals, **not** proof that a short page lacks value or that Google penalized it. |
+| `content.metadata` | Compare repeated, conflicting and mismatched title, description, canonical, Open Graph, Twitter and explicit robots metadata across 1-8 supplied same-origin HTML pages. | Fully offline; no page fetch, canonical selection, ranking or indexing verdict. Identical duplicate fields and social-title differences are advisory, not automatic SEO errors. |
+| `content.provenance` | Compare explicit citations, dataset releases/snapshot dates, publication chronology, and methodology links with optional supplied source evidence and opt-in freshness windows. | Fully offline for up to eight supplied HTML pages; no citation/dataset fetching, external fact checks, browser, storage or claim of scientific truth. Missing source evidence remains unverified. |
+| `content.competitors` | Compare static search-intent signals between one primary page and up to six user-supplied competitor pages. Optional caller-chosen intent and query-heading word overlap identify review leads, never ranking winners. | Fully offline; **does not fetch competitor sites, scrape SERPs, use GSC, run a semantic classifier or claim Google intent alignment**. |
+| `product.claims` | Compare explicit local MCP capability promises in supplied or fetched landing-page HTML against the local runtime's **actually registered** tools and metadata. | Processes supplied HTML offline or fetches exactly one authorized public page using SSRF-safe network rules; registration consistency is **not** successful execution or a full marketing truth verdict. |
+| `site.hreflang` | Compare up to 16 supplied localized HTML pages for hreflang return links, self references, locale conflicts, `x-default` and canonical target clusters. | Fully offline and cross-domain aware; no crawling, private credentials, local-file access or storage. Unseen targets are unverified, not broken. |
+| `site.links` | Review contextual same-origin internal links, accessible anchor labels, generic link text, internal nofollow, repeated labels and lexical overlap with supplied destination headings. | Fully offline across 1-8 user-supplied same-origin HTML pages; **does not fetch linked pages, claim broken destinations, infer semantic relevance or Google rankings**. Navigation links and unsupplied targets are excluded/unverified. |
+| `links.broken` | Check links extracted from supplied HTML. | Sends bounded HTTP requests to eligible public links. Returned link URLs omit queries and embedded credentials; requests still use the original URLs. |
 | `schema.markup` | Parse JSON-LD blocks and report JSON syntax errors. | Processes supplied HTML locally. |
+| `schema.supported` | Review explicit JSON-LD structures for a limited set of Article, Product, BreadcrumbList, FAQPage, Organization and WebSite profiles. | Fully offline; checks bounded property shapes and review recommendations, **not** complete Schema.org validity, Google rich-result eligibility, content correctness or external contexts. The original syntax checker remains unchanged. |
 | `report.validation` | Combine HTML/XHTML, optional CSS, SEO, JSON-LD, and bounded link checks in a Markdown report. | Reads selected files, contacts the validators, and checks eligible public links found in the markup; `.xhtml` inputs use XHTML parsing semantics for Nu validation. |
 | `audit.history` | Opt-in local site-audit snapshot history: `save`, `list`, or `get` by ID. | Stores comparison-relevant fields only in one local JSON file, with a hard cap of 10 versions (oldest automatically evicted). No database or network access. |
 | `screenshot.capture` | Capture desktop, tablet, mobile, or custom viewport screenshots. | Opens a selected local file or eligible public URL and writes PNG files to the selected output directory; existing matching files may be replaced. |
+
+Different links that differ only by query parameters may therefore appear under the same displayed URL. Do not submit private tokens in HTML or URL inputs.
 
 For direct Node.js integrations, `auditSeoMetadata(html, xRobotsTag)` and
 `auditSeoMetadataDetailed(html, xRobotsTag)` from `dist/seo-auditor.js` accept
@@ -69,17 +80,23 @@ fetches headers; the MCP `seo.metadata` tool still analyzes supplied HTML only.
 
 ## Hosted app tools
 
-The hosted app exposes nine tools:
+The hosted app exposes fifteen tools:
 
 | Tool | Purpose |
 | --- | --- |
 | `audit_public_webpage` | Fetch one authorized public HTML page and run the combined HTML, SEO/accessibility-signal, and JSON-LD syntax audit. Link checks are optional. |
-| `audit_public_site` | Run a bounded sitemap-first audit of up to eight authorized, same-origin public pages. It respects `robots.txt`, returns compact page coverage and deduplicated findings, **plus a sampled cross-page indexability evidence graph** for canonical loops/chains, sitemap/noindex conflicts, duplicate titles, and hreflang return links. No site-wide link checks. |
+| `audit_public_site` | Run a bounded sitemap-first audit of up to eight authorized, same-origin public pages. It respects `robots.txt`, returns compact page coverage and deduplicated findings, **plus a sampled cross-page indexability evidence graph**, **same-language exact/near-duplicate main-content pairs**, **static empty/short/boilerplate content-quality review**, and **hreflang/canonical cluster evidence**. Full 16-page reciprocal coverage requires the local offline tool with supplied page HTML. No site-wide link checks. |
 | `compare_site_audits` | Offline before/after comparison of two saved `audit_public_site` structured results. Flags per-page regressions, coverage loss, and sitemap drift; reports newly observed or no-longer observed grouped findings only for an identical, fully checked page sample; partial sitemap coverage never proves a site-wide fix. No network calls or retained history. |
+| `verify_product_claims` | Check visible explicit hosted tool names, an advertised site batch limit, and selected read-only/screenshot-scope statements against the hosted MCP's registered tool names, schemas and annotations. Accepts supplied static HTML or one authorized public HTML URL; unknown statements remain unverified. |
+| `verify_content_provenance` | Offline comparison of explicit citation URLs, dataset metadata, published/modified dates and methodology references in up to eight caller-supplied HTML pages against optional supplied evidence. No citation URLs are fetched, and unsupported factual/freshness claims remain unverified. |
+| `compare_competitor_intent` | Offline comparison of one primary and up to six user-supplied competitor HTML pages for static informational, commercial, transactional or navigational signals and optional exact query/heading lexical overlap; no competitor crawling, SERP or ranking inference. |
 | `validate_html` | Validate supplied HTML or a public webpage URL (`url` field, or standalone URL in `html`). Uses the same bounded, redirect-checked public fetch as the webpage audit for URL inputs. |
 | `validate_css` | Parse supplied CSS for syntax errors inside the Worker. |
 | `audit_seo_metadata` | Audit supplied HTML for covered on-page SEO, robots noindex, and accessibility signals. |
 | `validate_schema_markup` | Check JSON-LD blocks in supplied HTML for JSON syntax errors. |
+| `validate_supported_schema` | Review supported JSON-LD node types and selected property structures, including Product offer prices, Article dates, breadcrumb positions and FAQ answer text. Unknown types remain unverified; no rich-result eligibility promise. |
+| `review_internal_links` | Review contextual internal links and accessible anchor labels across 1-8 already-supplied same-origin static HTML pages, with limited lexical heading comparison for supplied targets. No network requests, search metrics, destination verification or semantic relevance assertions. |
+| `review_metadata_consistency` | Offline consistency review of duplicate/conflicting title, description and canonical declarations, social metadata and robots directives, and repeated titles/descriptions between supplied same-origin pages. No network, selected-canonical or ranking claims. |
 | `check_broken_links` | Check up to 20 authorized public links extracted from supplied HTML. |
 | `generate_validation_report` | Combine the checks for supplied markup; `base_url` resolves relative links but does not fetch a page. |
 

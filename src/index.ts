@@ -23,6 +23,15 @@ import {
 import { fetchPublicText, getErrorMessage, readTextFile } from "./network.js";
 import {
   cssValidationContent,
+  contentDuplicateContent,
+  contentQualityContent,
+  productClaimContent,
+  provenanceContent,
+  intentComparisonContent,
+  supportedSchemaContent,
+  internalLinkContent,
+  metadataConsistencyContent,
+  multilingualClusterContent,
   failureContent,
   htmlValidationContent,
   linkCheckContent,
@@ -32,6 +41,65 @@ import {
   screenshotPartialCaptureContent,
   seoAuditContent,
 } from "./presentation.js";
+import { observeMainContent } from "./modules/content-schema/extract-main-content.js";
+import { analyzeSameLanguageDuplicates, safeObservedUrl } from "./modules/content-schema/same-language-duplicates.js";
+import { analyzePageContentQuality } from "./modules/content-schema/empty-boilerplate-content.js";
+import {
+  compareProductClaims,
+  registeredToolEvidence,
+  MAX_PRODUCT_CLAIM_HTML_BYTES,
+} from "./modules/content-schema/product-claims.js";
+import { observeProductClaims } from "./modules/content-schema/extract-product-claims.js";
+import {
+  analyzeProvenance,
+  normalizedEvidenceDate,
+  safeDatasetVersion,
+  safeProvenanceId,
+  safeProvenanceUrl,
+  MAX_PROVENANCE_HTML_BYTES,
+  MAX_PROVENANCE_INPUT_BYTES,
+} from "./modules/content-schema/citation-methodology-consistency.js";
+import { observeProvenancePage } from "./modules/content-schema/extract-citation-methodology.js";
+import {
+  compareIntentObservations,
+  emptyIntentComparison,
+  safeIntentUrl,
+  MAX_INTENT_HTML_BYTES,
+  MAX_INTENT_TOTAL_BYTES,
+  MAX_INTENT_QUERY_BYTES,
+} from "./modules/content-schema/competitor-intent-comparison.js";
+import { observeIntentHtml } from "./modules/content-schema/extract-competitor-intent.js";
+import {
+  MAX_SUPPORTED_SCHEMA_HTML_BYTES,
+  MAX_SUPPORTED_SCHEMA_FINDINGS,
+  SUPPORTED_SCHEMA_TYPES,
+  type SupportedSchemaReview,
+} from "./modules/content-schema/structured-data-validation.js";
+import { reviewSupportedSchemaHtml } from "./modules/content-schema/extract-structured-data.js";
+import {
+  reviewInternalLinks,
+  emptyInternalLinkReview,
+  safeLinkPageUrl,
+  MAX_LINK_HTML_BYTES,
+  MAX_LINK_TOTAL_HTML_BYTES,
+  MAX_LINK_FINDINGS,
+} from "./modules/site-architecture/internal-link-quality.js";
+import { observeInternalLinks } from "./modules/site-architecture/extract-internal-links.js";
+import {
+  analyzeMetadataConsistency,
+  emptyMetadataReview,
+  safeMetadataLabel,
+  METADATA_FIELDS,
+  MAX_METADATA_HTML_BYTES,
+  MAX_METADATA_TOTAL_BYTES,
+  MAX_METADATA_FINDINGS,
+} from "./modules/content-schema/metadata-consistency.js";
+import { observeMetadata } from "./modules/content-schema/extract-metadata-consistency.js";
+import {
+  analyzeMultilingualClusters,
+  safeMultilingualUrl,
+} from "./modules/site-architecture/multilingual-clusters.js";
+import { observeMultilingualPage } from "./modules/site-architecture/extract-multilingual-page.js";
 import { PACKAGE_VERSION } from "./version.js";
 import {
   MAX_AUDIT_HISTORY,
@@ -116,6 +184,375 @@ const linkStatusSchema = z.object({
   ok: z.boolean(),
   message: z.string().optional(),
 });
+
+const duplicateAnalysisOutputSchema = {
+  scope: z.literal("sampled_pages_only"),
+  sampled_pages: z.number().int().min(0).max(8),
+  eligible_pages: z.number().int().min(0).max(8),
+  skipped_pages: z.number().int().min(0).max(8),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string()),
+  total_pairs: z.number().int().nonnegative(),
+  pairs: z.array(z.object({
+    first_url: z.string(),
+    second_url: z.string(),
+    language: z.string(),
+    kind: z.enum(["exact", "near"]),
+    confidence: z.enum(["observed", "potential"]),
+    similarity_percent: z.number().int().min(0).max(100),
+    first_words: z.number().int().nonnegative(),
+    second_words: z.number().int().nonnegative(),
+  })).max(8),
+  pairs_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const contentQualityOutputSchema = {
+  scope: z.literal("sampled_pages_only"),
+  sampled_pages: z.number().int().min(0).max(8),
+  eligible_pages: z.number().int().min(0).max(8),
+  skipped_pages: z.number().int().min(0).max(8),
+  families_compared: z.number().int().min(0).max(8),
+  empty_main_pages: z.number().int().min(0).max(8),
+  short_main_pages: z.number().int().min(0).max(8),
+  repeated_boilerplate_pages: z.number().int().min(0).max(8),
+  possible_low_value_pages: z.number().int().min(0).max(8),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(300)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    confidence: z.enum(["observed", "potential"]),
+    message: z.string().max(320),
+    affected_pages: z.number().int().nonnegative(),
+    example_urls: z.array(z.string().max(512)).max(2),
+  })).max(12),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const productClaimOutputSchema = {
+  scope: z.literal("landing_html_vs_registered_mcp_metadata"),
+  surface: z.enum(["hosted", "local"]),
+  catalog_available: z.boolean(),
+  registered_tools: z.number().int().nonnegative().max(64),
+  tool_claims_checked: z.number().int().nonnegative().max(20),
+  checked_claims: z.number().int().nonnegative(),
+  consistent_claims: z.number().int().nonnegative(),
+  contradicted_claims: z.number().int().nonnegative(),
+  unverified_claims: z.number().int().nonnegative(),
+  advertised_tools: z.array(z.object({
+    name: z.string().max(64), registered: z.boolean(),
+  })).max(20),
+  site_batch_limit: z.object({
+    advertised: z.number().int().positive(),
+    registered: z.number().int().positive().optional(),
+  }).optional(),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(320)).max(5),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    verdict: z.enum(["contradicted", "unverifiable"]),
+    claim: z.string().max(64),
+    message: z.string().max(240),
+    evidence_tool: z.string().max(64).optional(),
+  })).max(10),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const provenanceIdSchema = z.string().min(1).max(64)
+  .refine((value) => Boolean(safeProvenanceId(value)), "Use an ASCII identifier without secrets.")
+  .describe("Short ASCII source, dataset or methodology ID; no tokens or private identifiers.");
+const provenanceUrlSchema = z.string().url().max(512)
+  .refine((value) => Boolean(safeProvenanceUrl(value)),
+    "Use an absolute, query-free HTTP(S) URL without credentials, fragment or nonstandard port.")
+  .describe("Public-style HTTP(S) source label, never fetched and without query, userinfo or fragment.");
+const provenanceDateSchema = z.string().max(48)
+  .refine((value) => Boolean(normalizedEvidenceDate(value)), "Use a valid ISO date or UTC-offset timestamp.")
+  .describe("Calendar-valid ISO YYYY-MM-DD or timezone-qualified timestamp.");
+const provenanceEvidenceSchema = z.object({
+  as_of: provenanceDateSchema.optional().describe("Optional caller-selected comparison day; no current date is inferred."),
+  sources: z.array(z.object({
+    id: provenanceIdSchema,
+    url: provenanceUrlSchema,
+  })).max(24).optional().describe("Up to 24 caller-supplied source IDs and safe target URLs."),
+  datasets: z.array(z.object({
+    id: provenanceIdSchema,
+    version: z.string().min(1).max(64)
+      .refine((value) => Boolean(safeDatasetVersion(value)), "Use a safe version label.").optional()
+      .describe("Optional exact dataset release/version string supplied by the caller."),
+    as_of: provenanceDateSchema.optional().describe("Caller-supplied dataset snapshot reference date."),
+    max_age_days: z.number().int().min(0).max(3650).optional()
+      .describe("Only this explicit caller-supplied freshness threshold can trigger age review."),
+    methodology_id: provenanceIdSchema.optional().describe("Optional methodology ID associated with this dataset."),
+  })).max(16).optional().describe("Up to 16 optional dataset metadata entries; not independently sourced."),
+  methodologies: z.array(z.object({ id: provenanceIdSchema, url: provenanceUrlSchema })).max(16).optional()
+    .describe("Up to 16 methodology IDs and safe reference URLs supplied by the caller."),
+});
+const provenanceOutputSchema = {
+  scope: z.literal("supplied_static_html_and_evidence"),
+  pages_sampled: z.number().int().nonnegative().max(8),
+  pages_eligible: z.number().int().nonnegative().max(8),
+  citations_observed: z.number().int().nonnegative(),
+  datasets_observed: z.number().int().nonnegative(),
+  methodologies_observed: z.number().int().nonnegative(),
+  checked_declarations: z.number().int().nonnegative(),
+  consistent_declarations: z.number().int().nonnegative(),
+  conflicting_declarations: z.number().int().nonnegative(),
+  unverified_declarations: z.number().int().nonnegative(),
+  invalid_date_declarations: z.number().int().nonnegative(),
+  evidence_supplied: z.boolean(),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(320)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    evidence: z.enum(["observed_html", "supplied_manifest", "reference_date"]),
+    page_url: z.string().max(512),
+    reference_id: z.string().max(64).optional(),
+    message: z.string().max(320),
+  })).max(12),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const intentPageInputSchema = z.object({
+  url: z.string().url().max(512)
+    .refine((value) => Boolean(safeIntentUrl(value)),
+      "Use a safe query-free HTTP(S) page label without credentials, fragments or nonstandard ports.")
+    .describe("Absolute HTTP(S) page URL label; no network requests are made."),
+  htmlContent: z.string().min(1).max(MAX_INTENT_HTML_BYTES)
+    .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_INTENT_HTML_BYTES,
+      "Each static HTML page must be at most 150,000 UTF-8 bytes.")
+    .describe("Already obtained authorized static HTML for this page; 150 KB maximum."),
+});
+const intentSignalKinds = z.object({
+  informational: z.array(z.string().max(40)).max(5),
+  commercial: z.array(z.string().max(40)).max(5),
+  transactional: z.array(z.string().max(40)).max(5),
+  navigational: z.array(z.string().max(40)).max(5),
+});
+const intentSignalCounts = z.object({
+  informational: z.number().int().min(0).max(5),
+  commercial: z.number().int().min(0).max(5),
+  transactional: z.number().int().min(0).max(5),
+  navigational: z.number().int().min(0).max(5),
+});
+const intentPageOutputSchema = z.object({
+  origin: z.string().max(200),
+  title_present: z.boolean(),
+  h1_present: z.boolean(),
+  main_found: z.boolean(),
+  signals: intentSignalKinds,
+  signal_counts: intentSignalCounts,
+  intent_signal_count: z.number().int().min(0).max(5).optional(),
+  query_title_coverage_percent: z.number().int().min(0).max(100).optional(),
+  query_h1_coverage_percent: z.number().int().min(0).max(100).optional(),
+  extraction_limited: z.boolean(),
+});
+const intentComparisonOutputSchema = {
+  scope: z.literal("caller_supplied_static_html_only"),
+  expected_intent: z.enum(["informational", "commercial", "transactional", "navigational"]).optional(),
+  query_supplied: z.boolean(),
+  usable_query_terms: z.number().int().nonnegative().max(12),
+  primary: intentPageOutputSchema,
+  competitors: z.array(intentPageOutputSchema).max(6),
+  competitors_submitted: z.number().int().nonnegative().max(6),
+  competitors_eligible: z.number().int().nonnegative().max(6),
+  competitors_with_intent_signals: z.number().int().nonnegative().max(6),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(330)).max(5),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    confidence: z.enum(["observed", "review"]),
+    message: z.string().max(320),
+    competitors_supporting: z.number().int().min(0).max(6).optional(),
+  })).max(10),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const supportedSchemaOutputSchema = {
+  scope: z.literal("bounded_jsonld_structural_profiles"),
+  blocks_seen: z.number().int().nonnegative(),
+  blocks_checked: z.number().int().nonnegative().max(12),
+  blocks_skipped: z.number().int().nonnegative(),
+  nodes_examined: z.number().int().nonnegative().max(64),
+  supported_nodes: z.number().int().nonnegative(),
+  unsupported_nodes: z.number().int().nonnegative(),
+  context_unverified_nodes: z.number().int().nonnegative(),
+  types_checked: z.array(z.enum(SUPPORTED_SCHEMA_TYPES)).max(8),
+  errors: z.number().int().nonnegative(),
+  warnings: z.number().int().nonnegative(),
+  unverified: z.number().int().nonnegative(),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(320)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["error", "warning", "info"]),
+    block: z.number().int().nonnegative(),
+    node: z.number().int().nonnegative(),
+    type: z.enum(SUPPORTED_SCHEMA_TYPES).optional(),
+    property: z.string().max(40).optional(),
+    message: z.string().max(290),
+  })).max(MAX_SUPPORTED_SCHEMA_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const internalLinkPageInputSchema = z.object({
+  url: z.string().url().max(512).refine((value) => Boolean(safeLinkPageUrl(value)),
+    "Use a query-free HTTP(S) document URL label without credentials, port or fragment.")
+    .describe("Caller-supplied page URL label; no URL or linked target is fetched."),
+  htmlContent: z.string().min(1).max(MAX_LINK_HTML_BYTES)
+    .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_LINK_HTML_BYTES,
+      "Each page HTML must not exceed 160,000 UTF-8 bytes.")
+    .describe("Already-authorized static page HTML, at most 160 KB UTF-8 per page."),
+});
+const internalLinkOutputPageSchema = z.object({
+  page: z.number().int().min(1).max(8),
+  main_present: z.boolean(),
+  internal_links: z.number().int().nonnegative(),
+  external_links: z.number().int().nonnegative(),
+  linked_sample_pages: z.number().int().nonnegative().max(8),
+  unmatched_internal_links: z.number().int().nonnegative(),
+  missing_anchor_labels: z.number().int().nonnegative(),
+  generic_anchor_links: z.number().int().nonnegative(),
+  nofollow_internal_links: z.number().int().nonnegative(),
+  self_links: z.number().int().nonnegative(),
+  fragment_only_links: z.number().int().nonnegative(),
+  extraction_limited: z.boolean(),
+});
+const internalLinkOutputSchema = {
+  scope: z.literal("caller_supplied_same_origin_html_only"),
+  pages_sampled: z.number().int().min(0).max(8),
+  pages_eligible: z.number().int().min(0).max(8),
+  origin: z.string().max(200),
+  internal_links_observed: z.number().int().nonnegative(),
+  external_links_observed: z.number().int().nonnegative(),
+  excluded_navigation_links: z.number().int().nonnegative(),
+  linked_sample_targets: z.number().int().min(0).max(8),
+  unmatched_internal_links: z.number().int().nonnegative(),
+  missing_anchor_labels: z.number().int().nonnegative(),
+  generic_anchor_links: z.number().int().nonnegative(),
+  low_heading_overlap_links: z.number().int().nonnegative(),
+  ambiguous_anchor_target_groups: z.number().int().nonnegative(),
+  nofollow_internal_links: z.number().int().nonnegative(),
+  self_links: z.number().int().nonnegative(),
+  fragment_only_links: z.number().int().nonnegative(),
+  skipped_non_http_links: z.number().int().nonnegative(),
+  pages: z.array(internalLinkOutputPageSchema).max(8),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(330)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    confidence: z.enum(["observed", "review"]),
+    source_page: z.number().int().min(1).max(8),
+    target_page: z.number().int().min(1).max(8).optional(),
+    count: z.number().int().nonnegative(),
+    message: z.string().max(320),
+  })).max(MAX_LINK_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const metadataPageInputSchema = z.object({
+  url: z.string().url().max(512)
+    .refine((value) => Boolean(safeMetadataLabel(value)),
+      "Use a safe query-free HTTP(S) URL label without credentials, fragments or nonstandard port.")
+    .describe("Caller-supplied page URL label; no URL or external metadata is fetched."),
+  htmlContent: z.string().min(1).max(MAX_METADATA_HTML_BYTES)
+    .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_METADATA_HTML_BYTES,
+      "Each static HTML page must be at most 180,000 UTF-8 bytes.")
+    .describe("Authorized supplied static HTML; 180 KB UTF-8 per page."),
+});
+const metadataPageOutputSchema = z.object({
+  page: z.number().int().min(1).max(8),
+  fields_present: z.number().int().min(0).max(10),
+  title_declarations: z.number().int().nonnegative().max(12),
+  description_declarations: z.number().int().nonnegative().max(12),
+  canonical_declarations: z.number().int().nonnegative().max(12),
+  robots_declarations: z.number().int().nonnegative().max(24),
+  duplicate_fields: z.number().int().nonnegative().max(10),
+  conflicting_fields: z.number().int().nonnegative().max(10),
+  unresolved_canonicals: z.number().int().nonnegative().max(12),
+  cross_field_review_leads: z.number().int().nonnegative().max(5),
+  extraction_limited: z.boolean(),
+});
+const metadataConsistencyOutputSchema = {
+  scope: z.literal("caller_supplied_same_origin_metadata_only"),
+  pages_sampled: z.number().int().min(0).max(8),
+  origin: z.string().max(200),
+  duplicate_declaration_fields: z.number().int().nonnegative(),
+  conflicting_declaration_fields: z.number().int().nonnegative(),
+  unresolved_canonical_references: z.number().int().nonnegative(),
+  explicit_robots_conflicts: z.number().int().nonnegative(),
+  cross_field_review_leads: z.number().int().nonnegative(),
+  duplicate_title_groups: z.number().int().nonnegative(),
+  duplicate_description_groups: z.number().int().nonnegative(),
+  excluded_annotated_canonicals: z.number().int().nonnegative(),
+  pages: z.array(metadataPageOutputSchema).max(8),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(360)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    confidence: z.enum(["observed", "review"]),
+    source_page: z.number().int().min(1).max(8),
+    field: z.enum(METADATA_FIELDS),
+    count: z.number().int().nonnegative(),
+    related_pages: z.array(z.number().int().min(1).max(8)).max(7).optional(),
+    message: z.string().max(340),
+  })).max(MAX_METADATA_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const boundedHtmlPageSnapshots = z.array(z.object({
+  url: z.string().url().max(512).refine((value) => {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol)
+      && !url.username && !url.password && !url.search && !url.hash;
+  }, "Use a query-free HTTP(S) URL without credentials or fragments.")
+    .describe("Absolute page URL label only; no network request is made or query parameters accepted."),
+  htmlContent: z.string().min(1).max(250_000).refine(
+    (value) => Buffer.byteLength(value, "utf8") <= 250_000,
+    "Each page must be at most 250,000 UTF-8 bytes.",
+  ).describe("Already obtained static HTML, at most 250,000 UTF-8 bytes per page."),
+})).min(1).max(8);
+
+const multilingualClusterOutputSchema = {
+  scope: z.literal("sampled_pages_only"),
+  sampled_pages: z.number().int().min(0).max(16),
+  eligible_pages: z.number().int().min(0).max(16),
+  pages_with_alternates: z.number().int().min(0).max(16),
+  locales_observed: z.number().int().nonnegative(),
+  unobserved_targets: z.number().int().nonnegative(),
+  invalid_declarations: z.number().int().nonnegative(),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(320)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["error", "warning"]),
+    confidence: z.enum(["observed", "potential"]),
+    message: z.string().max(320),
+    example_urls: z.array(z.string().max(256)).max(2),
+  })).max(12),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
 
 const screenshotSchema = z.object({
   viewportName: z.string(),
@@ -569,6 +1006,107 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
+    "content.duplicates",
+    {
+      title: "Compare same-language main content",
+      description:
+        "Compares static main text across one to eight HTML pages supplied by the caller. Reports high-confidence exact matches and conservative near matches only within the same language (and script). No network requests or storage. Output is limited to this sample, not site-wide uniqueness.",
+      inputSchema: {
+        pages: boundedHtmlPageSnapshots
+          .describe("One to eight HTML pages to compare; total HTML must be at most 1 MiB."),
+      },
+      outputSchema: duplicateAnalysisOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ pages }) => {
+      const empty = analyzeSameLanguageDuplicates([], { sampledPages: 0, coverageLimited: true });
+      try {
+        if (pages.reduce((total, page) => total + Buffer.byteLength(page.htmlContent, "utf8"), 0) > 1_000_000) {
+          throw new Error("Total HTML input exceeds the 1,000,000-byte comparison limit.");
+        }
+        const analysis = analyzeSameLanguageDuplicates(pages.map(({ htmlContent, url }) =>
+          observeMainContent(htmlContent, url)));
+        return result(analysis, contentDuplicateContent(analysis));
+      } catch {
+        const error = "Main-content comparison could not be completed within its input limits.";
+        return result({ ...empty, error }, failureContent(
+          "Main-content comparison", error, "Use up to eight public-style URLs with bounded, valid HTML input.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "content.quality",
+    {
+      title: "Review empty, short and repeated main content",
+      description:
+        "Offline, evidence-limited review of empty or thin static main text and substantive repeated sentences within same-language page families. Reports possible missing standalone value, not Google rankings or a semantic quality verdict. Accepts up to eight supplied HTML pages; no network, storage, browser or LLM.",
+      inputSchema: {
+        pages: boundedHtmlPageSnapshots.describe(
+          "One to eight authorized HTML page observations; total supplied HTML must be at most 1 MB.",
+        ),
+      },
+      outputSchema: contentQualityOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ pages }) => {
+      const empty = analyzePageContentQuality([], { sampledPages: 0, coverageLimited: true });
+      try {
+        if (pages.reduce((sum, page) => sum + Buffer.byteLength(page.htmlContent, "utf8"), 0) > 1_000_000) {
+          throw new Error("Content-quality input exceeds 1,000,000 bytes.");
+        }
+        const analysis = analyzePageContentQuality(pages.map(({ htmlContent, url }) =>
+          observeMainContent(htmlContent, url)));
+        return result(analysis, contentQualityContent(analysis));
+      } catch {
+        const error = "Content-quality comparison could not be completed within its bounded input limits.";
+        return result({ ...empty, error }, failureContent(
+          "Content quality review", error, "Supply up to eight valid, query-free URL labels and static HTML documents.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "site.hreflang",
+    {
+      title: "Verify multilingual hreflang clusters",
+      description:
+        "Compares head-only hreflang and canonical declarations across up to sixteen supplied static HTML pages, including x-default, reciprocal references and same-locale target consistency. No URLs are fetched, and unsampled targets are not declared broken. Works across authorized domains; no browser, files or storage.",
+      inputSchema: {
+        pages: z.array(z.object({
+          url: z.string().url().max(256).refine((value) => Boolean(safeMultilingualUrl(value)),
+            "Use an absolute HTTP(S) URL without credentials, fragments, queries or nonstandard ports.")
+            .describe("Absolute authorized page URL label; not fetched. Cross-domain alternate sites are supported."),
+          htmlContent: z.string().min(1).max(125_000).refine(
+            (value) => Buffer.byteLength(value, "utf8") <= 125_000,
+            "Each page is limited to 125,000 UTF-8 bytes.",
+          ).describe("Already obtained static HTML for that page; no network requests are made."),
+        })).min(1).max(16)
+          .describe("Up to sixteen page observations; total supplied HTML must be at most 1.5 MB."),
+      },
+      outputSchema: multilingualClusterOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ pages }) => {
+      const empty = analyzeMultilingualClusters([], { sampledPages: 0, coverageLimited: true });
+      try {
+        const bytes = pages.reduce((total, page) => total + Buffer.byteLength(page.htmlContent, "utf8"), 0);
+        if (bytes > 1_500_000) throw new Error("Supplied HTML exceeds the 1.5 MB input cap.");
+        const analysis = analyzeMultilingualClusters(pages.map(({ htmlContent, url }) =>
+          observeMultilingualPage(htmlContent, url)));
+        return result(analysis, multilingualClusterContent(analysis));
+      } catch {
+        const error = "Multilingual cluster comparison could not be completed within its input limits.";
+        return result({ ...empty, error }, failureContent(
+          "Multilingual cluster comparison", error, "Supply up to 16 authorized HTML pages with absolute, query-free URL labels.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
     "links.broken",
     {
       title: "Check public links",
@@ -656,6 +1194,44 @@ export function createServer(): McpServer {
           ),
           true,
         );
+      }
+    },
+  );
+
+  server.registerTool(
+    "schema.supported",
+    {
+      title: "Review supported Schema.org JSON-LD structures",
+      description:
+        "Offline bounded structural review of explicit JSON-LD for Article/NewsArticle/BlogPosting, Product, BreadcrumbList, FAQPage, Organization and WebSite. Checks limited property shapes and review-profile recommendations; unknown contexts/types stay unverified. Does not resolve remote contexts or certify Schema.org validity, Google rich-result eligibility, content truth or rankings. Use schema.markup for existing syntax-only diagnostics.",
+      inputSchema: {
+        htmlContent: z.string().min(1).max(MAX_SUPPORTED_SCHEMA_HTML_BYTES)
+          .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_SUPPORTED_SCHEMA_HTML_BYTES,
+            "Static HTML must be at most 250,000 UTF-8 bytes.")
+          .describe("Caller-supplied HTML containing JSON-LD script blocks, never fetched, at most 250 KB UTF-8."),
+      },
+      outputSchema: supportedSchemaOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ htmlContent }) => {
+      try {
+        const analysis: SupportedSchemaReview = reviewSupportedSchemaHtml(htmlContent);
+        return result(analysis, supportedSchemaContent(analysis));
+      } catch {
+        const error = "Supported JSON-LD review could not complete within the static input limits.";
+        const empty: SupportedSchemaReview = {
+          scope: "bounded_jsonld_structural_profiles",
+          blocks_seen: 0, blocks_checked: 0, blocks_skipped: 0, nodes_examined: 0,
+          supported_nodes: 0, unsupported_nodes: 0, context_unverified_nodes: 0,
+          types_checked: [], errors: 0, warnings: 0, unverified: 0,
+          coverage_limited: true,
+          limitations: ["The bounded JSON-LD review could not process this supplied input."],
+          total_findings: 0, findings: [], findings_truncated: false,
+        };
+        return result({ ...empty, error }, failureContent(
+          "Supported JSON-LD review", error,
+          "Provide one bounded static HTML page and review unknown types with a complete standards-aware validator.",
+        ), true);
       }
     },
   );
@@ -872,6 +1448,195 @@ export function createServer(): McpServer {
           ),
           true,
         );
+      }
+    },
+  );
+
+  server.registerTool(
+    "content.provenance",
+    {
+      title: "Verify citation, dataset and methodology evidence",
+      description:
+        "Offline static comparison across one to eight supplied HTML pages. Checks explicit citation IDs/URLs, dataset version and as-of claims, publication/modification dates, methodology references, and only caller-supplied freshness limits. No source is fetched, no external fact is asserted, and missing evidence remains unverified.",
+      inputSchema: {
+        pages: z.array(z.object({
+          url: provenanceUrlSchema.describe("Safe page label; no request is made."),
+          htmlContent: z.string().min(1).max(MAX_PROVENANCE_HTML_BYTES)
+            .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_PROVENANCE_HTML_BYTES,
+              "Each static page must be at most 200,000 UTF-8 bytes.")
+            .describe("Static HTML source text supplied by caller; never fetched or stored."),
+        })).min(1).max(8).describe("Up to eight authorized HTML documents; combined limit 1,000,000 UTF-8 bytes."),
+        evidence: provenanceEvidenceSchema.optional()
+          .describe("Optional caller-supplied source/dataset/methodology metadata; not independently authoritative."),
+      },
+      outputSchema: provenanceOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ pages, evidence }) => {
+      const empty = analyzeProvenance([], {});
+      try {
+        if (pages.reduce((total, page) => total + Buffer.byteLength(page.htmlContent, "utf8"), 0)
+          > MAX_PROVENANCE_INPUT_BYTES) throw new Error("Combined HTML input is too large.");
+        const analysis = analyzeProvenance(pages.map(({ url, htmlContent }) =>
+          observeProvenancePage(htmlContent, url)), evidence ?? {});
+        return result(analysis, provenanceContent(analysis));
+      } catch {
+        const error = "Source and methodology evidence comparison could not complete within its input limits.";
+        return result({ ...empty, error }, failureContent(
+          "Citation and source evidence", error,
+          "Supply 1-8 bounded HTML pages and optional safe, factual reference metadata.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "content.metadata",
+    {
+      title: "Review duplicate, conflicting and mismatched page metadata",
+      description:
+        "Offline bounded consistency check for 1-8 caller-supplied same-origin HTML pages: duplicate/conflicting title, description and canonical declarations, Open Graph/Twitter differences, explicit robots directives and repeated titles/descriptions across distinct sampled canonical preferences. Outputs review evidence, not a Google-selected canonical, indexing or ranking verdict. No network or storage.",
+      inputSchema: {
+        pages: z.array(metadataPageInputSchema).min(1).max(8)
+          .describe("One to eight authorized same-origin static HTML pages, distinct safe URL labels, combined maximum 900,000 UTF-8 bytes. None are fetched."),
+      },
+      outputSchema: metadataConsistencyOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ pages }) => {
+      try {
+        const bytes = pages.reduce((total, item) => total +
+          Buffer.byteLength(item.htmlContent, "utf8"), 0);
+        if (bytes > MAX_METADATA_TOTAL_BYTES) throw new Error("Combined HTML exceeds the size limit.");
+        const analysis = analyzeMetadataConsistency(pages.map(({ url, htmlContent }) =>
+          observeMetadata(htmlContent, url)));
+        return result(analysis, metadataConsistencyContent(analysis));
+      } catch {
+        const error = "Metadata consistency could not be compared within the supplied page, URL or size limits.";
+        return result({ ...emptyMetadataReview(), error }, failureContent(
+          "Metadata consistency review", error,
+          "Provide up to eight distinct same-origin HTML page labels with bounded authorized static content.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "site.links",
+    {
+      title: "Review contextual internal links and anchor labels",
+      description:
+        "Offline bounded review of one to eight caller-supplied same-origin HTML pages: contextual internal vs external links, missing accessible names, generic labels, nofollow, repeated anchors, and lexical title/H1 overlap only for supplied destinations. Unknown URLs are unverified, never called broken. No fetching, crawling, search data, JavaScript or ranking inference.",
+      inputSchema: {
+        pages: z.array(internalLinkPageInputSchema).min(1).max(8)
+          .describe("One to eight authorized same-origin page HTML observations, combined maximum 900,000 UTF-8 bytes; all distinct URL labels."),
+      },
+      outputSchema: internalLinkOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ pages }) => {
+      try {
+        const bytes = pages.reduce((total, p) => total + Buffer.byteLength(p.htmlContent, "utf8"), 0);
+        if (bytes > MAX_LINK_TOTAL_HTML_BYTES) throw new Error("Combined static HTML exceeds limit.");
+        const analysis = reviewInternalLinks(pages.map(({ url, htmlContent }) =>
+          observeInternalLinks(htmlContent, url)));
+        return result(analysis, internalLinkContent(analysis));
+      } catch {
+        const error = "Sampled internal link evidence could not be reviewed within the input and same-origin limits.";
+        return result({ ...emptyInternalLinkReview(), error }, failureContent(
+          "Contextual internal links", error,
+          "Supply 1-8 bounded HTML pages with distinct safe URL labels on the same exact origin.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "content.competitors",
+    {
+      title: "Compare sampled competitor search-intent signals",
+      description:
+        "Offline comparison of one primary and up to six caller-supplied competitor pages for visible, bounded informational/commercial/transactional/navigational markup signals. Optional explicitly selected search intent and query-heading lexical overlap only. Does NOT discover competitors, fetch pages, access GSC, classify the query semantically, or predict rankings.",
+      inputSchema: {
+        primary: intentPageInputSchema
+          .describe("Caller-authorized primary page observation. No URL will be fetched."),
+        competitors: z.array(intentPageInputSchema).min(1).max(6)
+          .describe("One to six competitor HTML observations already obtained lawfully; each origin must be distinct."),
+        expected_intent: z.enum(["informational", "commercial", "transactional", "navigational"])
+          .optional().describe("Optional intent specified by the caller; never inferred from the query."),
+        query: z.string().trim().min(1).max(MAX_INTENT_QUERY_BYTES).refine(
+          (value) => Buffer.byteLength(value, "utf8") <= MAX_INTENT_QUERY_BYTES,
+          "Query text must not exceed 160 UTF-8 bytes.",
+        ).optional().describe("Optional caller-provided query for strict normalized title/H1 token overlap only; never echoed."),
+      },
+      outputSchema: intentComparisonOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ primary, competitors, expected_intent, query }) => {
+      try {
+        const records = [primary, ...competitors];
+        const bytes = records.reduce((total, entry) =>
+          total + Buffer.byteLength(entry.htmlContent, "utf8"), 0);
+        if (bytes > MAX_INTENT_TOTAL_BYTES) throw new Error("Combined HTML exceeds bounded input.");
+        const analysis = compareIntentObservations(
+          observeIntentHtml(primary.htmlContent, primary.url),
+          competitors.map((item) => observeIntentHtml(item.htmlContent, item.url)),
+          { expectedIntent: expected_intent, query },
+        );
+        return result(analysis, intentComparisonContent(analysis));
+      } catch {
+        const error = "Competitor intent signals could not be compared within the supplied input and origin limits.";
+        return result({ ...emptyIntentComparison(), error }, failureContent(
+          "Competitor intent comparison", error,
+          "Provide one primary and up to six distinct competitor origins with bounded authorized static HTML.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "product.claims",
+    {
+      title: "Check landing-page claims against local MCP capabilities",
+      description:
+        "Compare explicit local MCP product-page promises with this actual runtime's registered tool metadata. Supply HTML or one authorized public HTML URL. No arbitrary marketing semantics, no remote MCP credentials, no storage, no scripts and no claim of a successful tool invocation. Hosted tool claims must be verified by the hosted runtime.",
+      inputSchema: {
+        htmlContent: z.string().min(1).max(MAX_PRODUCT_CLAIM_HTML_BYTES).optional()
+          .describe("Optional static landing-page HTML, bounded at 250,000 UTF-8 bytes."),
+        url: z.string().url().max(512).refine((value) => Boolean(safeObservedUrl(value)),
+          "Use a query-free public HTTP(S) URL without credentials or fragments.").optional()
+          .describe("Alternative to HTML: one authorized public landing-page URL, fetched with existing SSRF safeguards."),
+      },
+      outputSchema: productClaimOutputSchema,
+      annotations: externalReadOnlyAnnotations,
+    },
+    async ({ htmlContent, url }) => {
+      const empty = compareProductClaims({
+        hasMain: false, hostedSectionFound: false, localSectionFound: false,
+        hostedTools: [], localTools: [], localScreenshotClaim: false,
+        hostedReadOnlyClaim: false, hostedNoScreenshotsClaim: false,
+        extractionTruncated: false,
+      }, [], "local");
+      try {
+        if (Boolean(htmlContent) === Boolean(url)) {
+          throw new Error("Provide exactly one of htmlContent or url.");
+        }
+        const html = htmlContent ?? (await fetchPublicText(url!, {
+          maxBytes: MAX_PRODUCT_CLAIM_HTML_BYTES,
+          acceptedContentTypes: ["text/html", "application/xhtml+xml"],
+        })).text;
+        const catalog = registeredToolEvidence(
+          (server as unknown as { _registeredTools?: unknown })._registeredTools,
+          (schema) => z.toJSONSchema(schema as z.ZodType),
+        );
+        const analysis = compareProductClaims(observeProductClaims(html), catalog, "local");
+        return result(analysis, productClaimContent(analysis));
+      } catch {
+        const error = "Landing-page promises could not be verified within the public URL or input limits.";
+        return result({ ...empty, error }, failureContent(
+          "Landing-page promise verification", error,
+          "Provide one authorized public HTML page or bounded static HTML, not both.",
+        ), true);
       }
     },
   );

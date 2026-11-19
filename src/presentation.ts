@@ -1,5 +1,14 @@
 import * as cheerio from "cheerio";
 import type { ValidationReport } from "./report.js";
+import type { SameLanguageDuplicateAnalysis } from "./modules/content-schema/same-language-duplicates.js";
+import type { PageContentQualityAnalysis } from "./modules/content-schema/empty-boilerplate-content.js";
+import type { ProductClaimResult } from "./modules/content-schema/product-claims.js";
+import type { ProvenanceResult } from "./modules/content-schema/citation-methodology-consistency.js";
+import type { IntentComparison } from "./modules/content-schema/competitor-intent-comparison.js";
+import type { SupportedSchemaReview } from "./modules/content-schema/structured-data-validation.js";
+import type { InternalLinkReview } from "./modules/site-architecture/internal-link-quality.js";
+import type { MetadataReview } from "./modules/content-schema/metadata-consistency.js";
+import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
   getW3CMessageSeverity,
@@ -375,6 +384,171 @@ export function linkCheckContent(links: LinkStatus[], baseUrl?: string): string 
     nextStep: unverified.length > 0
       ? "Review confirmed HTTP failures and redirects; retry unverified links only if public and permitted."
       : "Update failed destinations and review redirects, then rerun the link check.",
+  });
+}
+
+export function contentDuplicateContent(analysis: SameLanguageDuplicateAnalysis): string {
+  const matches = analysis.pairs;
+  const coverage = `${analysis.eligible_pages}/${analysis.sampled_pages} sampled pages had usable main content and a known language`;
+  return toolContent({
+    title: "Same-language main-content comparison",
+    status: matches.length ? "attention needed" : analysis.coverage_limited ? "partial" : "clean",
+    outcome: analysis.total_pairs
+      ? `${countLabel(analysis.total_pairs, "duplicate-content pair")} found in the sampled pages; ${coverage}.`
+      : `No duplicate main-content pairs found; ${coverage}. This is not evidence of site-wide uniqueness.`,
+    actions: matches.map((pair) => ({
+      priority: pair.kind === "exact" ? 1 : 2,
+      location: `${pair.first_url} vs ${pair.second_url}`,
+      message: `${pair.kind === "exact" ? "Exact" : "Near"} ${pair.language} main-text match (${pair.similarity_percent}%, ${pair.confidence}).`,
+    })),
+    nextStep: analysis.pairs_truncated
+      ? "More matches exist than the result cap; review these pairs and repeat on a narrower page sample."
+      : "Review matched pages manually; this static-text comparison cannot infer search-engine canonicalization or semantic equivalence.",
+  });
+}
+
+export function contentQualityContent(analysis: PageContentQualityAnalysis): string {
+  return toolContent({
+    title: "Sampled main-content quality review",
+    status: analysis.total_findings ? "attention needed" : analysis.coverage_limited ? "partial" : "clean",
+    outcome: analysis.total_findings
+      ? `${countLabel(analysis.total_findings, "potential content-quality finding")} across ${analysis.eligible_pages}/${analysis.sampled_pages} sampled pages.`
+      : `No checked content-quality signals were found across ${analysis.eligible_pages}/${analysis.sampled_pages} sampled pages. This is not a usefulness or site-wide verdict.`,
+    actions: analysis.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: finding.example_urls.join(", "),
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: analysis.findings_truncated
+      ? "More review findings exist than the preview cap. Inspect the affected page families and narrow the sample."
+      : "Inspect flagged pages in a browser, verify their purpose and unique value, then rerun the bounded comparison.",
+  });
+}
+
+export function productClaimContent(analysis: ProductClaimResult): string {
+  return toolContent({
+    title: "Landing-page promises versus registered MCP tools",
+    status: analysis.contradicted_claims > 0 ? "attention needed"
+      : analysis.coverage_limited ? "partial" : "clean",
+    outcome: analysis.catalog_available
+      ? analysis.checked_claims + " explicit or bounded claims checked; " +
+        analysis.consistent_claims + " consistent with the registered " + analysis.surface +
+        " tool catalog, " + analysis.contradicted_claims + " contradicted and " +
+        analysis.unverified_claims + " unverified."
+      : "The MCP tool registry was unavailable, so no claim is verified.",
+    actions: analysis.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: finding.claim,
+      message: finding.message,
+    })),
+    nextStep: "Confirm any discrepancies against current tools/list output and exercise the affected tool. Registry exposure is not proof of successful behavior.",
+  });
+}
+
+export function provenanceContent(analysis: ProvenanceResult): string {
+  return toolContent({
+    title: "Citation, dataset, freshness and methodology evidence",
+    status: analysis.conflicting_declarations > 0 ? "attention needed"
+      : analysis.coverage_limited ? "partial" : "clean",
+    outcome: `${analysis.consistent_declarations} declarations agree with supplied or on-page evidence, ` +
+      `${analysis.conflicting_declarations} have observed inconsistencies, ` +
+      `${analysis.unverified_declarations} remain unverified ` +
+      `across ${analysis.pages_eligible}/${analysis.pages_sampled} supplied pages.`,
+    actions: analysis.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: finding.page_url,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: analysis.findings_truncated
+      ? "More evidence findings exist than the result cap; inspect sources and compare smaller authorized page batches."
+      : "Verify the underlying sources, dataset release and methodology independently before asserting factual accuracy or current freshness.",
+  });
+}
+
+export function intentComparisonContent(analysis: IntentComparison): string {
+  return toolContent({
+    title: "Competitor search-intent evidence comparison",
+    status: analysis.findings.some((finding) => finding.severity === "warning")
+      ? "attention needed" : "partial",
+    outcome: `${analysis.competitors_eligible}/${analysis.competitors_submitted} competitor pages compared from supplied static HTML` +
+      (analysis.expected_intent ? `; selected intent: ${analysis.expected_intent}` : "; no explicit intent selected") +
+      ". This does not predict Google rankings or semantic relevance.",
+    actions: analysis.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Review the indicated headings and static structured signals, check page purpose manually, and use authorized search or analytics data before drawing competitive SEO conclusions.",
+  });
+}
+
+export function supportedSchemaContent(analysis: SupportedSchemaReview): string {
+  return toolContent({
+    title: "Supported JSON-LD structural review",
+    status: analysis.errors > 0 || analysis.warnings > 0 ? "attention needed" : "partial",
+    outcome: `${analysis.supported_nodes} recognized node profiles across ${analysis.blocks_checked}/${analysis.blocks_seen} inspected JSON-LD blocks; ` +
+      `${analysis.errors} syntax/document errors, ${analysis.warnings} review warnings, ${analysis.unverified} unresolved signals. ` +
+      "This does not determine rich-result eligibility.",
+    actions: analysis.findings.map((finding) => ({
+      priority: finding.severity === "error" ? 0 : finding.severity === "warning" ? 1 : 2,
+      location: `JSON-LD block ${finding.block}, node ${finding.node}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: analysis.findings_truncated
+      ? "Review the first prioritized findings and rerun a smaller supported JSON-LD sample for the rest."
+      : "Review structural findings, then use the official Rich Results Test and inspect page content for actual feature eligibility.",
+  });
+}
+
+export function internalLinkContent(analysis: InternalLinkReview): string {
+  return toolContent({
+    title: "Sampled internal links and anchor evidence",
+    status: analysis.missing_anchor_labels > 0 ? "attention needed" : "partial",
+    outcome: `${analysis.internal_links_observed} contextual same-origin links across ${analysis.pages_sampled} supplied pages; ` +
+      `${analysis.linked_sample_targets} sampled targets referenced, ${analysis.missing_anchor_labels} without observed accessible names, ` +
+      `${analysis.generic_anchor_links} generic anchors, ${analysis.unmatched_internal_links} unsupplied target links.`,
+    actions: analysis.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: `Supplied page ${finding.source_page}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Review contextual anchor labels against actual page purpose; supply more authorized target pages to inspect the sample. Unvisited links have not been tested, and lexical overlap is not a ranking signal.",
+  });
+}
+
+export function metadataConsistencyContent(analysis: MetadataReview): string {
+  return toolContent({
+    title: "Sampled metadata consistency review",
+    status: analysis.conflicting_declaration_fields > 0 ? "attention needed" : "partial",
+    outcome: `${analysis.pages_sampled} supplied pages: ${analysis.conflicting_declaration_fields} conflicting field groups, ` +
+      `${analysis.duplicate_declaration_fields} repeated equivalent fields, ` +
+      `${analysis.cross_field_review_leads} cross-field review leads, ` +
+      `${analysis.duplicate_title_groups + analysis.duplicate_description_groups} cross-page metadata groups.`,
+    actions: analysis.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: `Supplied page ${finding.source_page} - ${finding.field}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Review on-page declarations in context. Identical titles and social-metadata variations may be intentional; use authorized crawling and Search Console evidence before attributing search performance.",
+  });
+}
+
+export function multilingualClusterContent(analysis: MultilingualClusterAnalysis): string {
+  const observed = `${analysis.eligible_pages}/${analysis.sampled_pages} supplied pages were eligible`;
+  const count = analysis.total_findings;
+  return toolContent({
+    title: "Multilingual hreflang and canonical clusters",
+    status: count ? "attention needed" : analysis.coverage_limited ? "partial" : "clean",
+    outcome: count
+      ? `${countLabel(count, "cluster finding")} found across the supplied pages; ${observed}.`
+      : `No checked hreflang/canonical conflicts were found; ${observed}. This is not evidence that unseen targets are healthy.`,
+    actions: analysis.findings.map((finding) => ({
+      priority: finding.severity === "error" ? 0 : 1,
+      location: finding.example_urls.join(" ↔ "),
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: analysis.findings_truncated
+      ? "More findings exist than the result cap. Address the displayed conflicts and retest."
+      : "Review observed conflicts and provide additional authorized localized page HTML to verify any unseen reciprocal links.",
   });
 }
 

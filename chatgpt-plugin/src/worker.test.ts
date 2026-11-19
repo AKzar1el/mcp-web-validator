@@ -314,7 +314,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers nine accurately annotated tools", async () => {
+  it("discovers fifteen accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -326,6 +326,12 @@ describe("hosted tool contract", () => {
       "audit_public_webpage",
       "audit_public_site",
       "compare_site_audits",
+      "verify_product_claims",
+      "verify_content_provenance",
+      "compare_competitor_intent",
+      "validate_supported_schema",
+      "review_internal_links",
+      "review_metadata_consistency",
     ]);
     const noAuthSecuritySchemes = [{ type: "noauth" }];
     for (const tool of tools) {
@@ -1134,7 +1140,613 @@ describe("public webpage audit", () => {
   });
 });
 
+describe("P1-04 product promise verification through hosted MCP HTTP", () => {
+  const advertised = [
+    "validate_html", "audit_public_webpage", "audit_public_site", "validate_css",
+    "audit_seo_metadata", "check_broken_links", "validate_schema_markup",
+    "generate_validation_report",
+  ];
+  const landing = (codes = advertised, limit = 8) =>
+    '<!doctype html><html><body><main><section><h2>Public ChatGPT capabilities</h2>'
+      + codes.map((name) => '<p><code>' + name + '</code></p>').join("")
+      + '</section><div>Site batch Up to ' + limit + ' pages</div>'
+      + '<p>The hosted app is read-only. It cannot create screenshots.</p>'
+      + '<p>The separate local MCP is the only surface for responsive screenshots.</p>'
+      + '</main></body></html>';
+
+  it("compares actual registered hosted tools, schema bounds and read-only metadata", async () => {
+    const exposed = await listTools();
+    expect(exposed.map((tool) => tool.name)).toContain("verify_product_claims");
+    expect(exposed.map((tool) => tool.name)).toContain("audit_public_site");
+    const result = await callTool("verify_product_claims", { html: landing() });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      scope: "landing_html_vs_registered_mcp_metadata",
+      surface: "hosted",
+      catalog_available: true,
+      tool_claims_checked: 8,
+      contradicted_claims: 0,
+      unverified_claims: 0,
+      coverage_limited: false,
+      site_batch_limit: { advertised: 8, registered: 8 },
+    });
+    expect(result.structuredContent.consistent_claims).toBeGreaterThanOrEqual(8);
+    expect(result.structuredContent.registered_tools).toBe(exposed.length);
+    expect(result.structuredContent.overview.status).toBe("passed");
+  });
+
+  it("flags invented public tools and inflated site batches without echoing input secrets", async () => {
+    const html = landing([...advertised, "impossible_ai_rank_tracker"], 300)
+      .replace("</main>", '<script>FAKE_PRODUCT_SECRET</script></main>');
+    const result = await callTool("verify_product_claims", { html });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.contradicted_claims).toBe(2);
+    expect(result.structuredContent.findings.map((item: { code: string }) => item.code))
+      .toEqual(expect.arrayContaining(["product.tool_missing", "product.site_batch_overclaim"]));
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(JSON.stringify(result)).not.toContain("FAKE_PRODUCT_SECRET");
+  });
+
+  it("fetches exactly one authorized public product HTML document without extra requests", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      calls.push(url);
+      if (url === "https://example.com/product") return new Response(landing(), {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+      throw new Error("Unexpected fetch " + url);
+    }));
+    const result = await callTool("verify_product_claims", { public_url: "https://example.com/product" });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.tool_claims_checked).toBe(8);
+    expect(calls).toEqual(["https://example.com/product"]);
+  });
+
+  it("refuses missing or simultaneous HTML+URL without fetching", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    for (const args of [{}, {
+      html: landing(), public_url: "https://example.com/product",
+    }]) {
+      const result = await callTool("verify_product_claims", args);
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent.catalog_available).toBe(false);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("P1-05 provenance verification through hosted MCP HTTP", () => {
+  const page = "https://example.com/report";
+  const source = "https://doi.org/10.1000/sample";
+  const method = "https://example.com/methods";
+  const manifest = {
+    as_of: "2026-11-19",
+    sources: [{ id: "study_2026", url: source }],
+    datasets: [{ id: "query_data", version: "v2", as_of: "2026-11-10",
+      max_age_days: 14, methodology_id: "weighted" }],
+    methodologies: [{ id: "weighted", url: method }],
+  };
+  const html = (sourceTarget = source, version = "v2", snapshot = "2026-11-10") =>
+    '<html lang=en><head><meta property=article:published_time content=2026-11-01>'
+      + '<meta property=article:modified_time content=2026-11-10></head><body><main>'
+      + '<a rel=cite data-citation-id=study_2026 href="' + sourceTarget + '">Source</a>'
+      + '<div data-dataset-id=query_data data-dataset-version="' + version
+      + '" data-dataset-as-of="' + snapshot + '" data-methodology-id=weighted></div>'
+      + '<a data-methodology-id=weighted href="' + method + '">Method</a></main></body></html>';
+
+  it("uses the real Worker tool and does not fetch citation or dataset URLs", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const exposed = await listTools();
+    const tool = exposed.find((item) => item.name === "verify_content_provenance");
+    expect(tool?.annotations).toMatchObject({
+      readOnlyHint: true, openWorldHint: false, destructiveHint: false,
+    });
+    const result = await callTool("verify_content_provenance", {
+      pages: [{ url: page, htmlContent: html() }], evidence: manifest,
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      scope: "supplied_static_html_and_evidence", pages_sampled: 1, pages_eligible: 1,
+      citations_observed: 1, datasets_observed: 1, methodologies_observed: 1,
+      conflicting_declarations: 0, unverified_declarations: 0, coverage_limited: false,
+    });
+    expect(result.structuredContent.overview.status).toBe("passed");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports caller-evidence contradictions and preserves a bounded redacted response", async () => {
+    const result = await callTool("verify_content_provenance", {
+      pages: [{ url: page, htmlContent: html("https://example.com/alternate", "v99") }],
+      evidence: manifest,
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.conflicting_declarations).toBeGreaterThanOrEqual(2);
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(result.structuredContent.findings.map((finding: { code: string }) => finding.code))
+      .toEqual(expect.arrayContaining([
+        "citation_target_differs_from_supplied_evidence", "dataset_version_conflict",
+      ]));
+    expect(result.content[0].text).not.toContain(html());
+  });
+
+  it("without an evidence manifest reports uncertainty rather than a false clean verdict", async () => {
+    const result = await callTool("verify_content_provenance", {
+      pages: [{ url: page, htmlContent: html() }],
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.conflicting_declarations).toBe(0);
+    expect(result.structuredContent.unverified_declarations).toBeGreaterThan(0);
+    expect(result.structuredContent.coverage_limited).toBe(true);
+    expect(result.structuredContent.overview.status).toBe("partial");
+  });
+
+  it("rejects query-bearing input URL labels and oversized HTML through MCP validation", async () => {
+    for (const arguments_ of [
+      { pages: [{ url: page + "?token=FAKE_SECRET", htmlContent: html() }] },
+      { pages: [{ url: page, htmlContent: "x".repeat(200_001) }] },
+    ]) {
+      const result = await callTool("verify_content_provenance", arguments_);
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).not.toContain("FAKE_SECRET");
+    }
+  });
+});
+
+describe("P1-06 competitor intent comparison through hosted MCP HTTP", () => {
+  const primary = {
+    url: "https://publisher.test/guide",
+    htmlContent: '<html><head><title>Posture lesson</title></head><body>'
+      + '<nav><a href="/checkout">Buy now</a></nav>'
+      + '<main><h1>Posture overview</h1><p>Healthier desk work tips.</p></main></body></html>',
+  };
+  const shop = (host: string) => ({
+    url: "https://" + host + ".test/chairs",
+    htmlContent: '<html><head><title>Best ergonomic chair</title>'
+      + '<script type="application/ld+json">{"@type":"Product","offers":{"@type":"Offer","price":99}}</script>'
+      + '</head><body><main><h1>Best ergonomic chair</h1>'
+      + '<a href="/checkout">Buy now</a></main></body></html>',
+  });
+
+  it("lists the hosted tool with offline read-only annotations and calls it without fetch", async () => {
+    const fetching = vi.fn();
+    vi.stubGlobal("fetch", fetching);
+    const tools = await listTools();
+    expect(tools.find((tool) => tool.name === "compare_competitor_intent")?.annotations)
+      .toMatchObject({ readOnlyHint: true, openWorldHint: false, destructiveHint: false });
+    const result = await callTool("compare_competitor_intent", {
+      primary, competitors: [shop("shop-one"), shop("shop-two")],
+      expected_intent: "commercial", query: "best ergonomic chair",
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      scope: "caller_supplied_static_html_only",
+      competitors_submitted: 2, competitors_eligible: 2,
+      competitors_with_intent_signals: 2,
+      coverage_limited: true,
+    });
+    expect(result.structuredContent.findings.map((f: { code: string }) => f.code))
+      .toEqual(expect.arrayContaining([
+        "primary_intent_signal_gap", "primary_heading_query_gap",
+      ]));
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(fetching).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("Posture overview");
+    expect(JSON.stringify(result)).not.toContain("/chairs");
+  });
+
+  it("keeps absent intent and query evidence explicitly partial", async () => {
+    const result = await callTool("compare_competitor_intent", {
+      primary, competitors: [shop("shop-one")],
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.query_supplied).toBe(false);
+    expect(result.structuredContent.usable_query_terms).toBe(0);
+    expect(result.structuredContent.coverage_limited).toBe(true);
+    expect(result.structuredContent.overview.status).toBe("partial");
+  });
+
+  it("rejects same-origin, invalid token-bearing URL, and oversize input safely", async () => {
+    for (const args of [
+      { primary, competitors: [{ ...shop("shop-one"), url: "https://publisher.test/other" }] },
+      { primary, competitors: [{ ...shop("shop-one"), url: "https://shop-one.test/chairs?secret=FAKE_TOKEN" }] },
+      { primary, competitors: [{ ...shop("shop-one"), htmlContent: "x".repeat(150_001) }] },
+    ]) {
+      const result = await callTool("compare_competitor_intent", args);
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).not.toContain("FAKE_TOKEN");
+    }
+  });
+
+  it("does not hallucinate a search-engine verdict from one supplied competitor", async () => {
+    const result = await callTool("compare_competitor_intent", {
+      primary, competitors: [shop("shop-one")], expected_intent: "informational",
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.coverage_limited).toBe(true);
+    expect(result.structuredContent.limitations.join(" ")).toContain("not Google's interpretation");
+    expect(result.structuredContent.competitors_submitted).toBe(1);
+  });
+});
+
+describe("P1-07 supported structured-data review through hosted MCP HTTP", () => {
+  const valid = '<html><head><script type="application/ld+json">'
+    + '{"@context":"https://schema.org","@graph":['
+    + '{"@type":"Article","headline":"Useful article","author":{"@type":"Person","name":"A"}},'
+    + '{"@type":"Product","name":"Chair","offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"}}'
+    + ']}</script></head><body><main>Human-visible content.</main></body></html>';
+  const broken = '<html><head><script type="application/ld+json">'
+    + '{"@context":"https://schema.org","@type":"Product","name":43,'
+    + '"offers":{"@type":"Offer","price":"NO_PRICE","priceCurrency":"euros"}}'
+    + '</script></head></html>';
+
+  it("discovers the no-network tool and invokes it with actual HTTP MCP messages", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const tools = await listTools();
+    expect(tools.find((tool) => tool.name === "validate_supported_schema")?.annotations)
+      .toMatchObject({ readOnlyHint: true, openWorldHint: false, destructiveHint: false });
+    const result = await callTool("validate_supported_schema", { html: valid });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      scope: "bounded_jsonld_structural_profiles",
+      blocks_seen: 1, supported_nodes: 2, errors: 0, warnings: 0,
+      coverage_limited: true,
+    });
+    expect(result.structuredContent.types_checked).toEqual(["Article", "Product"]);
+    expect(result.structuredContent.overview.status).toBe("partial");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("Useful article");
+  });
+
+  it("returns fixed structural review findings without echoing price/name secrets", async () => {
+    const result = await callTool("validate_supported_schema", { html: broken });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.errors).toBe(0);
+    expect(result.structuredContent.warnings).toBeGreaterThanOrEqual(3);
+    expect(result.structuredContent.findings.map((finding: { code: string }) => finding.code))
+      .toEqual(expect.arrayContaining([
+        "invalid_field_type", "invalid_price", "invalid_currency",
+      ]));
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(JSON.stringify(result)).not.toContain("NO_PRICE");
+  });
+
+  it("rejects UTF-8 oversized HTML and preserves the old syntax-only API", async () => {
+    const invalid = await callTool("validate_supported_schema", { html: "é".repeat(125_001) });
+    expect(invalid.isError).toBe(true);
+    const old = await callTool("validate_schema_markup", { html: broken });
+    expect(old.isError).toBeUndefined();
+    expect(old.structuredContent.blocks_checked).toBe(1);
+    expect(old.structuredContent.total_issues).toBe(0);
+    const malformed = await callTool("validate_supported_schema", {
+      html: '<script type="application/ld+json">{"FAKE_SECRET":,}</script>',
+    });
+    expect(malformed.isError).toBeUndefined();
+    expect(malformed.structuredContent.errors).toBe(1);
+    expect(JSON.stringify(malformed)).not.toContain("FAKE_SECRET");
+  });
+
+  it("leaves unrecognized remote contexts and unsupported types unverified", async () => {
+    const result = await callTool("validate_supported_schema", {
+      html: '<script type="application/ld+json">'
+        + '{"@context":"https://FAKE_PRIVATE.example/context","@type":"Product","name":"SECRET"}'
+        + '</script>',
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.supported_nodes).toBe(0);
+    expect(result.structuredContent.context_unverified_nodes).toBeGreaterThan(0);
+    expect(result.structuredContent.coverage_limited).toBe(true);
+    expect(result.structuredContent.overview.status).toBe("partial");
+    expect(JSON.stringify(result)).not.toContain("FAKE_PRIVATE");
+  });
+});
+
+describe("P1-08 contextual internal-link review through hosted MCP HTTP", () => {
+  const source = {
+    url: "https://example.com/guides/work",
+    htmlContent: '<html><head><title>Work guide</title></head><body>'
+      + '<nav><a href="/products/chairs">Global navigation</a></nav>'
+      + '<main><h1>Work guide</h1>'
+      + '<a href="/products/chairs">read more</a>'
+      + '<a href="/products/chairs"><img alt="" src="chair.png"></a>'
+      + '<a href="https://external.test/research">External research</a>'
+      + '</main></body></html>',
+  };
+  const destination = {
+    url: "https://example.com/products/chairs",
+    htmlContent: '<html><head><title>Office ergonomic chairs</title></head>'
+      + '<main><h1>Ergonomic office chairs</h1></main></html>',
+  };
+
+  it("discovers a read-only no-fetch tool and compares observed link/anchor evidence", async () => {
+    const mockedFetch = vi.fn();
+    vi.stubGlobal("fetch", mockedFetch);
+    const advertised = await listTools();
+    expect(advertised.find((tool) => tool.name === "review_internal_links")?.annotations)
+      .toMatchObject({ readOnlyHint: true, openWorldHint: false, destructiveHint: false });
+    const result = await callTool("review_internal_links", { pages: [source, destination] });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      scope: "caller_supplied_same_origin_html_only",
+      pages_sampled: 2, pages_eligible: 2,
+      internal_links_observed: 2, external_links_observed: 1,
+      linked_sample_targets: 1, missing_anchor_labels: 1,
+      generic_anchor_links: 1, coverage_limited: true,
+    });
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(mockedFetch).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("/products/chairs");
+  });
+
+  it("treats unsupplied and query-variant destinations as unknown, never broken", async () => {
+    const input = { ...source,
+      htmlContent: '<html><main><a href="/not-supplied">Catalog</a>'
+        + '<a href="/products/chairs?token=FAKE_TOKEN">Chairs</a></main></html>' };
+    const result = await callTool("review_internal_links", { pages: [input, destination] });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.unmatched_internal_links).toBe(2);
+    expect(result.structuredContent.linked_sample_targets).toBe(0);
+    expect(result.structuredContent.coverage_limited).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("FAKE_TOKEN");
+  });
+
+  it("rejects different origins and unsafe source labels without echoing secrets", async () => {
+    for (const pages of [
+      [source, { ...destination, url: "https://other.example/x" }],
+      [source, { ...destination, url: destination.url + "?token=FAKE_TOKEN" }],
+      [source, { ...destination, url: source.url }],
+    ]) {
+      const result = await callTool("review_internal_links", { pages });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).not.toContain("FAKE_TOKEN");
+    }
+  });
+
+  it("rejects UTF-8 oversized documents and preserves existing link checker behavior", async () => {
+    const result = await callTool("review_internal_links", { pages: [
+      source, { ...destination, htmlContent: "é".repeat(80_001) },
+    ] });
+    expect(result.isError).toBe(true);
+    const tools = await listTools();
+    expect(tools.some((tool) => tool.name === "check_broken_links")).toBe(true);
+  });
+});
+
+describe("P1-09 metadata consistency through hosted MCP HTTP", () => {
+  const article = (title = "Site title") => ({
+    url: "https://example.com/article",
+    htmlContent: '<html><head><title>' + title + '</title>'
+      + '<meta name="description" content="Unique metadata summary">'
+      + '<link rel="canonical" href="/article">'
+      + '<meta property="og:title" content="Site title">'
+      + '</head><body><main>Text</main></body></html>',
+  });
+  const other = {
+    url: "https://example.com/product",
+    htmlContent: '<html><head><title>Other title</title>'
+      + '<link rel="canonical" href="/product">'
+      + '</head><body><main>Text</main></body></html>',
+  };
+
+  it("discovers the read-only offline tool and invokes it without a page fetch", async () => {
+    const fetching = vi.fn();
+    vi.stubGlobal("fetch", fetching);
+    const tools = await listTools();
+    expect(tools.find((tool) => tool.name === "review_metadata_consistency")?.annotations)
+      .toMatchObject({ readOnlyHint: true, openWorldHint: false, destructiveHint: false });
+    const result = await callTool("review_metadata_consistency", {
+      pages: [article(), other],
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      scope: "caller_supplied_same_origin_metadata_only",
+      pages_sampled: 2, conflicting_declaration_fields: 0,
+      duplicate_declaration_fields: 0, coverage_limited: true,
+    });
+    expect(result.structuredContent.overview.status).toBe("partial");
+    expect(fetching).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("Unique metadata summary");
+  });
+
+  it("reports incompatible declarations and keeps social differences informational", async () => {
+    const mutated = { ...article(),
+      htmlContent: article().htmlContent.replace("</title>", "</title><title>Second title</title>")
+        .replace('content="Site title"', 'content="Different social title"') };
+    const result = await callTool("review_metadata_consistency", { pages: [mutated] });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.conflicting_declaration_fields).toBe(1);
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(result.structuredContent.findings.some((f: { code: string }) =>
+      f.code === "conflicting_declaration")).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("Second title");
+  });
+
+  it("retains cross-page duplicate groups as review leads, not automatic SEO failures", async () => {
+    const result = await callTool("review_metadata_consistency", {
+      pages: [article(), { ...other,
+        htmlContent: '<html><head><title>Site title</title>'
+          + '<meta name="description" content="Unique metadata summary">'
+          + '<link rel="canonical" href="/product"></head></html>' }],
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.duplicate_title_groups).toBe(1);
+    expect(result.structuredContent.duplicate_description_groups).toBe(1);
+    expect(result.structuredContent.conflicting_declaration_fields).toBe(0);
+    expect(result.structuredContent.coverage_limited).toBe(true);
+  });
+
+  it("rejects unsafe labels, duplicate pages, mixed origins and oversized UTF-8 inputs", async () => {
+    for (const pages of [
+      [article(), { ...other, url: other.url + "?token=FAKE_SECRET" }],
+      [article(), article()],
+      [article(), { ...other, url: "https://other.example.com/product" }],
+      [{ ...article(), htmlContent: "é".repeat(90_001) }],
+    ]) {
+      const result = await callTool("review_metadata_consistency", { pages });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).not.toContain("FAKE_SECRET");
+    }
+  });
+});
+
 describe("public site audit", () => {
+  it("keeps unrelated empty pages separate and detects unpunctuated repeated main content via MCP (#463)", async () => {
+    const root = "https://example.com/";
+    const paths = ["/privacy", "/contact", "/products/a", "/products/b", "/products/c"];
+    const common = Array.from({ length: 115 }, (_, i) => "sharedtemplate" + i).join(" ");
+    const visited: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      visited.push(url);
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response("<urlset>" + ["/", ...paths].map((p) =>
+          "<url><loc>https://example.com" + p + "</loc></url>").join("") + "</urlset>",
+          { headers: { "content-type": "application/xml" } });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      const pathname = new URL(url).pathname;
+      if (pathname === "/") return new Response(
+        "<html lang=en><body><main><p>" + Array.from({ length: 90 }, (_, i) =>
+          "homepage" + i).join(" ") + "</p></main></body></html>",
+        { headers: { "content-type": "text/html" } });
+      if (pathname === "/privacy" || pathname === "/contact") {
+        return new Response("<html lang=en><body><main></main></body></html>",
+          { headers: { "content-type": "text/html" } });
+      }
+      if (pathname.startsWith("/products/")) return new Response(
+        "<html lang=en><body><main><p>" + common + "</p><p>"
+          + Array.from({ length: 15 }, (_, i) => "unique" + pathname.slice(-1) + i).join(" ")
+          + "</p></main></body></html>", { headers: { "content-type": "text/html" } });
+      throw new Error("Unexpected URL " + url);
+    }));
+    const result = await callTool("audit_public_site", { site_url: root, max_pages: 6 });
+    expect(result.isError).toBeUndefined();
+    const quality = result.structuredContent.content_quality;
+    expect(quality.empty_main_pages).toBe(2);
+    expect(quality.repeated_boilerplate_pages).toBe(3);
+    expect(quality.findings.map((f: { code: string }) => f.code)).not.toContain("content.family_empty");
+    expect(quality.findings.map((f: { code: string }) => f.code)).toContain("content.family_repeated_boilerplate");
+    expect(JSON.stringify(result)).not.toContain("sharedtemplate51");
+    expect(visited.filter((url) => url === root || paths.some((path) => url === root.slice(0, -1) + path)))
+      .toHaveLength(6);
+  });
+
+  it("returns P1-03 empty-family review evidence from a real hosted MCP request without extra fetches", async () => {
+    const root = "https://example.com/";
+    const a = "https://example.com/faq/a", b = "https://example.com/faq/b";
+    const visited: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      visited.push(url);
+      if (url === "https://example.com/robots.txt") return new Response(
+        "User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+      if (url === "https://example.com/sitemap.xml") return new Response(
+        "<urlset><url><loc>" + root + "</loc></url><url><loc>" + a + "</loc></url><url><loc>" + b + "</loc></url></urlset>",
+        { headers: { "content-type": "application/xml" } });
+      if (url === root) return new Response(
+        "<!doctype html><html lang=en><head><title>Root</title></head><body><main>"
+          + Array.from({ length: 95 }, (_, i) => "original" + i).join(" ")
+          + "</main></body></html>", { headers: { "content-type": "text/html" } });
+      if (url === a || url === b) return new Response(
+        "<!doctype html><html lang=en><head><title>FAQ</title></head><body><nav>Useful navigation</nav><main></main></body></html>",
+        { headers: { "content-type": "text/html" } });
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error("Unexpected fetch: " + url);
+    }));
+    const response = await callTool("audit_public_site", { site_url: root, max_pages: 3 });
+    expect(response.isError).toBeUndefined();
+    expect(response.structuredContent.content_quality).toMatchObject({
+      scope: "sampled_pages_only", sampled_pages: 3, eligible_pages: 3, empty_main_pages: 2,
+    });
+    const quality = response.structuredContent.content_quality;
+    expect(quality.findings.map((f: { code: string }) => f.code)).toContain("content.family_empty");
+    expect(response.structuredContent.overview.counts).toContainEqual(expect.objectContaining({
+      key: "content_quality_findings", value: quality.total_findings,
+    }));
+    expect(response.structuredContent.pages.every((p: Record<string, unknown>) => !("mainContent" in p))).toBe(true);
+    expect(visited.filter((url) => url === root || url === a || url === b)).toEqual([root, a, b]);
+  });
+
+  it("exposes P1-02 multilingual cluster errors in a real MCP HTTP response without extra fetches", async () => {
+    const english = "https://example.com/";
+    const german = "https://example.com/de/";
+    const visited: string[] = [];
+    const page = (language: string, refs: Array<[string, string]>, canonical: string) =>
+      '<!doctype html><html lang="' + language + '"><head><title>Localized page</title>'
+        + '<link rel="canonical" href="' + canonical + '">'
+        + refs.map(([locale, url]) => '<link rel="alternate" hreflang="' + locale + '" href="' + url + '">').join("")
+        + '</head><body><main>Localized content</main></body></html>';
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      visited.push(url);
+      if (url === "https://example.com/robots.txt") return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response("<urlset><url><loc>" + english + "</loc></url><url><loc>" + german + "</loc></url></urlset>", { headers: { "content-type": "application/xml" } });
+      }
+      if (url === english) return new Response(page("en", [["en", english], ["de", german]], english), { headers: { "content-type": "text/html" } });
+      if (url === german) return new Response(page("de", [["de", german]], german), { headers: { "content-type": "text/html" } });
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error("Unexpected fetch: " + url);
+    }));
+
+    const response = await callTool("audit_public_site", { site_url: english, max_pages: 2 });
+    expect(response.isError).toBeUndefined();
+    const evidence = response.structuredContent.multilingual_clusters;
+    expect(evidence).toMatchObject({
+      scope: "sampled_pages_only", sampled_pages: 2, eligible_pages: 2,
+      locales_observed: 2, unobserved_targets: 0, coverage_limited: false,
+    });
+    expect(evidence.findings.map((item: { code: string }) => item.code))
+      .toContain("multilingual.return_link_missing");
+    expect(response.structuredContent.overview.status).toBe("needs_attention");
+    expect(response.structuredContent.overview.counts).toContainEqual(expect.objectContaining({
+      key: "multilingual_cluster_findings", value: evidence.total_findings,
+    }));
+    expect(response.content[0].text).toMatch(/multilingual/i);
+    expect(visited.filter((url) => url === english || url === german)).toEqual([english, german]);
+  });
+
+  it("reports same-language duplicate main content through the real hosted HTTP MCP contract", async () => {
+    const main = Array.from({ length: 130 }, (_, i) => `releaseconcept${i}`).join(" ");
+    const document = (lang: string) => `<!doctype html><html lang="${lang}"><head><title>Content page</title></head><body><nav>${"navigation ".repeat(130)}</nav><main><p>${main}</p></main></body></html>`;
+    const visited: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      visited.push(url);
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response("<urlset><url><loc>https://example.com/</loc></url><url><loc>https://example.com/copy</loc></url></urlset>", { headers: { "content-type": "application/xml" } });
+      }
+      if (url === "https://example.com/") return new Response(document("en-US"), { headers: { "content-type": "text/html" } });
+      if (url === "https://example.com/copy") return new Response(document("en-GB"), { headers: { "content-type": "text/html" } });
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error("Unexpected URL " + url);
+    }));
+    const result = await callTool("audit_public_site", { site_url: "https://example.com/", max_pages: 2 });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.content_duplicates).toMatchObject({
+      scope: "sampled_pages_only", eligible_pages: 2, total_pairs: 1,
+      pairs: [{ kind: "exact", language: "en", similarity_percent: 100 }],
+    });
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(result.structuredContent.overview.counts).toContainEqual(expect.objectContaining({
+      key: "content_duplicate_pairs", value: 1,
+    }));
+    expect(result.content[0].text).toMatch(/duplicate/i);
+    expect(JSON.stringify(result)).not.toContain("releaseconcept50");
+    expect(visited.filter((url) => url === "https://example.com/" || url === "https://example.com/copy")).toEqual([
+      "https://example.com/", "https://example.com/copy",
+    ]);
+  });
+
   it("returns bounded cross-page canonical and sitemap/noindex evidence using already fetched HTML", async () => {
     const requested = new Set<string>();
     vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {

@@ -13,6 +13,7 @@ const repositoryRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)
 const scratch = await mkdtemp(path.join(tmpdir(), "mcp-web-validator-installed-smoke-"));
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 let client;
+let phase = "pack";
 
 try {
   // Use the distributable, not repository dist/index.js or source node_modules.
@@ -27,14 +28,15 @@ try {
 
   const consumer = path.join(scratch, "consumer");
   await mkdir(consumer);
+  phase = "dependency_install";
   await execFileAsync(
     npm,
     [
       "install", "--prefix", consumer, "--omit=dev",
-      "--ignore-scripts", "--no-audit", "--no-fund",
+      "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-offline",
       path.join(scratch, packages[0].filename),
     ],
-    { cwd: scratch, shell: process.platform === "win32" ? path.join(process.env.SystemRoot ?? "C:/Windows", "System32", "cmd.exe") : false, timeout: 120_000, maxBuffer: 2_000_000 },
+    { cwd: scratch, shell: process.platform === "win32" ? path.join(process.env.SystemRoot ?? "C:/Windows", "System32", "cmd.exe") : false, timeout: process.platform === "win32" ? 240_000 : 120_000, maxBuffer: 2_000_000 },
   );
 
   const installedEntry = path.join(
@@ -48,18 +50,21 @@ try {
     stderr: "pipe",
   });
   client = new Client({ name: "installed-package-smoke", version: "1.0.0" });
+  phase = "mcp_initialize";
   await client.connect(transport);
 
+  phase = "mcp_tools_list";
   const { tools } = await client.listTools();
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "css.local", "html.local", "html.url", "links.broken",
-      "report.validation", "schema.markup", "screenshot.capture", "seo.metadata",
+      "audit.history", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "links.broken", "product.claims",
+      "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links",
     ],
   );
 
   // No external validator or third-party website is contacted by this tool.
+  phase = "seo_metadata";
   const localAudit = await client.callTool({
     name: "seo.metadata",
     arguments: {
@@ -69,26 +74,195 @@ try {
   assert.notEqual(localAudit.isError, true);
   assert.ok(Array.isArray(localAudit.structuredContent?.issues));
 
-  const fixture = path.join(scratch, "fixture.html");
-  const outputDir = path.join(scratch, "screenshots");
-  await writeFile(fixture, "<!doctype html><title>Installed browser smoke</title><h1>Installed browser smoke</h1>");
-
-  // The Ubuntu CI job configures an executable-specific AppArmor rule first;
-  // the browser must still launch with its sandbox intact.
-  const screenshot = await client.callTool({
-    name: "screenshot.capture",
+  const sampleWords = Array.from({ length: 120 }, (_, i) => `installedtestword${i}`).join(" ");
+  phase = "content_duplicates";
+  const duplicateContent = await client.callTool({
+    name: "content.duplicates",
     arguments: {
-      targetPath: fixture,
-      outputDir,
-      viewports: [{ name: "installed", width: 800, height: 600 }],
+      pages: ["a", "b"].map((page) => ({
+        url: `https://example.test/${page}`,
+        htmlContent: `<!doctype html><html lang="en"><main><p>${sampleWords}</p></main></html>`,
+      })),
     },
   });
-  assert.notEqual(screenshot.isError, true, JSON.stringify(screenshot.structuredContent));
-  assert.equal(screenshot.structuredContent?.screenshots?.length, 1);
-  const imagePath = screenshot.structuredContent.screenshots[0].outputPath;
-  assert.ok((await stat(imagePath)).size > 0);
-  console.log("Installed npm tarball MCP handshake, offline audit and sandboxed screenshot: PASS");
+  assert.notEqual(duplicateContent.isError, true);
+  assert.equal(duplicateContent.structuredContent?.total_pairs, 1);
+  assert.equal(duplicateContent.structuredContent?.pairs?.[0]?.kind, "exact");
+  assert.ok(!JSON.stringify(duplicateContent).includes("installedtestword50"));
+
+  const source = "https://doi.org/10.1000/install-smoke";
+  phase = "content_provenance";
+  const provenance = await client.callTool({
+    name: "content.provenance",
+    arguments: {
+      pages: [{
+        url: "https://example.test/report",
+        htmlContent: '<html><main><a rel=cite data-citation-id=source_2026 href="' + source
+          + '">Citation</a></main></html>',
+      }],
+      evidence: { sources: [{ id: "source_2026", url: source }] },
+    },
+  });
+  assert.notEqual(provenance.isError, true);
+  assert.equal(provenance.structuredContent?.citations_observed, 1);
+  assert.equal(provenance.structuredContent?.consistent_declarations, 1);
+  assert.equal(provenance.structuredContent?.conflicting_declarations, 0);
+
+  phase = "content_metadata";
+  const metadata = await client.callTool({
+    name: "content.metadata",
+    arguments: { pages: [
+      { url: "https://example.test/article",
+        htmlContent: '<html><head><title>Example</title>'
+          + '<link rel="canonical" href="/article">'
+          + '<meta property="og:url" content="https://example.test/article">'
+          + '</head></html>' },
+    ] },
+  });
+  assert.notEqual(metadata.isError, true);
+  assert.equal(metadata.structuredContent?.pages_sampled, 1);
+  assert.equal(metadata.structuredContent?.conflicting_declaration_fields, 0);
+  assert.equal(metadata.structuredContent?.cross_field_review_leads, 0);
+  assert.equal(metadata.structuredContent?.coverage_limited, true);
+
+  phase = "schema_supported";
+  const supported = await client.callTool({
+    name: "schema.supported",
+    arguments: {
+      htmlContent: '<html><head><script type="application/ld+json">'
+        + '{"@context":"https://schema.org","@type":"Product","name":"Chair",'
+        + '"offers":{"@type":"Offer","price":0,"priceCurrency":"EUR"}}'
+        + '</script></head><body><main>Chair</main></body></html>',
+    },
+  });
+  assert.notEqual(supported.isError, true);
+  assert.equal(supported.structuredContent?.supported_nodes, 1);
+  assert.equal(supported.structuredContent?.warnings, 0);
+  assert.equal(supported.structuredContent?.errors, 0);
+  assert.equal(supported.structuredContent?.coverage_limited, true);
+
+  phase = "site_links";
+  const contextual = await client.callTool({
+    name: "site.links",
+    arguments: { pages: [
+      { url: "https://example.test/guides",
+        htmlContent: '<html><head><title>Guides</title></head><main><h1>Guides</h1>'
+          + '<a href="/chairs">Office chairs</a></main></html>' },
+      { url: "https://example.test/chairs",
+        htmlContent: '<html><head><title>Office chairs</title></head><main><h1>Office chairs</h1></main></html>' },
+    ] },
+  });
+  assert.notEqual(contextual.isError, true);
+  assert.equal(contextual.structuredContent?.internal_links_observed, 1);
+  assert.equal(contextual.structuredContent?.linked_sample_targets, 1);
+  assert.equal(contextual.structuredContent?.missing_anchor_labels, 0);
+  assert.equal(contextual.structuredContent?.coverage_limited, true);
+
+  phase = "content_competitors";
+  const intent = await client.callTool({
+    name: "content.competitors",
+    arguments: {
+      primary: { url: "https://example.test/guide",
+        htmlContent: '<html><head><title>Posture guide</title></head><main><h1>Posture</h1></main></html>' },
+      competitors: [{ url: "https://competitor.test/chairs",
+        htmlContent: '<html><head><title>Ergonomic chairs</title>'
+          + '<script type="application/ld+json">{"@type":"Product"}</script></head>'
+          + '<main><h1>Chairs</h1></main></html>' }],
+      expected_intent: "commercial",
+    },
+  });
+  assert.notEqual(intent.isError, true);
+  assert.equal(intent.structuredContent?.competitors_eligible, 1);
+  assert.equal(intent.structuredContent?.competitors_with_intent_signals, 1);
+  assert.equal(intent.structuredContent?.coverage_limited, true);
+
+  phase = "product_claims";
+  const advertised = await client.callTool({
+    name: "product.claims",
+    arguments: {
+      htmlContent: '<html><body><main><section><h2>Local MCP tools</h2>'
+        + '<code>screenshot.capture</code><code>missing_fake_tool</code></section>'
+        + '<p>The local MCP provides responsive screenshots.</p></main></body></html>',
+    },
+  });
+  assert.notEqual(advertised.isError, true);
+  assert.equal(advertised.structuredContent?.catalog_available, true);
+  assert.equal(advertised.structuredContent?.contradicted_claims, 1);
+  assert.ok(advertised.structuredContent?.findings?.some((f) =>
+    f.code === "product.tool_missing" && f.claim === "missing_fake_tool"));
+
+  phase = "content_quality";
+  const quality = await client.callTool({
+    name: "content.quality",
+    arguments: {
+      pages: ["one", "two"].map((page) => ({
+        url: `https://example.test/products/${page}`,
+        htmlContent: "<!doctype html><html lang=en><main></main></html>",
+      })),
+    },
+  });
+  assert.notEqual(quality.isError, true);
+  assert.equal(quality.structuredContent?.empty_main_pages, 2);
+  assert.ok(quality.structuredContent?.findings?.some((f) => f.code === "content.family_empty"));
+
+  const en = "https://example.test/en/", de = "https://example.test/de/";
+  const hreflangHead = (canonical, alternates) =>
+    '<html lang="en"><head><link rel="canonical" href="' + canonical + '">'
+    + alternates.map(([locale, target]) =>
+      '<link rel="alternate" hreflang="' + locale + '" href="' + target + '">').join("")
+    + '</head><body><main>Test page</main></body></html>';
+  phase = "site_hreflang";
+  const multilingual = await client.callTool({
+    name: "site.hreflang",
+    arguments: {
+      pages: [
+        { url: en, htmlContent: hreflangHead(en, [["en", en], ["de", de]]) },
+        { url: de, htmlContent: hreflangHead(de, [["de", de]]) },
+      ],
+    },
+  });
+  assert.notEqual(multilingual.isError, true);
+  assert.ok(multilingual.structuredContent?.findings?.some((finding) =>
+    finding.code === "multilingual.return_link_missing"));
+
+  if (process.env.MCP_SMOKE_SKIP_SCREENSHOT === "1") {
+    console.log("Installed npm tarball MCP handshake and offline feature tools: PASS (screenshot intentionally skipped)");
+  } else {
+    const fixture = path.join(scratch, "fixture.html");
+    const outputDir = path.join(scratch, "screenshots");
+    await writeFile(fixture, "<!doctype html><title>Installed browser smoke</title><h1>Installed browser smoke</h1>");
+
+    // The Ubuntu CI job configures an executable-specific AppArmor rule first;
+    // the browser must still launch with its sandbox intact.
+    phase = "screenshot_capture";
+    const screenshot = await client.callTool({
+      name: "screenshot.capture",
+      arguments: {
+        targetPath: fixture,
+        outputDir,
+        viewports: [{ name: "installed", width: 800, height: 600 }],
+      },
+    });
+    assert.notEqual(screenshot.isError, true, JSON.stringify(screenshot.structuredContent));
+    assert.equal(screenshot.structuredContent?.screenshots?.length, 1);
+    const imagePath = screenshot.structuredContent.screenshots[0].outputPath;
+    assert.ok((await stat(imagePath)).size > 0);
+    console.log("Installed npm tarball MCP handshake, offline audits, multilingual comparison and sandboxed screenshot: PASS");
+  }
+} catch (error) {
+  // Do not include untrusted HTML, source URLs or tool input in smoke logs.
+  console.error(`Installed package smoke failed at phase: ${phase}`);
+  throw error;
 } finally {
   if (client) await client.close();
-  await rm(scratch, { recursive: true, force: true });
+  try {
+    // Windows can briefly retain Chromium file handles after MCP shutdown.
+    await rm(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
+  } catch (error) {
+    // Report cleanup separately from functional test failure. The scratch path
+    // is a unique OS temp directory, never a user or project directory.
+    if (process.platform !== "win32" ||
+      !["EBUSY", "EPERM", "ENOTEMPTY"].includes(error?.code)) throw error;
+    console.warn("Windows kept the package smoke temporary directory locked; functional checks above are unaffected.");
+  }
 }

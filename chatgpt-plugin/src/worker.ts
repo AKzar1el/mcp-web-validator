@@ -27,6 +27,62 @@ import {
 import { validateCss, validateHtmlDetailed } from "./validators";
 import { auditPublicSite } from "./site-audit";
 import { compareSiteAudits } from "./site-comparison";
+import {
+  compareProductClaims,
+  observeProductClaims,
+  registeredToolEvidence,
+  MAX_PRODUCT_CLAIM_HTML_BYTES,
+} from "./modules/content-schema/product-claims";
+import { safeObservedUrl } from "../../src/modules/content-schema/same-language-duplicates";
+import {
+  analyzeProvenance,
+  observeProvenancePage,
+  MAX_PROVENANCE_HTML_BYTES,
+  MAX_PROVENANCE_INPUT_BYTES,
+} from "./modules/content-schema/citation-methodology-consistency";
+import {
+  normalizedEvidenceDate,
+  safeDatasetVersion,
+  safeProvenanceId,
+  safeProvenanceUrl,
+} from "../../src/modules/content-schema/citation-methodology-consistency";
+import {
+  compareIntentObservations,
+  emptyIntentComparison,
+  observeIntentHtml,
+  safeIntentUrl,
+  MAX_INTENT_HTML_BYTES,
+  MAX_INTENT_TOTAL_BYTES,
+  MAX_INTENT_QUERY_BYTES,
+} from "./modules/content-schema/competitor-intent-comparison";
+import {
+  reviewSupportedSchemaHtml,
+  reviewSupportedJsonLd,
+  MAX_SUPPORTED_SCHEMA_HTML_BYTES,
+} from "./modules/content-schema/structured-data-validation";
+import {
+  MAX_SUPPORTED_SCHEMA_FINDINGS,
+  SUPPORTED_SCHEMA_TYPES,
+} from "../../src/modules/content-schema/structured-data-validation";
+import {
+  reviewInternalLinks,
+  emptyInternalLinkReview,
+  safeLinkPageUrl,
+  observeInternalLinks,
+  MAX_LINK_HTML_BYTES,
+  MAX_LINK_TOTAL_HTML_BYTES,
+  MAX_LINK_FINDINGS,
+} from "./modules/site-architecture/internal-link-quality";
+import {
+  analyzeMetadataConsistency,
+  emptyMetadataReview,
+  safeMetadataLabel,
+  observeMetadata,
+  MAX_METADATA_HTML_BYTES,
+  MAX_METADATA_TOTAL_BYTES,
+  MAX_METADATA_FINDINGS,
+} from "./modules/content-schema/metadata-consistency";
+import { METADATA_FIELDS } from "../../src/modules/content-schema/metadata-consistency";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -147,6 +203,346 @@ const siteIndexabilityGraphSchema = z.object({
   findings_truncated: z.boolean(),
 });
 
+const contentDuplicateSchema = z.object({
+  scope: z.literal("sampled_pages_only"),
+  sampled_pages: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  eligible_pages: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  skipped_pages: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(300)).max(4),
+  total_pairs: z.number().int().nonnegative(),
+  pairs: z.array(z.object({
+    first_url: z.string().max(512),
+    second_url: z.string().max(512),
+    language: z.string().max(16),
+    kind: z.enum(["exact", "near"]),
+    confidence: z.enum(["observed", "potential"]),
+    similarity_percent: z.number().int().min(0).max(100),
+    first_words: z.number().int().nonnegative(),
+    second_words: z.number().int().nonnegative(),
+  })).max(8),
+  pairs_truncated: z.boolean(),
+});
+
+const contentQualitySchema = z.object({
+  scope: z.literal("sampled_pages_only"),
+  sampled_pages: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  eligible_pages: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  skipped_pages: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  families_compared: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  empty_main_pages: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  short_main_pages: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  repeated_boilerplate_pages: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  possible_low_value_pages: z.number().int().nonnegative().max(SITE_AUDIT_MAX_PAGES),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(300)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    confidence: z.enum(["observed", "potential"]),
+    message: z.string().max(320),
+    affected_pages: z.number().int().nonnegative(),
+    example_urls: z.array(z.string().max(512)).max(2),
+  })).max(12),
+  findings_truncated: z.boolean(),
+});
+
+const productClaimSchema = z.object({
+  scope: z.literal("landing_html_vs_registered_mcp_metadata"),
+  surface: z.enum(["hosted", "local"]),
+  catalog_available: z.boolean(),
+  registered_tools: z.number().int().nonnegative().max(64),
+  tool_claims_checked: z.number().int().nonnegative().max(20),
+  checked_claims: z.number().int().nonnegative(),
+  consistent_claims: z.number().int().nonnegative(),
+  contradicted_claims: z.number().int().nonnegative(),
+  unverified_claims: z.number().int().nonnegative(),
+  advertised_tools: z.array(z.object({ name: z.string().max(64), registered: z.boolean() })).max(20),
+  site_batch_limit: z.object({
+    advertised: z.number().int().positive(),
+    registered: z.number().int().positive().optional(),
+  }).optional(),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(320)).max(5),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    verdict: z.enum(["contradicted", "unverifiable"]),
+    claim: z.string().max(64),
+    message: z.string().max(240),
+    evidence_tool: z.string().max(64).optional(),
+  })).max(10),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+});
+
+const provenanceIdSchema = z.string().min(1).max(64)
+  .refine((value) => Boolean(safeProvenanceId(value)), "Use a safe ASCII reference identifier.");
+const provenanceUrlSchema = z.string().url().max(512)
+  .refine((value) => Boolean(safeProvenanceUrl(value)),
+    "Use a query-free HTTP(S) URL without credentials, fragment or nonstandard port.");
+const provenanceDateSchema = z.string().max(48)
+  .refine((value) => Boolean(normalizedEvidenceDate(value)), "Use a valid ISO date or timezone-qualified timestamp.");
+const provenanceManifestSchema = z.object({
+  as_of: provenanceDateSchema.optional(),
+  sources: z.array(z.object({ id: provenanceIdSchema, url: provenanceUrlSchema })).max(24).optional(),
+  datasets: z.array(z.object({
+    id: provenanceIdSchema,
+    version: z.string().min(1).max(64)
+      .refine((value) => Boolean(safeDatasetVersion(value))).optional(),
+    as_of: provenanceDateSchema.optional(),
+    max_age_days: z.number().int().min(0).max(3650).optional(),
+    methodology_id: provenanceIdSchema.optional(),
+  })).max(16).optional(),
+  methodologies: z.array(z.object({ id: provenanceIdSchema, url: provenanceUrlSchema })).max(16).optional(),
+});
+const provenanceOutputSchema = z.object({
+  scope: z.literal("supplied_static_html_and_evidence"),
+  pages_sampled: z.number().int().nonnegative().max(8),
+  pages_eligible: z.number().int().nonnegative().max(8),
+  citations_observed: z.number().int().nonnegative(),
+  datasets_observed: z.number().int().nonnegative(),
+  methodologies_observed: z.number().int().nonnegative(),
+  checked_declarations: z.number().int().nonnegative(),
+  consistent_declarations: z.number().int().nonnegative(),
+  conflicting_declarations: z.number().int().nonnegative(),
+  unverified_declarations: z.number().int().nonnegative(),
+  invalid_date_declarations: z.number().int().nonnegative(),
+  evidence_supplied: z.boolean(),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(320)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    evidence: z.enum(["observed_html", "supplied_manifest", "reference_date"]),
+    page_url: z.string().max(512),
+    reference_id: z.string().max(64).optional(),
+    message: z.string().max(320),
+  })).max(12),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+});
+
+const intentPageInputSchema = z.object({
+  url: z.string().url().max(512)
+    .refine((value) => Boolean(safeIntentUrl(value)),
+      "Use a query-free HTTP(S) URL without credentials, fragments or nonstandard port."),
+  htmlContent: z.string().min(1).max(MAX_INTENT_HTML_BYTES)
+    .refine((value) => new TextEncoder().encode(value).byteLength <= MAX_INTENT_HTML_BYTES,
+      "Each page must not exceed 150,000 UTF-8 bytes."),
+});
+const intentSignalsSchema = z.object({
+  informational: z.array(z.string().max(40)).max(5),
+  commercial: z.array(z.string().max(40)).max(5),
+  transactional: z.array(z.string().max(40)).max(5),
+  navigational: z.array(z.string().max(40)).max(5),
+});
+const intentSignalCountsSchema = z.object({
+  informational: z.number().int().min(0).max(5),
+  commercial: z.number().int().min(0).max(5),
+  transactional: z.number().int().min(0).max(5),
+  navigational: z.number().int().min(0).max(5),
+});
+const intentPageOutputSchema = z.object({
+  origin: z.string().max(200),
+  title_present: z.boolean(), h1_present: z.boolean(), main_found: z.boolean(),
+  signals: intentSignalsSchema,
+  signal_counts: intentSignalCountsSchema,
+  intent_signal_count: z.number().int().min(0).max(5).optional(),
+  query_title_coverage_percent: z.number().int().min(0).max(100).optional(),
+  query_h1_coverage_percent: z.number().int().min(0).max(100).optional(),
+  extraction_limited: z.boolean(),
+});
+const competitorIntentOutputSchema = z.object({
+  scope: z.literal("caller_supplied_static_html_only"),
+  expected_intent: z.enum(["informational", "commercial", "transactional", "navigational"]).optional(),
+  query_supplied: z.boolean(),
+  usable_query_terms: z.number().int().nonnegative().max(12),
+  primary: intentPageOutputSchema,
+  competitors: z.array(intentPageOutputSchema).max(6),
+  competitors_submitted: z.number().int().nonnegative().max(6),
+  competitors_eligible: z.number().int().nonnegative().max(6),
+  competitors_with_intent_signals: z.number().int().nonnegative().max(6),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(330)).max(5),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    confidence: z.enum(["observed", "review"]),
+    message: z.string().max(320),
+    competitors_supporting: z.number().int().min(0).max(6).optional(),
+  })).max(10),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+});
+
+const supportedSchemaOutputSchema = z.object({
+  scope: z.literal("bounded_jsonld_structural_profiles"),
+  blocks_seen: z.number().int().nonnegative(),
+  blocks_checked: z.number().int().nonnegative().max(12),
+  blocks_skipped: z.number().int().nonnegative(),
+  nodes_examined: z.number().int().nonnegative().max(64),
+  supported_nodes: z.number().int().nonnegative(),
+  unsupported_nodes: z.number().int().nonnegative(),
+  context_unverified_nodes: z.number().int().nonnegative(),
+  types_checked: z.array(z.enum(SUPPORTED_SCHEMA_TYPES)).max(8),
+  errors: z.number().int().nonnegative(),
+  warnings: z.number().int().nonnegative(),
+  unverified: z.number().int().nonnegative(),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(320)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["error", "warning", "info"]),
+    block: z.number().int().nonnegative(),
+    node: z.number().int().nonnegative(),
+    type: z.enum(SUPPORTED_SCHEMA_TYPES).optional(),
+    property: z.string().max(40).optional(),
+    message: z.string().max(290),
+  })).max(MAX_SUPPORTED_SCHEMA_FINDINGS),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+});
+
+const internalLinkPageInputSchema = z.object({
+  url: z.string().url().max(512).refine((value) => Boolean(safeLinkPageUrl(value)),
+    "Use a query-free HTTP(S) URL without credentials, fragments or nonstandard ports."),
+  htmlContent: z.string().min(1).max(MAX_LINK_HTML_BYTES)
+    .refine((value) => new TextEncoder().encode(value).byteLength <= MAX_LINK_HTML_BYTES,
+      "Each supplied HTML page must be at most 160,000 UTF-8 bytes."),
+});
+const internalLinkOutputPageSchema = z.object({
+  page: z.number().int().min(1).max(8),
+  main_present: z.boolean(),
+  internal_links: z.number().int().nonnegative(),
+  external_links: z.number().int().nonnegative(),
+  linked_sample_pages: z.number().int().min(0).max(8),
+  unmatched_internal_links: z.number().int().nonnegative(),
+  missing_anchor_labels: z.number().int().nonnegative(),
+  generic_anchor_links: z.number().int().nonnegative(),
+  nofollow_internal_links: z.number().int().nonnegative(),
+  self_links: z.number().int().nonnegative(),
+  fragment_only_links: z.number().int().nonnegative(),
+  extraction_limited: z.boolean(),
+});
+const internalLinkOutputSchema = z.object({
+  scope: z.literal("caller_supplied_same_origin_html_only"),
+  pages_sampled: z.number().int().min(0).max(8),
+  pages_eligible: z.number().int().min(0).max(8),
+  origin: z.string().max(200),
+  internal_links_observed: z.number().int().nonnegative(),
+  external_links_observed: z.number().int().nonnegative(),
+  excluded_navigation_links: z.number().int().nonnegative(),
+  linked_sample_targets: z.number().int().min(0).max(8),
+  unmatched_internal_links: z.number().int().nonnegative(),
+  missing_anchor_labels: z.number().int().nonnegative(),
+  generic_anchor_links: z.number().int().nonnegative(),
+  low_heading_overlap_links: z.number().int().nonnegative(),
+  ambiguous_anchor_target_groups: z.number().int().nonnegative(),
+  nofollow_internal_links: z.number().int().nonnegative(),
+  self_links: z.number().int().nonnegative(),
+  fragment_only_links: z.number().int().nonnegative(),
+  skipped_non_http_links: z.number().int().nonnegative(),
+  pages: z.array(internalLinkOutputPageSchema).max(8),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(330)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    confidence: z.enum(["observed", "review"]),
+    source_page: z.number().int().min(1).max(8),
+    target_page: z.number().int().min(1).max(8).optional(),
+    count: z.number().int().nonnegative(),
+    message: z.string().max(320),
+  })).max(MAX_LINK_FINDINGS),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+});
+
+const metadataPageInputSchema = z.object({
+  url: z.string().url().max(512)
+    .refine((value) => Boolean(safeMetadataLabel(value)),
+      "Use an absolute query-free HTTP(S) page label without credentials or fragments."),
+  htmlContent: z.string().min(1).max(MAX_METADATA_HTML_BYTES)
+    .refine((value) => new TextEncoder().encode(value).byteLength <= MAX_METADATA_HTML_BYTES,
+      "Each HTML page must be at most 180,000 UTF-8 bytes."),
+});
+const metadataPageOutputSchema = z.object({
+  page: z.number().int().min(1).max(8),
+  fields_present: z.number().int().min(0).max(10),
+  title_declarations: z.number().int().nonnegative().max(12),
+  description_declarations: z.number().int().nonnegative().max(12),
+  canonical_declarations: z.number().int().nonnegative().max(12),
+  robots_declarations: z.number().int().nonnegative().max(24),
+  duplicate_fields: z.number().int().nonnegative().max(10),
+  conflicting_fields: z.number().int().nonnegative().max(10),
+  unresolved_canonicals: z.number().int().nonnegative().max(12),
+  cross_field_review_leads: z.number().int().nonnegative().max(5),
+  extraction_limited: z.boolean(),
+});
+const metadataConsistencyOutputSchema = z.object({
+  scope: z.literal("caller_supplied_same_origin_metadata_only"),
+  pages_sampled: z.number().int().min(0).max(8),
+  origin: z.string().max(200),
+  duplicate_declaration_fields: z.number().int().nonnegative(),
+  conflicting_declaration_fields: z.number().int().nonnegative(),
+  unresolved_canonical_references: z.number().int().nonnegative(),
+  explicit_robots_conflicts: z.number().int().nonnegative(),
+  cross_field_review_leads: z.number().int().nonnegative(),
+  duplicate_title_groups: z.number().int().nonnegative(),
+  duplicate_description_groups: z.number().int().nonnegative(),
+  excluded_annotated_canonicals: z.number().int().nonnegative(),
+  pages: z.array(metadataPageOutputSchema).max(8),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(360)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    confidence: z.enum(["observed", "review"]),
+    source_page: z.number().int().min(1).max(8),
+    field: z.enum(METADATA_FIELDS),
+    count: z.number().int().nonnegative(),
+    related_pages: z.array(z.number().int().min(1).max(8)).max(7).optional(),
+    message: z.string().max(340),
+  })).max(MAX_METADATA_FINDINGS),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+});
+
+const multilingualClusterSchema = z.object({
+  scope: z.literal("sampled_pages_only"),
+  sampled_pages: z.number().int().nonnegative().max(16),
+  eligible_pages: z.number().int().nonnegative().max(16),
+  pages_with_alternates: z.number().int().nonnegative().max(16),
+  locales_observed: z.number().int().nonnegative(),
+  unobserved_targets: z.number().int().nonnegative(),
+  invalid_declarations: z.number().int().nonnegative(),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(320)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["error", "warning"]),
+    confidence: z.enum(["observed", "potential"]),
+    message: z.string().max(320),
+    example_urls: z.array(z.string().max(256)).max(2),
+  })).max(12),
+  findings_truncated: z.boolean(),
+});
+
 const siteAuditOutputSchema = {
   site_url: z.string(),
   sitemap_url: z.string().optional(),
@@ -167,6 +563,9 @@ const siteAuditOutputSchema = {
   issue_groups: z.array(siteIssueGroupSchema),
   issue_groups_truncated: z.boolean(),
   indexability_graph: siteIndexabilityGraphSchema.optional(),
+  content_duplicates: contentDuplicateSchema.optional(),
+  content_quality: contentQualitySchema.optional(),
+  multilingual_clusters: multilingualClusterSchema.optional(),
   overview: overviewSchema,
   error: z.string().optional(),
 };
@@ -808,6 +1207,10 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
   const completed = result.pages_audited;
   const indexabilityFindings = result.indexability_graph.findings;
   const hasIndexabilityFindings = indexabilityFindings.length > 0;
+  const duplicatePairs = result.content_duplicates.pairs;
+  const duplicatePairCount = result.content_duplicates.total_pairs;
+  const qualityFindingCount = result.content_quality.total_findings;
+  const multilingualFindingCount = result.multilingual_clusters.total_findings;
   const hasCoverageGap = result.discovery_error !== undefined
     || result.indexability_graph.coverage_limited
     || result.pages_partial > 0
@@ -818,7 +1221,7 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     ? "failed"
     : hasCoverageGap
       ? "partial"
-      : totals.errors > 0 || totals.warnings > 0 || hasIndexabilityFindings
+      : totals.errors > 0 || totals.warnings > 0 || hasIndexabilityFindings || duplicatePairCount > 0 || multilingualFindingCount > 0 || qualityFindingCount > 0
         ? "needs_attention"
         : "passed";
   const headline = status === "failed"
@@ -826,10 +1229,16 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     : status === "partial"
       ? `Public site audit is partial: ${plural(completed, "page")} completed with coverage limits.`
       : totals.errors > 0 || totals.warnings > 0
-        ? `Public site audit found ${summarizeSeverities({ errors: totals.errors, warnings: totals.warnings, info: 0 })}${hasIndexabilityFindings ? ` plus ${plural(indexabilityFindings.length, "sampled cross-page finding")}` : ""}.`
-        : hasIndexabilityFindings
-          ? `Public site audit found ${plural(indexabilityFindings.length, "sampled cross-page indexability finding")}.`
-          : "Public site audit found no errors or warnings in the completed checks.";
+        ? `Public site audit found ${summarizeSeverities({ errors: totals.errors, warnings: totals.warnings, info: 0 })}${hasIndexabilityFindings ? ` plus ${plural(indexabilityFindings.length, "sampled cross-page finding")}` : ""}${duplicatePairCount ? ` and ${plural(duplicatePairCount, "same-language duplicate-content pair")}` : ""}${multilingualFindingCount ? ` and ${plural(multilingualFindingCount, "multilingual cluster finding")}` : ""}${qualityFindingCount ? ` and ${plural(qualityFindingCount, "content-quality review finding")}` : ""}.`
+      : hasIndexabilityFindings
+        ? `Public site audit found ${plural(indexabilityFindings.length, "sampled cross-page indexability finding")}${multilingualFindingCount ? ` and ${plural(multilingualFindingCount, "multilingual cluster finding")}` : ""}.`
+      : duplicatePairCount
+        ? `Public site audit found ${plural(duplicatePairCount, "same-language duplicate-content pair")} in the selected pages.`
+      : multilingualFindingCount
+        ? `Public site audit found ${plural(multilingualFindingCount, "multilingual cluster finding")} in the selected pages.`
+      : qualityFindingCount
+        ? `Public site audit found ${plural(qualityFindingCount, "potential content-quality issue")} in the selected pages.`
+      : "Public site audit found no errors or warnings in the completed checks.";
   const scoreDetail = result.audit_health_score === undefined
     ? "No full HTML-and-metadata score was available."
     : `Audit health score: ${result.audit_health_score}/100 across ${result.score_coverage_percent}% of selected pages.`;
@@ -838,7 +1247,7 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     : result.discovery_error
       ? `Discovery was incomplete (${result.discovery_error}); selected-page coverage is not site-wide coverage. `
       : "";
-  const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_selected, "page")} were selected. ${discoveryDetail}${scoreDetail} Link checks are intentionally not run by this bounded site tool. Cross-page indexability findings concern sampled static HTML only, not Google indexing decisions.`;
+  const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_selected, "page")} were selected. ${discoveryDetail}${scoreDetail} Main-content duplication comparison covered ${result.content_duplicates.eligible_pages}/${result.content_duplicates.sampled_pages} selected pages. Main-text quality review observed ${result.content_quality.eligible_pages}/${result.content_quality.sampled_pages} pages; short text and repetition are review signals, not rankings or usefulness verdicts. Hreflang/canonical analysis observed ${result.multilingual_clusters.eligible_pages}/${result.multilingual_clusters.sampled_pages} selected pages; unvisited alternate targets are unverified. These checks concern sampled static HTML only. Link checks are intentionally not run by this bounded site tool; no Google indexing decision is inferred.`;
   const incompletePageGuidance = result.pages_partial > 0 || result.pages_failed > 0
     ? " Review partial and failed page coverage, then retry affected batches after resolving failures."
     : "";
@@ -854,8 +1263,8 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
       ? "Discovery or page selection reached a coverage limit; review the sitemap and continue permitted batches before claiming a site-wide audit."
     : result.indexability_graph.coverage_limited
       ? "Review the indexability graph limitations and incomplete observations; do not treat missing graph findings as a complete site pass."
-    : totals.errors > 0 || totals.warnings > 0 || hasIndexabilityFindings
-      ? "Review both on-page findings and sampled cross-page canonical, noindex, and hreflang conflicts, then rerun the bounded site audit."
+    : totals.errors > 0 || totals.warnings > 0 || hasIndexabilityFindings || duplicatePairCount > 0 || multilingualFindingCount > 0 || qualityFindingCount > 0
+      ? "Review on-page, sampled canonical/hreflang, duplicate-content, and main-text quality evidence; inspect actual rendered pages before changing content or canonicals."
       : result.pages_partial > 0 || result.pages_failed > 0
         ? "Review partial and failed page coverage, then retry the affected batch."
         : undefined;
@@ -865,9 +1274,9 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     title: "Public site audit",
     headline,
     detail,
-    total: totals.errors + totals.warnings + totals.notes + indexabilityFindings.length,
-    shown: result.issue_groups.length + indexabilityFindings.length,
-    truncated: result.truncated || result.issue_groups_truncated || result.indexability_graph.findings_truncated,
+    total: totals.errors + totals.warnings + totals.notes + indexabilityFindings.length + duplicatePairCount + multilingualFindingCount + qualityFindingCount,
+    shown: result.issue_groups.length + indexabilityFindings.length + duplicatePairs.length + result.multilingual_clusters.findings.length + result.content_quality.findings.length,
+    truncated: result.truncated || result.issue_groups_truncated || result.indexability_graph.findings_truncated || result.content_duplicates.pairs_truncated || result.multilingual_clusters.findings_truncated || result.content_quality.findings_truncated,
     counts: [
       metric("pages_audited", "Pages audited", result.pages_audited, "success"),
       metric("pages_partial", "Pages partial", result.pages_partial, "warning"),
@@ -876,6 +1285,9 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
       metric("errors", "Errors", totals.errors, "error"),
       metric("warnings", "Warnings", totals.warnings, "warning"),
       metric("indexability_findings", "Cross-page signals", indexabilityFindings.length, "warning"),
+      metric("content_duplicate_pairs", "Duplicate content pairs", duplicatePairCount, "warning"),
+      metric("content_quality_findings", "Content quality review findings", qualityFindingCount, "warning"),
+      metric("multilingual_cluster_findings", "Multilingual findings", multilingualFindingCount, "warning"),
       ...(result.audit_health_score === undefined
         ? []
         : [metric("audit_health_score", "Audit health score", result.audit_health_score, "success")]),
@@ -1503,7 +1915,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
     {
       title: "Audit public site",
       description:
-        `Use this for a bounded, sitemap-first audit of a public website the user owns or is authorized to inspect. It fetches at most ${SITE_AUDIT_MAX_PAGES} same-origin HTML pages per call, respects robots.txt, and returns compact page summaries plus deduplicated findings and a sampled cross-page canonical/noindex/hreflang evidence graph. It does not recursively follow HTML links, authenticate, execute JavaScript, fetch assets, or run site-wide link checks. To continue a batch, pass both the returned page offset and discovery fingerprint; changed sitemaps require restarting at offset 0.`,
+        `Use this for a bounded, sitemap-first audit of a public website the user owns or is authorized to inspect. It fetches at most ${SITE_AUDIT_MAX_PAGES} same-origin HTML pages per call, respects robots.txt, and returns compact page summaries plus deduplicated findings, a sampled canonical/noindex graph, same-language duplicate main-content pairs, evidence-limited empty/short/repeated-boilerplate main-text review, and 16-locale hreflang/canonical clusters. Content quality results are static-text review signals, not usefulness or Google ranking verdicts. Unvisited alternate targets remain unverified; use the local site.hreflang tool with supplied HTML for up to 16 pages. It does not recursively follow HTML links, authenticate, execute JavaScript, fetch assets, or run site-wide link checks. To continue a batch, pass both the returned page offset and discovery fingerprint; changed sitemaps require restarting at offset 0.`,
       inputSchema: {
         site_url: publicPageUrlInput.describe("Authorized public website URL. The final public origin becomes the crawl boundary."),
         max_pages: z
@@ -1555,6 +1967,21 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
             ...result.indexability_graph.findings.map((finding) => ({
               severity: finding.severity,
               label: "Indexability",
+              message: finding.message,
+            })),
+            ...result.content_duplicates.pairs.map((pair) => ({
+              severity: "warning" as const,
+              label: "Main content",
+              message: `${pair.kind === "exact" ? "Exact" : "Near"} same-language duplicate (${pair.similarity_percent}%, ${pair.language}): ${pair.first_url} and ${pair.second_url}. Static sample only.`,
+            })),
+            ...result.content_quality.findings.map((finding) => ({
+              severity: finding.severity,
+              label: "Content quality",
+              message: finding.message,
+            })),
+            ...result.multilingual_clusters.findings.map((finding) => ({
+              severity: finding.severity,
+              label: "Multilingual",
               message: finding.message,
             })),
           ]),
@@ -1642,6 +2069,448 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           })),
         ),
       };
+    },
+  );
+
+  registerAppTool(
+    server,
+    "verify_product_claims",
+    {
+      title: "Verify product claims against registered hosted MCP tools",
+      description:
+        "Compare visible explicit ChatGPT-tool promises and bounded site-batch claims from authorized landing-page HTML or a single public URL against this Worker runtime's actually registered MCP tool names, input bounds, and read-only annotations. This is registry consistency, not proof that every tool call succeeds or that arbitrary marketing copy is true. No login, browser rendering or site-wide crawl.",
+      inputSchema: {
+        html: z.string().min(1).max(MAX_PRODUCT_CLAIM_HTML_BYTES).optional()
+          .describe("Static landing-page HTML, at most 250,000 UTF-8 bytes. Supply this or public_url, not both."),
+        public_url: z.string().url().max(512)
+          .refine((value) => Boolean(safeObservedUrl(value)),
+            "Use a public HTTP(S) URL without credentials, query parameters or fragments.").optional()
+          .describe("Alternative to HTML: one authorized public landing page, using the existing safe single-page fetch."),
+      },
+      outputSchema: productClaimSchema.shape,
+      annotations: externalReadOnlyAnnotations,
+      ...withNoAuthWidget({
+        invoking: "Checking documented tool promises…",
+        invoked: "Product claim comparison complete.",
+      }),
+    },
+    async ({ html, public_url }) => {
+      try {
+        if (Boolean(html) === Boolean(public_url)) {
+          throw new Error("Provide exactly one HTML document or public landing-page URL.");
+        }
+        const text = html ?? (await fetchPublicHtml(public_url!, {})).html;
+        const catalog = registeredToolEvidence(
+          (server as unknown as { _registeredTools?: unknown })._registeredTools,
+          (schema) => z.toJSONSchema(schema as z.ZodType),
+        );
+        const analysis = compareProductClaims(observeProductClaims(text), catalog, "hosted");
+        const overview: ResultOverview = {
+          kind: "report",
+          status: analysis.contradicted_claims > 0
+            ? "needs_attention" : analysis.coverage_limited ? "partial" : "passed",
+          title: "Product promises versus registered MCP capabilities",
+          headline: analysis.checked_claims
+            ? analysis.consistent_claims + " promises consistent with the registered hosted tools; "
+              + analysis.contradicted_claims + " contradicted and " + analysis.unverified_claims + " unverified."
+            : "No explicit hosted capability promises could be verified in this page sample.",
+          detail: "Compares visible explicit claims against this runtime's tools/list registration metadata, not the result of executing each tool or the semantic truth of arbitrary marketing language.",
+          total: analysis.checked_claims,
+          shown: analysis.findings.length,
+          truncated: analysis.findings_truncated || analysis.coverage_limited,
+          counts: [
+            metric("claims_checked", "Promises checked", analysis.checked_claims, "info"),
+            metric("registry_consistent", "Registry consistent", analysis.consistent_claims, "success"),
+            metric("contradicted", "Registry conflicts", analysis.contradicted_claims, "error"),
+            metric("unverified", "Unverified promises", analysis.unverified_claims, "warning"),
+          ],
+          next_action: analysis.contradicted_claims > 0
+            ? "Reconcile listed tools and numeric limits with the current MCP registry, then invoke affected tools before changing product copy."
+            : "Use functional MCP canaries to verify behavior; registry consistency alone cannot prove successful execution.",
+        };
+        return {
+          structuredContent: { ...analysis, overview },
+          content: contentForOverview(overview,
+            analysis.findings.map((finding) => ({
+              severity: finding.severity,
+              label: finding.claim,
+              message: finding.message,
+            }))),
+        };
+      } catch {
+        const error = "Product claims could not be compared within the public URL and input limits.";
+        const overview = failedOverview("report", "Product promise verification",
+          "Product promises could not be verified.", error);
+        return {
+          structuredContent: {
+            ...compareProductClaims({
+              hasMain: false, hostedSectionFound: false, localSectionFound: false,
+              hostedTools: [], localTools: [], localScreenshotClaim: false,
+              hostedReadOnlyClaim: false, hostedNoScreenshotsClaim: false,
+              extractionTruncated: false,
+            }, [], "hosted"),
+            overview, error,
+          },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "verify_content_provenance",
+    {
+      title: "Verify citation, dataset freshness and methodology evidence",
+      description:
+        "Compare up to eight already-supplied static HTML pages with optional caller-supplied citation, dataset and methodology metadata. Verify explicit URL/ID agreement, dataset versions and as-of dates, publication chronology, and only caller-defined freshness windows. The Worker does not fetch sources, datasets or pages, and missing evidence is unverified rather than a fabricated factual verdict.",
+      inputSchema: {
+        pages: z.array(z.object({
+          url: provenanceUrlSchema.describe("Safe public-style URL label only; never fetched."),
+          htmlContent: z.string().min(1).max(MAX_PROVENANCE_HTML_BYTES)
+            .refine((value) => new TextEncoder().encode(value).byteLength <= MAX_PROVENANCE_HTML_BYTES,
+              "Each page is limited to 200,000 UTF-8 bytes."),
+        })).min(1).max(8)
+          .describe("One to eight authorized static HTML page observations, combined cap 1 MB."),
+        evidence: provenanceManifestSchema.optional()
+          .describe("Optional caller-provided source URLs and dataset/method metadata; not independently fact-checked."),
+      },
+      outputSchema: provenanceOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthWidget({
+        invoking: "Checking source and methodology evidence...",
+        invoked: "Provenance evidence comparison complete.",
+      }),
+    },
+    async ({ pages, evidence }) => {
+      try {
+        if (pages.reduce((total, page) => total + new TextEncoder().encode(page.htmlContent).byteLength, 0)
+          > MAX_PROVENANCE_INPUT_BYTES) throw new Error("Combined HTML input too large.");
+        const analysis = analyzeProvenance(pages.map(({ url, htmlContent }) =>
+          observeProvenancePage(htmlContent, url)), evidence ?? {});
+        const overview: ResultOverview = {
+          kind: "report",
+          status: analysis.conflicting_declarations > 0
+            ? "needs_attention" : analysis.coverage_limited ? "partial" : "passed",
+          title: "Citation, dataset freshness and methodology consistency",
+          headline: analysis.consistent_declarations + " evidence agreements, "
+            + analysis.conflicting_declarations + " discrepancies and "
+            + analysis.unverified_declarations + " unverified declarations.",
+          detail: "Compared explicit static HTML declarations with optional caller-supplied metadata across "
+            + analysis.pages_eligible + "/" + analysis.pages_sampled
+            + " eligible pages. This does not independently retrieve or authenticate external sources.",
+          total: analysis.checked_declarations,
+          shown: analysis.findings.length,
+          truncated: analysis.findings_truncated || analysis.coverage_limited,
+          counts: [
+            metric("citations_observed", "Citations", analysis.citations_observed, "info"),
+            metric("datasets_observed", "Dataset claims", analysis.datasets_observed, "info"),
+            metric("consistent_evidence", "Agreements", analysis.consistent_declarations, "success"),
+            metric("conflicting_evidence", "Discrepancies", analysis.conflicting_declarations, "warning"),
+            metric("unverified_evidence", "Unverified", analysis.unverified_declarations, "warning"),
+          ],
+          next_action: "Inspect discrepancies and confirm source publication, dataset release and methodology independently; no actual remote-source validity was checked.",
+        };
+        return {
+          structuredContent: { ...analysis, overview },
+          content: contentForOverview(overview, analysis.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code,
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "Provenance evidence could not be compared within its bounded supplied HTML input.";
+        const overview = failedOverview("report", "Provenance evidence comparison",
+          "Source evidence could not be assessed.", error);
+        return {
+          structuredContent: { ...analyzeProvenance([], {}), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "compare_competitor_intent",
+    {
+      title: "Compare supplied competitor search-intent signals",
+      description:
+        "Bounded offline analysis of one primary and up to six caller-supplied competitor HTML pages. Compares explicit static informational/commercial/transactional/navigational signals and optional caller-selected intent or lexical query-heading overlap. No page, competitor, SERP, GSC or ranking requests; not a semantic SEO verdict.",
+      inputSchema: {
+        primary: intentPageInputSchema
+          .describe("Primary static HTML observation; the URL is a label, never fetched."),
+        competitors: z.array(intentPageInputSchema).min(1).max(6)
+          .describe("One to six caller-authorized competitor observations with distinct origins; none are fetched."),
+        expected_intent: z.enum(["informational", "commercial", "transactional", "navigational"])
+          .optional().describe("Optional target intent selected by the caller, not inferred by the model or the query."),
+        query: z.string().trim().min(1).max(MAX_INTENT_QUERY_BYTES)
+          .refine((value) => new TextEncoder().encode(value).byteLength <= MAX_INTENT_QUERY_BYTES,
+            "Query cannot exceed 160 UTF-8 bytes.")
+          .optional().describe("Optional caller-supplied query for exact normalized heading-token overlap; not echoed."),
+      },
+      outputSchema: competitorIntentOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthWidget({
+        invoking: "Comparing sampled competitor intent signals...",
+        invoked: "Competitor intent evidence comparison complete.",
+      }),
+    },
+    async ({ primary, competitors, expected_intent, query }) => {
+      try {
+        const total = [primary, ...competitors].reduce((bytes, item) =>
+          bytes + new TextEncoder().encode(item.htmlContent).byteLength, 0);
+        if (total > MAX_INTENT_TOTAL_BYTES) throw new Error("Combined input is over the bound.");
+        const analysis = compareIntentObservations(
+          observeIntentHtml(primary.htmlContent, primary.url),
+          competitors.map((item) => observeIntentHtml(item.htmlContent, item.url)),
+          { expectedIntent: expected_intent, query },
+        );
+        const overview: ResultOverview = {
+          kind: "report",
+          status: analysis.findings.some((f) => f.severity === "warning")
+            ? "needs_attention" : "partial",
+          title: "Sampled competitor search-intent signals",
+          headline: analysis.competitors_eligible + " supplied competitors compared; "
+            + analysis.total_findings + " review leads from static markup.",
+          detail: "Only explicit HTML/JSON-LD and lexical title/H1 signals are checked. These are not a classification of search intent, organic rankings or search-engine demand.",
+          total: analysis.competitors_submitted,
+          shown: analysis.competitors_eligible,
+          truncated: analysis.coverage_limited,
+          counts: [
+            metric("competitors", "Competitor pages", analysis.competitors_eligible, "info"),
+            metric("intent_signals", "Competitors with chosen intent signals",
+              analysis.competitors_with_intent_signals, "info"),
+            metric("review_findings", "Review leads", analysis.total_findings, "warning"),
+          ],
+          next_action: "Review flagged page elements and verify page purpose and search performance independently with authorized data.",
+        };
+        return {
+          structuredContent: { ...analysis, overview },
+          content: contentForOverview(overview,
+            analysis.findings.map((finding) => ({
+              severity: finding.severity,
+              label: finding.code,
+              message: finding.message,
+            }))),
+        };
+      } catch {
+        const error = "Competitor intent signals could not be compared within the authorized static input and distinct-origin limits.";
+        const overview = failedOverview("report", "Competitor intent evidence",
+          "Competitor comparison could not be completed.", error);
+        return {
+          structuredContent: { ...emptyIntentComparison(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "validate_supported_schema",
+    {
+      title: "Review supported Schema.org JSON-LD structures",
+      description:
+        "Bounded offline JSON-LD structure review for Article, NewsArticle, BlogPosting, Product, BreadcrumbList, FAQPage, Organization and WebSite. Reports limited property/profile findings without fetching remote contexts or validating rich-result eligibility. Existing validate_schema_markup remains the independent syntax-only check. Unknown types and contexts remain unverified.",
+      inputSchema: {
+        html: z.string().min(1).max(MAX_SUPPORTED_SCHEMA_HTML_BYTES)
+          .refine((value) => new TextEncoder().encode(value).byteLength <= MAX_SUPPORTED_SCHEMA_HTML_BYTES,
+            "Static HTML must not exceed 250,000 UTF-8 bytes.")
+          .describe("Caller-supplied HTML containing explicit JSON-LD scripts, 250 KB UTF-8 maximum; never fetched."),
+      },
+      outputSchema: supportedSchemaOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthWidget({
+        invoking: "Reviewing supported JSON-LD structures...",
+        invoked: "Supported JSON-LD structural review complete.",
+      }),
+    },
+    async ({ html }) => {
+      try {
+        const analysis = reviewSupportedSchemaHtml(html);
+        const overview: ResultOverview = {
+          kind: "schema",
+          status: analysis.errors > 0 || analysis.warnings > 0 ? "needs_attention" : "partial",
+          title: "Supported JSON-LD structural review",
+          headline: analysis.supported_nodes + " supported node profiles inspected; "
+            + analysis.errors + " syntax/document errors, " + analysis.warnings +
+            " review warnings and " + analysis.unverified + " unresolved signals.",
+          detail: "Only a fixed JSON-LD subset and selected property shapes are reviewed across "
+            + analysis.blocks_checked + "/" + analysis.blocks_seen
+            + " supplied blocks. Google rich-result eligibility, truthful content, remote contexts and rankings are not assessed.",
+          total: analysis.total_findings,
+          shown: analysis.findings.length,
+          truncated: analysis.findings_truncated || analysis.coverage_limited,
+          counts: [
+            metric("blocks_checked", "JSON-LD blocks inspected", analysis.blocks_checked, "info"),
+            metric("supported_nodes", "Recognized profiles", analysis.supported_nodes, "success"),
+            metric("syntax_errors", "Syntax/document errors", analysis.errors, "error"),
+            metric("review_warnings", "Review warnings", analysis.warnings, "warning"),
+            metric("unverified", "Unverified context/type signals", analysis.unverified, "info"),
+          ],
+          next_action: "Review the flagged fields and confirm eligibility and content relevance with official supported-type documentation and the Google Rich Results Test.",
+        };
+        return {
+          structuredContent: { ...analysis, overview },
+          content: contentForOverview(overview, analysis.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code,
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "Supported JSON-LD review could not complete within the bounded static input.";
+        const overview = failedOverview("schema", "Supported JSON-LD structural review",
+          "The supplied structured data could not be reviewed.", error);
+        return {
+          structuredContent: { ...reviewSupportedJsonLd([]), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "review_internal_links",
+    {
+      title: "Review sampled internal links and accessible anchor labels",
+      description:
+        "Offline, bounded analysis of 1-8 caller-supplied same-origin HTML pages. Looks at contextual same-origin links, missing accessible names, generic anchors, repeated target labels, internal nofollow, and lexical overlap with supplied target titles/H1. Unknown URLs remain unverified, not broken. No requests, crawls, search analytics, JavaScript or ranking inference.",
+      inputSchema: {
+        pages: z.array(internalLinkPageInputSchema).min(1).max(8)
+          .describe("One to eight authorized same-origin static HTML page samples, distinct URL labels and combined limit 900,000 UTF-8 bytes; none are fetched."),
+      },
+      outputSchema: internalLinkOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthWidget({
+        invoking: "Reviewing contextual internal link evidence...",
+        invoked: "Sampled internal link review complete.",
+      }),
+    },
+    async ({ pages }) => {
+      try {
+        const bytes = pages.reduce((total, p) =>
+          total + new TextEncoder().encode(p.htmlContent).byteLength, 0);
+        if (bytes > MAX_LINK_TOTAL_HTML_BYTES) throw new Error("Combined static HTML too large.");
+        const analysis = reviewInternalLinks(pages.map(({ url, htmlContent }) =>
+          observeInternalLinks(htmlContent, url)));
+        const overview: ResultOverview = {
+          kind: "report",
+          status: analysis.missing_anchor_labels > 0 ? "needs_attention" : "partial",
+          title: "Sampled contextual link and anchor evidence",
+          headline: analysis.internal_links_observed + " internal main-content links, " +
+            analysis.missing_anchor_labels + " without observed accessible names, " +
+            analysis.generic_anchor_links + " generic labels.",
+          detail: "Reviewed " + analysis.pages_sampled + " caller-supplied same-origin pages. " +
+            analysis.unmatched_internal_links + " target links could not be checked against the supplied page set. " +
+            "This is not live link checking, PageRank or semantic relevance.",
+          total: analysis.internal_links_observed,
+          shown: analysis.findings.length,
+          truncated: analysis.findings_truncated || analysis.pages.some((p) => p.extraction_limited),
+          counts: [
+            metric("internal_links", "Contextual internal links", analysis.internal_links_observed, "info"),
+            metric("sampled_targets", "Referenced sampled targets", analysis.linked_sample_targets, "info"),
+            metric("missing_names", "Missing accessible names", analysis.missing_anchor_labels, "warning"),
+            metric("generic_anchors", "Generic anchors", analysis.generic_anchor_links, "info"),
+            metric("unverified_targets", "Unobserved targets", analysis.unmatched_internal_links, "info"),
+          ],
+          next_action: "Review on-page anchor context, accessible link names and target relevance; supply other authorized pages to expand sampled coverage. No destination was fetched.",
+        };
+        return {
+          structuredContent: { ...analysis, overview },
+          content: contentForOverview(overview,
+            analysis.findings.map((finding) => ({
+              severity: finding.severity,
+              label: finding.code + " (page " + finding.source_page + ")",
+              message: finding.message,
+            }))),
+        };
+      } catch {
+        const error = "Internal link review could not complete within the supplied HTML and same-origin limits.";
+        const overview = failedOverview("report", "Contextual internal links",
+          "Sampled link evidence could not be compared.", error);
+        return {
+          structuredContent: { ...emptyInternalLinkReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "review_metadata_consistency",
+    {
+      title: "Review sampled metadata duplication and conflicting declarations",
+      description:
+        "Offline, bounded comparison of 1-8 caller-supplied same-origin static HTML pages. Reviews repeated/conflicting titles, descriptions and canonical preferences; Open Graph/Twitter text differences; explicit robots directives; and duplicate titles/descriptions across distinct sampled canonical preferences. No network requests, Google-selected canonical verification, rendering, ranking inference, or storage.",
+      inputSchema: {
+        pages: z.array(metadataPageInputSchema).min(1).max(8)
+          .describe("One to eight authorized same-origin static HTML pages with distinct safe URL labels; 900,000 UTF-8 bytes combined, none fetched."),
+      },
+      outputSchema: metadataConsistencyOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthWidget({
+        invoking: "Reviewing metadata consistency...",
+        invoked: "Sampled metadata consistency review complete.",
+      }),
+    },
+    async ({ pages }) => {
+      try {
+        const bytes = pages.reduce((total, p) =>
+          total + new TextEncoder().encode(p.htmlContent).byteLength, 0);
+        if (bytes > MAX_METADATA_TOTAL_BYTES) throw new Error("Combined HTML exceeds limit.");
+        const analysis = analyzeMetadataConsistency(pages.map(({ url, htmlContent }) =>
+          observeMetadata(htmlContent, url)));
+        const overview: ResultOverview = {
+          kind: "report",
+          status: analysis.conflicting_declaration_fields > 0 ? "needs_attention" : "partial",
+          title: "Sampled metadata consistency review",
+          headline: analysis.conflicting_declaration_fields + " conflicting field groups and " +
+            analysis.duplicate_declaration_fields + " repeated equivalent fields across " +
+            analysis.pages_sampled + " supplied pages.",
+          detail: analysis.cross_field_review_leads + " social/canonical review leads and " +
+            (analysis.duplicate_title_groups + analysis.duplicate_description_groups) +
+            " cross-page duplicate metadata groups. These are not live Google indexing or ranking judgments.",
+          total: analysis.total_findings,
+          shown: analysis.findings.length,
+          truncated: analysis.findings_truncated,
+          counts: [
+            metric("conflicting_fields", "Conflicting declarations", analysis.conflicting_declaration_fields, "warning"),
+            metric("duplicate_fields", "Repeated equivalent fields", analysis.duplicate_declaration_fields, "info"),
+            metric("cross_field", "Cross-field review leads", analysis.cross_field_review_leads, "info"),
+            metric("cross_page", "Cross-page metadata groups",
+              analysis.duplicate_title_groups + analysis.duplicate_description_groups, "info"),
+          ],
+          next_action: "Review the reported declarations in the sampled HTML and verify site intent; social metadata differences and repeated titles can be deliberate.",
+        };
+        return {
+          structuredContent: { ...analysis, overview },
+          content: contentForOverview(overview,
+            analysis.findings.map((finding) => ({
+              severity: finding.severity,
+              label: finding.code + " (page " + finding.source_page + ")",
+              message: finding.message,
+            }))),
+        };
+      } catch {
+        const error = "Metadata consistency could not be reviewed within the supplied URL, same-origin and size limits.";
+        const overview = failedOverview("report", "Metadata consistency",
+          "The supplied metadata sample could not be compared.", error);
+        return {
+          structuredContent: { ...emptyMetadataReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
     },
   );
 

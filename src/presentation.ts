@@ -5,6 +5,7 @@ import type { PageContentQualityAnalysis } from "./modules/content-schema/empty-
 import type { ProductClaimResult } from "./modules/content-schema/product-claims.js";
 import type { ProvenanceResult } from "./modules/content-schema/citation-methodology-consistency.js";
 import type { IntentComparison } from "./modules/content-schema/competitor-intent-comparison.js";
+import type { SupportedSchemaReview } from "./modules/content-schema/structured-data-validation.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
@@ -475,6 +476,24 @@ export function intentComparisonContent(analysis: IntentComparison): string {
       message: `${finding.code}: ${finding.message}`,
     })),
     nextStep: "Review the indicated headings and static structured signals, check page purpose manually, and use authorized search or analytics data before drawing competitive SEO conclusions.",
+  });
+}
+
+export function supportedSchemaContent(analysis: SupportedSchemaReview): string {
+  return toolContent({
+    title: "Supported JSON-LD structural review",
+    status: analysis.errors > 0 || analysis.warnings > 0 ? "attention needed" : "partial",
+    outcome: `${analysis.supported_nodes} recognized node profiles across ${analysis.blocks_checked}/${analysis.blocks_seen} inspected JSON-LD blocks; ` +
+      `${analysis.errors} syntax/document errors, ${analysis.warnings} review warnings, ${analysis.unverified} unresolved signals. ` +
+      "This does not determine rich-result eligibility.",
+    actions: analysis.findings.map((finding) => ({
+      priority: finding.severity === "error" ? 0 : finding.severity === "warning" ? 1 : 2,
+      location: `JSON-LD block ${finding.block}, node ${finding.node}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: analysis.findings_truncated
+      ? "Review the first prioritized findings and rerun a smaller supported JSON-LD sample for the rest."
+      : "Review structural findings, then use the official Rich Results Test and inspect page content for actual feature eligibility.",
   });
 }
 

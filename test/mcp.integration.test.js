@@ -39,6 +39,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "product.claims",
       "report.validation",
       "schema.markup",
+      "schema.supported",
       "screenshot.capture",
       "seo.metadata",
       "site.hreflang",
@@ -165,6 +166,35 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.equal(provenance.structuredContent?.unverified_declarations, 0);
     assert.match(textContent(provenance), /citation|methodology/i);
     assert.doesNotMatch(JSON.stringify(provenance), /data-methodology-id=weighted/);
+
+    const goodJsonld = '<html><head><script type="application/ld+json">'
+      + '{"@context":"https://schema.org","@graph":['
+      + '{"@type":"Article","headline":"A review","author":{"@type":"Person","name":"Writer"}},'
+      + '{"@type":"Product","name":"Chair","offers":{"@type":"Offer","price":0,"priceCurrency":"EUR"}}'
+      + ']}</script></head><body><main>Review text</main></body></html>';
+    const supported = await client.callTool({
+      name: "schema.supported",
+      arguments: { htmlContent: goodJsonld },
+    });
+    assert.equal(supported.isError, undefined);
+    assert.equal(supported.structuredContent?.blocks_seen, 1);
+    assert.equal(supported.structuredContent?.supported_nodes, 2);
+    assert.equal(supported.structuredContent?.warnings, 0);
+    assert.equal(supported.structuredContent?.errors, 0);
+    assert.equal(supported.structuredContent?.coverage_limited, true);
+    assert.match(textContent(supported), /JSON-LD structural review/i);
+    assert.doesNotMatch(JSON.stringify(supported), /A review/);
+
+    const brokenSchema = await client.callTool({
+      name: "schema.supported",
+      arguments: { htmlContent: '<script type="application/ld+json">'
+        + '{"@context":"https://schema.org","@type":"Product","name":12,'
+        + '"offers":{"@type":"Offer","price":"FAKE_PRICE"}}'
+        + '</script>' },
+    });
+    assert.equal(brokenSchema.isError, undefined);
+    assert(brokenSchema.structuredContent?.findings?.some((f) => f.code === "invalid_price"));
+    assert.doesNotMatch(JSON.stringify(brokenSchema), /FAKE_PRICE/);
 
 
     const promised = await client.callTool({

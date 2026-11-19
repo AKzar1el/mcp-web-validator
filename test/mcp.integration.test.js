@@ -28,6 +28,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     const names = tools.map((tool) => tool.name).sort();
     assert.deepEqual(names, [
       "audit.history",
+      "content.competitors",
       "content.duplicates",
       "content.provenance",
       "content.quality",
@@ -106,6 +107,35 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.equal(duplicates.structuredContent?.pairs?.[0]?.similarity_percent, 100);
     assert.match(textContent(duplicates), /same-language/i);
     assert.doesNotMatch(JSON.stringify(duplicates), /safetopic50/);
+
+    const sampleCompetition = await client.callTool({
+      name: "content.competitors",
+      arguments: {
+        primary: {
+          url: "https://example.test/guide",
+          htmlContent: '<html><head><title>Posture lesson</title></head><body><main>'
+            + '<h1>A posture lesson</h1><p>Read the article.</p></main></body></html>',
+        },
+        competitors: ["shop-one", "shop-two"].map((site) => ({
+          url: "https://" + site + ".test/product",
+          htmlContent: '<html><head><title>Best ergonomic chair</title>'
+            + '<script type="application/ld+json">{"@type":"Product","offers":{"@type":"Offer","price":99}}</script>'
+            + '</head><body><main><h1>Best ergonomic chair</h1>'
+            + '<a href="/checkout">Buy now</a></main></body></html>',
+        })),
+        expected_intent: "commercial",
+        query: "best ergonomic chair",
+      },
+    });
+    assert.equal(sampleCompetition.isError, undefined);
+    assert.equal(sampleCompetition.structuredContent?.scope, "caller_supplied_static_html_only");
+    assert.equal(sampleCompetition.structuredContent?.competitors_eligible, 2);
+    assert.equal(sampleCompetition.structuredContent?.competitors_with_intent_signals, 2);
+    assert(sampleCompetition.structuredContent?.findings?.some((f) =>
+      f.code === "primary_intent_signal_gap"));
+    assert(sampleCompetition.structuredContent?.coverage_limited);
+    assert.match(textContent(sampleCompetition), /competitor search-intent/i);
+    assert.doesNotMatch(JSON.stringify(sampleCompetition), /Posture lesson/);
 
     const provenanceSource = "https://doi.org/10.1000/sample";
     const provenancePage = '<html><head><meta property=article:published_time content=2026-11-01>'

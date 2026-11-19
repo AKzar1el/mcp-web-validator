@@ -58,6 +58,7 @@ The npm package exposes these exact runtime tool names:
 | `content.duplicates` | Compare exact and conservative near-duplicate main content within the same language across up to eight supplied HTML pages. | Fully offline, with no network, browser execution or storage; returns only evidence pairs and coverage, never main text. |
 | `content.quality` | Review empty or short static main content, repeated substantive boilerplate within sampled same-language URL families, and possible low unique value. | Offline analysis of up to eight supplied HTML pages; results are review signals, **not** proof that a short page lacks value or that Google penalized it. |
 | `content.provenance` | Compare explicit citations, dataset releases/snapshot dates, publication chronology, and methodology links with optional supplied source evidence and opt-in freshness windows. | Fully offline for up to eight supplied HTML pages; no citation/dataset fetching, external fact checks, browser, storage or claim of scientific truth. Missing source evidence remains unverified. |
+| `content.competitors` | Compare static search-intent signals between one primary page and up to six user-supplied competitor pages. Optional caller-chosen intent and query-heading word overlap identify review leads, never ranking winners. | Fully offline; **does not fetch competitor sites, scrape SERPs, use GSC, run a semantic classifier or claim Google intent alignment**. |
 | `product.claims` | Compare explicit local MCP capability promises in supplied or fetched landing-page HTML against the local runtime's **actually registered** tools and metadata. | Processes supplied HTML offline or fetches exactly one authorized public page using SSRF-safe network rules; registration consistency is **not** successful execution or a full marketing truth verdict. |
 | `site.hreflang` | Compare up to 16 supplied localized HTML pages for hreflang return links, self references, locale conflicts, `x-default` and canonical target clusters. | Fully offline and cross-domain aware; no crawling, private credentials, local-file access or storage. Unseen targets are unverified, not broken. |
 | `links.broken` | Check links extracted from supplied HTML. | Sends bounded HTTP requests to eligible public links. Returned link URLs omit queries and embedded credentials; requests still use the original URLs. |
@@ -76,7 +77,7 @@ fetches headers; the MCP `seo.metadata` tool still analyzes supplied HTML only.
 
 ## Hosted app tools
 
-The hosted app exposes eleven tools:
+The hosted app exposes twelve tools:
 
 | Tool | Purpose |
 | --- | --- |
@@ -85,6 +86,7 @@ The hosted app exposes eleven tools:
 | `compare_site_audits` | Offline before/after comparison of two saved `audit_public_site` structured results. Flags per-page regressions, coverage loss, and sitemap drift; reports newly observed or no-longer observed grouped findings only for an identical, fully checked page sample; partial sitemap coverage never proves a site-wide fix. No network calls or retained history. |
 | `verify_product_claims` | Check visible explicit hosted tool names, an advertised site batch limit, and selected read-only/screenshot-scope statements against the hosted MCP's registered tool names, schemas and annotations. Accepts supplied static HTML or one authorized public HTML URL; unknown statements remain unverified. |
 | `verify_content_provenance` | Offline comparison of explicit citation URLs, dataset metadata, published/modified dates and methodology references in up to eight caller-supplied HTML pages against optional supplied evidence. No citation URLs are fetched, and unsupported factual/freshness claims remain unverified. |
+| `compare_competitor_intent` | Offline comparison of one primary and up to six user-supplied competitor HTML pages for static informational, commercial, transactional or navigational signals and optional exact query/heading lexical overlap; no competitor crawling, SERP or ranking inference. |
 | `validate_html` | Validate supplied HTML or a public webpage URL (`url` field, or standalone URL in `html`). Uses the same bounded, redirect-checked public fetch as the webpage audit for URL inputs. |
 | `validate_css` | Parse supplied CSS for syntax errors inside the Worker. |
 | `audit_seo_metadata` | Audit supplied HTML for covered on-page SEO, robots noindex, and accessibility signals. |

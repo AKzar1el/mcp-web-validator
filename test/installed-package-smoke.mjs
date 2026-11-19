@@ -13,6 +13,7 @@ const repositoryRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)
 const scratch = await mkdtemp(path.join(tmpdir(), "mcp-web-validator-installed-smoke-"));
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 let client;
+let phase = "pack";
 
 try {
   // Use the distributable, not repository dist/index.js or source node_modules.
@@ -27,6 +28,7 @@ try {
 
   const consumer = path.join(scratch, "consumer");
   await mkdir(consumer);
+  phase = "dependency_install";
   await execFileAsync(
     npm,
     [
@@ -48,18 +50,21 @@ try {
     stderr: "pipe",
   });
   client = new Client({ name: "installed-package-smoke", version: "1.0.0" });
+  phase = "mcp_initialize";
   await client.connect(transport);
 
+  phase = "mcp_tools_list";
   const { tools } = await client.listTools();
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "content.duplicates", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "links.broken", "product.claims",
+      "audit.history", "content.competitors", "content.duplicates", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "links.broken", "product.claims",
       "report.validation", "schema.markup", "screenshot.capture", "seo.metadata", "site.hreflang",
     ],
   );
 
   // No external validator or third-party website is contacted by this tool.
+  phase = "seo_metadata";
   const localAudit = await client.callTool({
     name: "seo.metadata",
     arguments: {
@@ -70,6 +75,7 @@ try {
   assert.ok(Array.isArray(localAudit.structuredContent?.issues));
 
   const sampleWords = Array.from({ length: 120 }, (_, i) => `installedtestword${i}`).join(" ");
+  phase = "content_duplicates";
   const duplicateContent = await client.callTool({
     name: "content.duplicates",
     arguments: {
@@ -85,6 +91,7 @@ try {
   assert.ok(!JSON.stringify(duplicateContent).includes("installedtestword50"));
 
   const source = "https://doi.org/10.1000/install-smoke";
+  phase = "content_provenance";
   const provenance = await client.callTool({
     name: "content.provenance",
     arguments: {
@@ -101,6 +108,25 @@ try {
   assert.equal(provenance.structuredContent?.consistent_declarations, 1);
   assert.equal(provenance.structuredContent?.conflicting_declarations, 0);
 
+  phase = "content_competitors";
+  const intent = await client.callTool({
+    name: "content.competitors",
+    arguments: {
+      primary: { url: "https://example.test/guide",
+        htmlContent: '<html><head><title>Posture guide</title></head><main><h1>Posture</h1></main></html>' },
+      competitors: [{ url: "https://competitor.test/chairs",
+        htmlContent: '<html><head><title>Ergonomic chairs</title>'
+          + '<script type="application/ld+json">{"@type":"Product"}</script></head>'
+          + '<main><h1>Chairs</h1></main></html>' }],
+      expected_intent: "commercial",
+    },
+  });
+  assert.notEqual(intent.isError, true);
+  assert.equal(intent.structuredContent?.competitors_eligible, 1);
+  assert.equal(intent.structuredContent?.competitors_with_intent_signals, 1);
+  assert.equal(intent.structuredContent?.coverage_limited, true);
+
+  phase = "product_claims";
   const advertised = await client.callTool({
     name: "product.claims",
     arguments: {
@@ -115,6 +141,7 @@ try {
   assert.ok(advertised.structuredContent?.findings?.some((f) =>
     f.code === "product.tool_missing" && f.claim === "missing_fake_tool"));
 
+  phase = "content_quality";
   const quality = await client.callTool({
     name: "content.quality",
     arguments: {
@@ -134,6 +161,7 @@ try {
     + alternates.map(([locale, target]) =>
       '<link rel="alternate" hreflang="' + locale + '" href="' + target + '">').join("")
     + '</head><body><main>Test page</main></body></html>';
+  phase = "site_hreflang";
   const multilingual = await client.callTool({
     name: "site.hreflang",
     arguments: {
@@ -156,6 +184,7 @@ try {
 
     // The Ubuntu CI job configures an executable-specific AppArmor rule first;
     // the browser must still launch with its sandbox intact.
+    phase = "screenshot_capture";
     const screenshot = await client.callTool({
       name: "screenshot.capture",
       arguments: {
@@ -170,6 +199,10 @@ try {
     assert.ok((await stat(imagePath)).size > 0);
     console.log("Installed npm tarball MCP handshake, offline audits, multilingual comparison and sandboxed screenshot: PASS");
   }
+} catch (error) {
+  // Do not include untrusted HTML, source URLs or tool input in smoke logs.
+  console.error(`Installed package smoke failed at phase: ${phase}`);
+  throw error;
 } finally {
   if (client) await client.close();
   try {

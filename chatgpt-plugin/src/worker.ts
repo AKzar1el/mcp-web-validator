@@ -46,6 +46,15 @@ import {
   safeProvenanceId,
   safeProvenanceUrl,
 } from "../../src/modules/content-schema/citation-methodology-consistency";
+import {
+  compareIntentObservations,
+  emptyIntentComparison,
+  observeIntentHtml,
+  safeIntentUrl,
+  MAX_INTENT_HTML_BYTES,
+  MAX_INTENT_TOTAL_BYTES,
+  MAX_INTENT_QUERY_BYTES,
+} from "./modules/content-schema/competitor-intent-comparison";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -286,6 +295,61 @@ const provenanceOutputSchema = z.object({
     reference_id: z.string().max(64).optional(),
     message: z.string().max(320),
   })).max(12),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+});
+
+const intentPageInputSchema = z.object({
+  url: z.string().url().max(512)
+    .refine((value) => Boolean(safeIntentUrl(value)),
+      "Use a query-free HTTP(S) URL without credentials, fragments or nonstandard port."),
+  htmlContent: z.string().min(1).max(MAX_INTENT_HTML_BYTES)
+    .refine((value) => new TextEncoder().encode(value).byteLength <= MAX_INTENT_HTML_BYTES,
+      "Each page must not exceed 150,000 UTF-8 bytes."),
+});
+const intentSignalsSchema = z.object({
+  informational: z.array(z.string().max(40)).max(5),
+  commercial: z.array(z.string().max(40)).max(5),
+  transactional: z.array(z.string().max(40)).max(5),
+  navigational: z.array(z.string().max(40)).max(5),
+});
+const intentSignalCountsSchema = z.object({
+  informational: z.number().int().min(0).max(5),
+  commercial: z.number().int().min(0).max(5),
+  transactional: z.number().int().min(0).max(5),
+  navigational: z.number().int().min(0).max(5),
+});
+const intentPageOutputSchema = z.object({
+  origin: z.string().max(200),
+  title_present: z.boolean(), h1_present: z.boolean(), main_found: z.boolean(),
+  signals: intentSignalsSchema,
+  signal_counts: intentSignalCountsSchema,
+  intent_signal_count: z.number().int().min(0).max(5).optional(),
+  query_title_coverage_percent: z.number().int().min(0).max(100).optional(),
+  query_h1_coverage_percent: z.number().int().min(0).max(100).optional(),
+  extraction_limited: z.boolean(),
+});
+const competitorIntentOutputSchema = z.object({
+  scope: z.literal("caller_supplied_static_html_only"),
+  expected_intent: z.enum(["informational", "commercial", "transactional", "navigational"]).optional(),
+  query_supplied: z.boolean(),
+  usable_query_terms: z.number().int().nonnegative().max(12),
+  primary: intentPageOutputSchema,
+  competitors: z.array(intentPageOutputSchema).max(6),
+  competitors_submitted: z.number().int().nonnegative().max(6),
+  competitors_eligible: z.number().int().nonnegative().max(6),
+  competitors_with_intent_signals: z.number().int().nonnegative().max(6),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(330)).max(5),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    confidence: z.enum(["observed", "review"]),
+    message: z.string().max(320),
+    competitors_supporting: z.number().int().min(0).max(6).optional(),
+  })).max(10),
   findings_truncated: z.boolean(),
   overview: overviewSchema,
   error: z.string().optional(),
@@ -1995,6 +2059,83 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           "Source evidence could not be assessed.", error);
         return {
           structuredContent: { ...analyzeProvenance([], {}), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "compare_competitor_intent",
+    {
+      title: "Compare supplied competitor search-intent signals",
+      description:
+        "Bounded offline analysis of one primary and up to six caller-supplied competitor HTML pages. Compares explicit static informational/commercial/transactional/navigational signals and optional caller-selected intent or lexical query-heading overlap. No page, competitor, SERP, GSC or ranking requests; not a semantic SEO verdict.",
+      inputSchema: {
+        primary: intentPageInputSchema
+          .describe("Primary static HTML observation; the URL is a label, never fetched."),
+        competitors: z.array(intentPageInputSchema).min(1).max(6)
+          .describe("One to six caller-authorized competitor observations with distinct origins; none are fetched."),
+        expected_intent: z.enum(["informational", "commercial", "transactional", "navigational"])
+          .optional().describe("Optional target intent selected by the caller, not inferred by the model or the query."),
+        query: z.string().trim().min(1).max(MAX_INTENT_QUERY_BYTES)
+          .refine((value) => new TextEncoder().encode(value).byteLength <= MAX_INTENT_QUERY_BYTES,
+            "Query cannot exceed 160 UTF-8 bytes.")
+          .optional().describe("Optional caller-supplied query for exact normalized heading-token overlap; not echoed."),
+      },
+      outputSchema: competitorIntentOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthWidget({
+        invoking: "Comparing sampled competitor intent signals...",
+        invoked: "Competitor intent evidence comparison complete.",
+      }),
+    },
+    async ({ primary, competitors, expected_intent, query }) => {
+      try {
+        const total = [primary, ...competitors].reduce((bytes, item) =>
+          bytes + new TextEncoder().encode(item.htmlContent).byteLength, 0);
+        if (total > MAX_INTENT_TOTAL_BYTES) throw new Error("Combined input is over the bound.");
+        const analysis = compareIntentObservations(
+          observeIntentHtml(primary.htmlContent, primary.url),
+          competitors.map((item) => observeIntentHtml(item.htmlContent, item.url)),
+          { expectedIntent: expected_intent, query },
+        );
+        const overview: ResultOverview = {
+          kind: "report",
+          status: analysis.findings.some((f) => f.severity === "warning")
+            ? "needs_attention" : "partial",
+          title: "Sampled competitor search-intent signals",
+          headline: analysis.competitors_eligible + " supplied competitors compared; "
+            + analysis.total_findings + " review leads from static markup.",
+          detail: "Only explicit HTML/JSON-LD and lexical title/H1 signals are checked. These are not a classification of search intent, organic rankings or search-engine demand.",
+          total: analysis.competitors_submitted,
+          shown: analysis.competitors_eligible,
+          truncated: analysis.coverage_limited,
+          counts: [
+            metric("competitors", "Competitor pages", analysis.competitors_eligible, "info"),
+            metric("intent_signals", "Competitors with chosen intent signals",
+              analysis.competitors_with_intent_signals, "info"),
+            metric("review_findings", "Review leads", analysis.total_findings, "warning"),
+          ],
+          next_action: "Review flagged page elements and verify page purpose and search performance independently with authorized data.",
+        };
+        return {
+          structuredContent: { ...analysis, overview },
+          content: contentForOverview(overview,
+            analysis.findings.map((finding) => ({
+              severity: finding.severity,
+              label: finding.code,
+              message: finding.message,
+            }))),
+        };
+      } catch {
+        const error = "Competitor intent signals could not be compared within the authorized static input and distinct-origin limits.";
+        const overview = failedOverview("report", "Competitor intent evidence",
+          "Competitor comparison could not be completed.", error);
+        return {
+          structuredContent: { ...emptyIntentComparison(), overview, error },
           content: contentForOverview(overview),
           isError: true,
         };

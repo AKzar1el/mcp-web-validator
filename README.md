@@ -61,6 +61,7 @@ The npm package exposes these exact runtime tool names:
 | `content.competitors` | Compare static search-intent signals between one primary page and up to six user-supplied competitor pages. Optional caller-chosen intent and query-heading word overlap identify review leads, never ranking winners. | Fully offline; **does not fetch competitor sites, scrape SERPs, use GSC, run a semantic classifier or claim Google intent alignment**. |
 | `product.claims` | Compare explicit local MCP capability promises in supplied or fetched landing-page HTML against the local runtime's **actually registered** tools and metadata. | Processes supplied HTML offline or fetches exactly one authorized public page using SSRF-safe network rules; registration consistency is **not** successful execution or a full marketing truth verdict. |
 | `site.hreflang` | Compare up to 16 supplied localized HTML pages for hreflang return links, self references, locale conflicts, `x-default` and canonical target clusters. | Fully offline and cross-domain aware; no crawling, private credentials, local-file access or storage. Unseen targets are unverified, not broken. |
+| `site.links` | Review contextual same-origin internal links, accessible anchor labels, generic link text, internal nofollow, repeated labels and lexical overlap with supplied destination headings. | Fully offline across 1-8 user-supplied same-origin HTML pages; **does not fetch linked pages, claim broken destinations, infer semantic relevance or Google rankings**. Navigation links and unsupplied targets are excluded/unverified. |
 | `links.broken` | Check links extracted from supplied HTML. | Sends bounded HTTP requests to eligible public links. |
 | `schema.markup` | Parse JSON-LD blocks and report JSON syntax errors. | Processes supplied HTML locally. |
 | `schema.supported` | Review explicit JSON-LD structures for a limited set of Article, Product, BreadcrumbList, FAQPage, Organization and WebSite profiles. | Fully offline; checks bounded property shapes and review recommendations, **not** complete Schema.org validity, Google rich-result eligibility, content correctness or external contexts. The original syntax checker remains unchanged. |
@@ -76,7 +77,7 @@ fetches headers; the MCP `seo.metadata` tool still analyzes supplied HTML only.
 
 ## Hosted app tools
 
-The hosted app exposes thirteen tools:
+The hosted app exposes fourteen tools:
 
 | Tool | Purpose |
 | --- | --- |
@@ -91,6 +92,7 @@ The hosted app exposes thirteen tools:
 | `audit_seo_metadata` | Audit supplied HTML for covered on-page SEO, robots noindex, and accessibility signals. |
 | `validate_schema_markup` | Check JSON-LD blocks in supplied HTML for JSON syntax errors. |
 | `validate_supported_schema` | Review supported JSON-LD node types and selected property structures, including Product offer prices, Article dates, breadcrumb positions and FAQ answer text. Unknown types remain unverified; no rich-result eligibility promise. |
+| `review_internal_links` | Review contextual internal links and accessible anchor labels across 1-8 already-supplied same-origin static HTML pages, with limited lexical heading comparison for supplied targets. No network requests, search metrics, destination verification or semantic relevance assertions. |
 | `check_broken_links` | Check up to 20 authorized public links extracted from supplied HTML. |
 | `generate_validation_report` | Combine the checks for supplied markup; `base_url` resolves relative links but does not fetch a page. |
 

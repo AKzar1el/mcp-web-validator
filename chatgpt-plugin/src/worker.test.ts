@@ -314,7 +314,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers thirteen accurately annotated tools", async () => {
+  it("discovers fourteen accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -330,6 +330,7 @@ describe("hosted tool contract", () => {
       "verify_content_provenance",
       "compare_competitor_intent",
       "validate_supported_schema",
+      "review_internal_links",
     ]);
     const noAuthSecuritySchemes = [{ type: "noauth" }];
     for (const tool of tools) {
@@ -1370,6 +1371,77 @@ describe("P1-07 supported structured-data review through hosted MCP HTTP", () =>
     expect(result.structuredContent.coverage_limited).toBe(true);
     expect(result.structuredContent.overview.status).toBe("partial");
     expect(JSON.stringify(result)).not.toContain("FAKE_PRIVATE");
+  });
+});
+
+describe("P1-08 contextual internal-link review through hosted MCP HTTP", () => {
+  const source = {
+    url: "https://example.com/guides/work",
+    htmlContent: '<html><head><title>Work guide</title></head><body>'
+      + '<nav><a href="/products/chairs">Global navigation</a></nav>'
+      + '<main><h1>Work guide</h1>'
+      + '<a href="/products/chairs">read more</a>'
+      + '<a href="/products/chairs"><img alt="" src="chair.png"></a>'
+      + '<a href="https://external.test/research">External research</a>'
+      + '</main></body></html>',
+  };
+  const destination = {
+    url: "https://example.com/products/chairs",
+    htmlContent: '<html><head><title>Office ergonomic chairs</title></head>'
+      + '<main><h1>Ergonomic office chairs</h1></main></html>',
+  };
+
+  it("discovers a read-only no-fetch tool and compares observed link/anchor evidence", async () => {
+    const mockedFetch = vi.fn();
+    vi.stubGlobal("fetch", mockedFetch);
+    const advertised = await listTools();
+    expect(advertised.find((tool) => tool.name === "review_internal_links")?.annotations)
+      .toMatchObject({ readOnlyHint: true, openWorldHint: false, destructiveHint: false });
+    const result = await callTool("review_internal_links", { pages: [source, destination] });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      scope: "caller_supplied_same_origin_html_only",
+      pages_sampled: 2, pages_eligible: 2,
+      internal_links_observed: 2, external_links_observed: 1,
+      linked_sample_targets: 1, missing_anchor_labels: 1,
+      generic_anchor_links: 1, coverage_limited: true,
+    });
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(mockedFetch).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("/products/chairs");
+  });
+
+  it("treats unsupplied and query-variant destinations as unknown, never broken", async () => {
+    const input = { ...source,
+      htmlContent: '<html><main><a href="/not-supplied">Catalog</a>'
+        + '<a href="/products/chairs?token=FAKE_TOKEN">Chairs</a></main></html>' };
+    const result = await callTool("review_internal_links", { pages: [input, destination] });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.unmatched_internal_links).toBe(2);
+    expect(result.structuredContent.linked_sample_targets).toBe(0);
+    expect(result.structuredContent.coverage_limited).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("FAKE_TOKEN");
+  });
+
+  it("rejects different origins and unsafe source labels without echoing secrets", async () => {
+    for (const pages of [
+      [source, { ...destination, url: "https://other.example/x" }],
+      [source, { ...destination, url: destination.url + "?token=FAKE_TOKEN" }],
+      [source, { ...destination, url: source.url }],
+    ]) {
+      const result = await callTool("review_internal_links", { pages });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).not.toContain("FAKE_TOKEN");
+    }
+  });
+
+  it("rejects UTF-8 oversized documents and preserves existing link checker behavior", async () => {
+    const result = await callTool("review_internal_links", { pages: [
+      source, { ...destination, htmlContent: "é".repeat(80_001) },
+    ] });
+    expect(result.isError).toBe(true);
+    const tools = await listTools();
+    expect(tools.some((tool) => tool.name === "check_broken_links")).toBe(true);
   });
 });
 

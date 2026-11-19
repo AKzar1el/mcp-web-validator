@@ -29,6 +29,7 @@ import {
   provenanceContent,
   intentComparisonContent,
   supportedSchemaContent,
+  internalLinkContent,
   multilingualClusterContent,
   failureContent,
   htmlValidationContent,
@@ -74,6 +75,15 @@ import {
   type SupportedSchemaReview,
 } from "./modules/content-schema/structured-data-validation.js";
 import { reviewSupportedSchemaHtml } from "./modules/content-schema/extract-structured-data.js";
+import {
+  reviewInternalLinks,
+  emptyInternalLinkReview,
+  safeLinkPageUrl,
+  MAX_LINK_HTML_BYTES,
+  MAX_LINK_TOTAL_HTML_BYTES,
+  MAX_LINK_FINDINGS,
+} from "./modules/site-architecture/internal-link-quality.js";
+import { observeInternalLinks } from "./modules/site-architecture/extract-internal-links.js";
 import {
   analyzeMultilingualClusters,
   safeMultilingualUrl,
@@ -383,6 +393,64 @@ const supportedSchemaOutputSchema = {
     property: z.string().max(40).optional(),
     message: z.string().max(290),
   })).max(MAX_SUPPORTED_SCHEMA_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const internalLinkPageInputSchema = z.object({
+  url: z.string().url().max(512).refine((value) => Boolean(safeLinkPageUrl(value)),
+    "Use a query-free HTTP(S) document URL label without credentials, port or fragment.")
+    .describe("Caller-supplied page URL label; no URL or linked target is fetched."),
+  htmlContent: z.string().min(1).max(MAX_LINK_HTML_BYTES)
+    .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_LINK_HTML_BYTES,
+      "Each page HTML must not exceed 160,000 UTF-8 bytes.")
+    .describe("Already-authorized static page HTML, at most 160 KB UTF-8 per page."),
+});
+const internalLinkOutputPageSchema = z.object({
+  page: z.number().int().min(1).max(8),
+  main_present: z.boolean(),
+  internal_links: z.number().int().nonnegative(),
+  external_links: z.number().int().nonnegative(),
+  linked_sample_pages: z.number().int().nonnegative().max(8),
+  unmatched_internal_links: z.number().int().nonnegative(),
+  missing_anchor_labels: z.number().int().nonnegative(),
+  generic_anchor_links: z.number().int().nonnegative(),
+  nofollow_internal_links: z.number().int().nonnegative(),
+  self_links: z.number().int().nonnegative(),
+  fragment_only_links: z.number().int().nonnegative(),
+  extraction_limited: z.boolean(),
+});
+const internalLinkOutputSchema = {
+  scope: z.literal("caller_supplied_same_origin_html_only"),
+  pages_sampled: z.number().int().min(0).max(8),
+  pages_eligible: z.number().int().min(0).max(8),
+  origin: z.string().max(200),
+  internal_links_observed: z.number().int().nonnegative(),
+  external_links_observed: z.number().int().nonnegative(),
+  excluded_navigation_links: z.number().int().nonnegative(),
+  linked_sample_targets: z.number().int().min(0).max(8),
+  unmatched_internal_links: z.number().int().nonnegative(),
+  missing_anchor_labels: z.number().int().nonnegative(),
+  generic_anchor_links: z.number().int().nonnegative(),
+  low_heading_overlap_links: z.number().int().nonnegative(),
+  ambiguous_anchor_target_groups: z.number().int().nonnegative(),
+  nofollow_internal_links: z.number().int().nonnegative(),
+  self_links: z.number().int().nonnegative(),
+  fragment_only_links: z.number().int().nonnegative(),
+  skipped_non_http_links: z.number().int().nonnegative(),
+  pages: z.array(internalLinkOutputPageSchema).max(8),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(330)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    confidence: z.enum(["observed", "review"]),
+    source_page: z.number().int().min(1).max(8),
+    target_page: z.number().int().min(1).max(8).optional(),
+    count: z.number().int().nonnegative(),
+    message: z.string().max(320),
+  })).max(MAX_LINK_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
 };
@@ -1353,6 +1421,36 @@ export function createServer(): McpServer {
         return result({ ...empty, error }, failureContent(
           "Citation and source evidence", error,
           "Supply 1-8 bounded HTML pages and optional safe, factual reference metadata.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "site.links",
+    {
+      title: "Review contextual internal links and anchor labels",
+      description:
+        "Offline bounded review of one to eight caller-supplied same-origin HTML pages: contextual internal vs external links, missing accessible names, generic labels, nofollow, repeated anchors, and lexical title/H1 overlap only for supplied destinations. Unknown URLs are unverified, never called broken. No fetching, crawling, search data, JavaScript or ranking inference.",
+      inputSchema: {
+        pages: z.array(internalLinkPageInputSchema).min(1).max(8)
+          .describe("One to eight authorized same-origin page HTML observations, combined maximum 900,000 UTF-8 bytes; all distinct URL labels."),
+      },
+      outputSchema: internalLinkOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ pages }) => {
+      try {
+        const bytes = pages.reduce((total, p) => total + Buffer.byteLength(p.htmlContent, "utf8"), 0);
+        if (bytes > MAX_LINK_TOTAL_HTML_BYTES) throw new Error("Combined static HTML exceeds limit.");
+        const analysis = reviewInternalLinks(pages.map(({ url, htmlContent }) =>
+          observeInternalLinks(htmlContent, url)));
+        return result(analysis, internalLinkContent(analysis));
+      } catch {
+        const error = "Sampled internal link evidence could not be reviewed within the input and same-origin limits.";
+        return result({ ...emptyInternalLinkReview(), error }, failureContent(
+          "Contextual internal links", error,
+          "Supply 1-8 bounded HTML pages with distinct safe URL labels on the same exact origin.",
         ), true);
       }
     },

@@ -2193,6 +2193,466 @@
       }
     },
     {
+      "name": "content.competitors",
+      "title": "Compare sampled competitor search-intent signals",
+      "description": "Offline comparison of one primary and up to six caller-supplied competitor pages for visible, bounded informational/commercial/transactional/navigational markup signals. Optional explicitly selected search intent and query-heading lexical overlap only. Does NOT discover competitors, fetch pages, access GSC, classify the query semantically, or predict rankings.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "primary": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "maxLength": 512,
+                "format": "uri",
+                "description": "Absolute HTTP(S) page URL label; no network requests are made."
+              },
+              "htmlContent": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 150000,
+                "description": "Already obtained authorized static HTML for this page; 150 KB maximum."
+              }
+            },
+            "required": [
+              "url",
+              "htmlContent"
+            ],
+            "description": "Caller-authorized primary page observation. No URL will be fetched."
+          },
+          "competitors": {
+            "minItems": 1,
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Absolute HTTP(S) page URL label; no network requests are made."
+                },
+                "htmlContent": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 150000,
+                  "description": "Already obtained authorized static HTML for this page; 150 KB maximum."
+                }
+              },
+              "required": [
+                "url",
+                "htmlContent"
+              ]
+            },
+            "description": "One to six competitor HTML observations already obtained lawfully; each origin must be distinct."
+          },
+          "expected_intent": {
+            "description": "Optional intent specified by the caller; never inferred from the query.",
+            "type": "string",
+            "enum": [
+              "informational",
+              "commercial",
+              "transactional",
+              "navigational"
+            ]
+          },
+          "query": {
+            "description": "Optional caller-provided query for strict normalized title/H1 token overlap only; never echoed.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "primary",
+          "competitors"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "caller_supplied_static_html_only"
+          },
+          "expected_intent": {
+            "type": "string",
+            "enum": [
+              "informational",
+              "commercial",
+              "transactional",
+              "navigational"
+            ]
+          },
+          "query_supplied": {
+            "type": "boolean"
+          },
+          "usable_query_terms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 12
+          },
+          "primary": {
+            "type": "object",
+            "properties": {
+              "origin": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "title_present": {
+                "type": "boolean"
+              },
+              "h1_present": {
+                "type": "boolean"
+              },
+              "main_found": {
+                "type": "boolean"
+              },
+              "signals": {
+                "type": "object",
+                "properties": {
+                  "informational": {
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 40
+                    }
+                  },
+                  "commercial": {
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 40
+                    }
+                  },
+                  "transactional": {
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 40
+                    }
+                  },
+                  "navigational": {
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 40
+                    }
+                  }
+                },
+                "required": [
+                  "informational",
+                  "commercial",
+                  "transactional",
+                  "navigational"
+                ],
+                "additionalProperties": false
+              },
+              "signal_counts": {
+                "type": "object",
+                "properties": {
+                  "informational": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5
+                  },
+                  "commercial": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5
+                  },
+                  "transactional": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5
+                  },
+                  "navigational": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5
+                  }
+                },
+                "required": [
+                  "informational",
+                  "commercial",
+                  "transactional",
+                  "navigational"
+                ],
+                "additionalProperties": false
+              },
+              "intent_signal_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 5
+              },
+              "query_title_coverage_percent": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "query_h1_coverage_percent": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "extraction_limited": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "origin",
+              "title_present",
+              "h1_present",
+              "main_found",
+              "signals",
+              "signal_counts",
+              "extraction_limited"
+            ],
+            "additionalProperties": false
+          },
+          "competitors": {
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "origin": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "title_present": {
+                  "type": "boolean"
+                },
+                "h1_present": {
+                  "type": "boolean"
+                },
+                "main_found": {
+                  "type": "boolean"
+                },
+                "signals": {
+                  "type": "object",
+                  "properties": {
+                    "informational": {
+                      "maxItems": 5,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 40
+                      }
+                    },
+                    "commercial": {
+                      "maxItems": 5,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 40
+                      }
+                    },
+                    "transactional": {
+                      "maxItems": 5,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 40
+                      }
+                    },
+                    "navigational": {
+                      "maxItems": 5,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 40
+                      }
+                    }
+                  },
+                  "required": [
+                    "informational",
+                    "commercial",
+                    "transactional",
+                    "navigational"
+                  ],
+                  "additionalProperties": false
+                },
+                "signal_counts": {
+                  "type": "object",
+                  "properties": {
+                    "informational": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 5
+                    },
+                    "commercial": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 5
+                    },
+                    "transactional": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 5
+                    },
+                    "navigational": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 5
+                    }
+                  },
+                  "required": [
+                    "informational",
+                    "commercial",
+                    "transactional",
+                    "navigational"
+                  ],
+                  "additionalProperties": false
+                },
+                "intent_signal_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "query_title_coverage_percent": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "query_h1_coverage_percent": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "extraction_limited": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "origin",
+                "title_present",
+                "h1_present",
+                "main_found",
+                "signals",
+                "signal_counts",
+                "extraction_limited"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "competitors_submitted": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6
+          },
+          "competitors_eligible": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6
+          },
+          "competitors_with_intent_signals": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6
+          },
+          "coverage_limited": {
+            "type": "boolean"
+          },
+          "limitations": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 330
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "confidence": {
+                  "type": "string",
+                  "enum": [
+                    "observed",
+                    "review"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                },
+                "competitors_supporting": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "confidence",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "query_supplied",
+          "usable_query_terms",
+          "primary",
+          "competitors",
+          "competitors_submitted",
+          "competitors_eligible",
+          "competitors_with_intent_signals",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "product.claims",
       "title": "Check landing-page claims against local MCP capabilities",
       "description": "Compare explicit local MCP product-page promises with this actual runtime's registered tool metadata. Supply HTML or one authorized public HTML URL. No arbitrary marketing semantics, no remote MCP credentials, no storage, no scripts and no claim of a successful tool invocation. Hosted tool claims must be verified by the hosted runtime.",

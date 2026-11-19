@@ -4,6 +4,7 @@ import type { SameLanguageDuplicateAnalysis } from "./modules/content-schema/sam
 import type { PageContentQualityAnalysis } from "./modules/content-schema/empty-boilerplate-content.js";
 import type { ProductClaimResult } from "./modules/content-schema/product-claims.js";
 import type { ProvenanceResult } from "./modules/content-schema/citation-methodology-consistency.js";
+import type { IntentComparison } from "./modules/content-schema/competitor-intent-comparison.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
@@ -458,6 +459,22 @@ export function provenanceContent(analysis: ProvenanceResult): string {
     nextStep: analysis.findings_truncated
       ? "More evidence findings exist than the result cap; inspect sources and compare smaller authorized page batches."
       : "Verify the underlying sources, dataset release and methodology independently before asserting factual accuracy or current freshness.",
+  });
+}
+
+export function intentComparisonContent(analysis: IntentComparison): string {
+  return toolContent({
+    title: "Competitor search-intent evidence comparison",
+    status: analysis.findings.some((finding) => finding.severity === "warning")
+      ? "attention needed" : "partial",
+    outcome: `${analysis.competitors_eligible}/${analysis.competitors_submitted} competitor pages compared from supplied static HTML` +
+      (analysis.expected_intent ? `; selected intent: ${analysis.expected_intent}` : "; no explicit intent selected") +
+      ". This does not predict Google rankings or semantic relevance.",
+    actions: analysis.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Review the indicated headings and static structured signals, check page purpose manually, and use authorized search or analytics data before drawing competitive SEO conclusions.",
   });
 }
 

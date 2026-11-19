@@ -314,7 +314,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers eleven accurately annotated tools", async () => {
+  it("discovers twelve accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -328,6 +328,7 @@ describe("hosted tool contract", () => {
       "compare_site_audits",
       "verify_product_claims",
       "verify_content_provenance",
+      "compare_competitor_intent",
     ]);
     const noAuthSecuritySchemes = [{ type: "noauth" }];
     for (const tool of tools) {
@@ -1219,6 +1220,82 @@ describe("P1-05 provenance verification through hosted MCP HTTP", () => {
       expect(result.isError).toBe(true);
       expect(JSON.stringify(result)).not.toContain("FAKE_SECRET");
     }
+  });
+});
+
+describe("P1-06 competitor intent comparison through hosted MCP HTTP", () => {
+  const primary = {
+    url: "https://publisher.test/guide",
+    htmlContent: '<html><head><title>Posture lesson</title></head><body>'
+      + '<nav><a href="/checkout">Buy now</a></nav>'
+      + '<main><h1>Posture overview</h1><p>Healthier desk work tips.</p></main></body></html>',
+  };
+  const shop = (host: string) => ({
+    url: "https://" + host + ".test/chairs",
+    htmlContent: '<html><head><title>Best ergonomic chair</title>'
+      + '<script type="application/ld+json">{"@type":"Product","offers":{"@type":"Offer","price":99}}</script>'
+      + '</head><body><main><h1>Best ergonomic chair</h1>'
+      + '<a href="/checkout">Buy now</a></main></body></html>',
+  });
+
+  it("lists the hosted tool with offline read-only annotations and calls it without fetch", async () => {
+    const fetching = vi.fn();
+    vi.stubGlobal("fetch", fetching);
+    const tools = await listTools();
+    expect(tools.find((tool) => tool.name === "compare_competitor_intent")?.annotations)
+      .toMatchObject({ readOnlyHint: true, openWorldHint: false, destructiveHint: false });
+    const result = await callTool("compare_competitor_intent", {
+      primary, competitors: [shop("shop-one"), shop("shop-two")],
+      expected_intent: "commercial", query: "best ergonomic chair",
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      scope: "caller_supplied_static_html_only",
+      competitors_submitted: 2, competitors_eligible: 2,
+      competitors_with_intent_signals: 2,
+      coverage_limited: true,
+    });
+    expect(result.structuredContent.findings.map((f: { code: string }) => f.code))
+      .toEqual(expect.arrayContaining([
+        "primary_intent_signal_gap", "primary_heading_query_gap",
+      ]));
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(fetching).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("Posture overview");
+    expect(JSON.stringify(result)).not.toContain("/chairs");
+  });
+
+  it("keeps absent intent and query evidence explicitly partial", async () => {
+    const result = await callTool("compare_competitor_intent", {
+      primary, competitors: [shop("shop-one")],
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.query_supplied).toBe(false);
+    expect(result.structuredContent.usable_query_terms).toBe(0);
+    expect(result.structuredContent.coverage_limited).toBe(true);
+    expect(result.structuredContent.overview.status).toBe("partial");
+  });
+
+  it("rejects same-origin, invalid token-bearing URL, and oversize input safely", async () => {
+    for (const args of [
+      { primary, competitors: [{ ...shop("shop-one"), url: "https://publisher.test/other" }] },
+      { primary, competitors: [{ ...shop("shop-one"), url: "https://shop-one.test/chairs?secret=FAKE_TOKEN" }] },
+      { primary, competitors: [{ ...shop("shop-one"), htmlContent: "x".repeat(150_001) }] },
+    ]) {
+      const result = await callTool("compare_competitor_intent", args);
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).not.toContain("FAKE_TOKEN");
+    }
+  });
+
+  it("does not hallucinate a search-engine verdict from one supplied competitor", async () => {
+    const result = await callTool("compare_competitor_intent", {
+      primary, competitors: [shop("shop-one")], expected_intent: "informational",
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.coverage_limited).toBe(true);
+    expect(result.structuredContent.limitations.join(" ")).toContain("not Google's interpretation");
+    expect(result.structuredContent.competitors_submitted).toBe(1);
   });
 });
 

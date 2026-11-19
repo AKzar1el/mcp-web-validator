@@ -453,6 +453,171 @@
       }
     },
     {
+      "name": "content.duplicates",
+      "title": "Compare same-language main content",
+      "description": "Compares static main text across one to eight HTML pages supplied by the caller. Reports high-confidence exact matches and conservative near matches only within the same language (and script). No network requests or storage. Output is limited to this sample, not site-wide uniqueness.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pages": {
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Public-style absolute page URL for comparison only; never fetched or echoed with query strings."
+                },
+                "htmlContent": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 250000,
+                  "description": "Static HTML of the corresponding page, limited to 250,000 UTF-8 bytes."
+                }
+              },
+              "required": [
+                "url",
+                "htmlContent"
+              ]
+            },
+            "description": "One to eight HTML pages to compare; total HTML must be at most 1 MiB."
+          }
+        },
+        "required": [
+          "pages"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "sampled_pages_only"
+          },
+          "sampled_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "eligible_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "skipped_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "coverage_limited": {
+            "type": "boolean"
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "total_pairs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pairs": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "first_url": {
+                  "type": "string"
+                },
+                "second_url": {
+                  "type": "string"
+                },
+                "language": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "exact",
+                    "near"
+                  ]
+                },
+                "confidence": {
+                  "type": "string",
+                  "enum": [
+                    "observed",
+                    "potential"
+                  ]
+                },
+                "similarity_percent": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "first_words": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "second_words": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "first_url",
+                "second_url",
+                "language",
+                "kind",
+                "confidence",
+                "similarity_percent",
+                "first_words",
+                "second_words"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "pairs_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "sampled_pages",
+          "eligible_pages",
+          "skipped_pages",
+          "coverage_limited",
+          "limitations",
+          "total_pairs",
+          "pairs",
+          "pairs_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "links.broken",
       "title": "Check public links",
       "description": "Resolves and checks up to 25 public HTTP(S) links in supplied HTML. Redirects are reported but not followed, and response bodies are discarded.",
@@ -525,9 +690,6 @@
               "additionalProperties": false
             }
           },
-          "error": {
-            "type": "string"
-          },
           "totalLinks": {
             "type": "integer",
             "minimum": 0,
@@ -535,6 +697,9 @@
           },
           "truncated": {
             "type": "boolean"
+          },
+          "error": {
+            "type": "string"
           }
         },
         "required": [

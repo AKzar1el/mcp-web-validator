@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import type { ValidationReport } from "./report.js";
+import type { SameLanguageDuplicateAnalysis } from "./modules/content-schema/same-language-duplicates.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
   getW3CMessageSeverity,
@@ -375,6 +376,26 @@ export function linkCheckContent(links: LinkStatus[], baseUrl?: string): string 
     nextStep: unverified.length > 0
       ? "Review confirmed HTTP failures and redirects; retry unverified links only if public and permitted."
       : "Update failed destinations and review redirects, then rerun the link check.",
+  });
+}
+
+export function contentDuplicateContent(analysis: SameLanguageDuplicateAnalysis): string {
+  const matches = analysis.pairs;
+  const coverage = `${analysis.eligible_pages}/${analysis.sampled_pages} sampled pages had usable main content and a known language`;
+  return toolContent({
+    title: "Same-language main-content comparison",
+    status: matches.length ? "attention needed" : analysis.coverage_limited ? "partial" : "clean",
+    outcome: analysis.total_pairs
+      ? `${countLabel(analysis.total_pairs, "duplicate-content pair")} found in the sampled pages; ${coverage}.`
+      : `No duplicate main-content pairs found; ${coverage}. This is not evidence of site-wide uniqueness.`,
+    actions: matches.map((pair) => ({
+      priority: pair.kind === "exact" ? 1 : 2,
+      location: `${pair.first_url} vs ${pair.second_url}`,
+      message: `${pair.kind === "exact" ? "Exact" : "Near"} ${pair.language} main-text match (${pair.similarity_percent}%, ${pair.confidence}).`,
+    })),
+    nextStep: analysis.pairs_truncated
+      ? "More matches exist than the result cap; review these pairs and repeat on a narrower page sample."
+      : "Review matched pages manually; this static-text comparison cannot infer search-engine canonicalization or semantic equivalence.",
   });
 }
 

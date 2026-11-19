@@ -28,6 +28,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     const names = tools.map((tool) => tool.name).sort();
     assert.deepEqual(names, [
       "audit.history",
+      "content.duplicates",
       "css.local",
       "html.local",
       "html.url",
@@ -85,6 +86,22 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "SEO narration must show at most three prioritized findings",
     );
     assert.doesNotMatch(seoText, /"(?:issues|totalIssues|truncated)"\s*:/);
+
+    const duplicateWords = Array.from({ length: 130 }, (_, i) => `safetopic${i}`).join(" ");
+    const duplicatePages = ["a", "b"].map((name) => ({
+      url: `https://example.test/${name}`,
+      htmlContent: `<!doctype html><html lang="en"><body><main><p>${duplicateWords}</p></main></body></html>`,
+    }));
+    const duplicates = await client.callTool({
+      name: "content.duplicates",
+      arguments: { pages: duplicatePages },
+    });
+    assert.equal(duplicates.isError, undefined);
+    assert.equal(duplicates.structuredContent?.total_pairs, 1);
+    assert.equal(duplicates.structuredContent?.pairs?.[0]?.kind, "exact");
+    assert.equal(duplicates.structuredContent?.pairs?.[0]?.similarity_percent, 100);
+    assert.match(textContent(duplicates), /same-language/i);
+    assert.doesNotMatch(JSON.stringify(duplicates), /safetopic50/);
 
     const schema = await client.callTool({
       name: "schema.markup",

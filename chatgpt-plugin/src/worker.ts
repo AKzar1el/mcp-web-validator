@@ -73,6 +73,16 @@ import {
   MAX_LINK_TOTAL_HTML_BYTES,
   MAX_LINK_FINDINGS,
 } from "./modules/site-architecture/internal-link-quality";
+import {
+  analyzeMetadataConsistency,
+  emptyMetadataReview,
+  safeMetadataLabel,
+  observeMetadata,
+  MAX_METADATA_HTML_BYTES,
+  MAX_METADATA_TOTAL_BYTES,
+  MAX_METADATA_FINDINGS,
+} from "./modules/content-schema/metadata-consistency";
+import { METADATA_FIELDS } from "../../src/modules/content-schema/metadata-consistency";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -455,6 +465,58 @@ const internalLinkOutputSchema = z.object({
     count: z.number().int().nonnegative(),
     message: z.string().max(320),
   })).max(MAX_LINK_FINDINGS),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+});
+
+const metadataPageInputSchema = z.object({
+  url: z.string().url().max(512)
+    .refine((value) => Boolean(safeMetadataLabel(value)),
+      "Use an absolute query-free HTTP(S) page label without credentials or fragments."),
+  htmlContent: z.string().min(1).max(MAX_METADATA_HTML_BYTES)
+    .refine((value) => new TextEncoder().encode(value).byteLength <= MAX_METADATA_HTML_BYTES,
+      "Each HTML page must be at most 180,000 UTF-8 bytes."),
+});
+const metadataPageOutputSchema = z.object({
+  page: z.number().int().min(1).max(8),
+  fields_present: z.number().int().min(0).max(10),
+  title_declarations: z.number().int().nonnegative().max(12),
+  description_declarations: z.number().int().nonnegative().max(12),
+  canonical_declarations: z.number().int().nonnegative().max(12),
+  robots_declarations: z.number().int().nonnegative().max(24),
+  duplicate_fields: z.number().int().nonnegative().max(10),
+  conflicting_fields: z.number().int().nonnegative().max(10),
+  unresolved_canonicals: z.number().int().nonnegative().max(12),
+  cross_field_review_leads: z.number().int().nonnegative().max(5),
+  extraction_limited: z.boolean(),
+});
+const metadataConsistencyOutputSchema = z.object({
+  scope: z.literal("caller_supplied_same_origin_metadata_only"),
+  pages_sampled: z.number().int().min(0).max(8),
+  origin: z.string().max(200),
+  duplicate_declaration_fields: z.number().int().nonnegative(),
+  conflicting_declaration_fields: z.number().int().nonnegative(),
+  unresolved_canonical_references: z.number().int().nonnegative(),
+  explicit_robots_conflicts: z.number().int().nonnegative(),
+  cross_field_review_leads: z.number().int().nonnegative(),
+  duplicate_title_groups: z.number().int().nonnegative(),
+  duplicate_description_groups: z.number().int().nonnegative(),
+  excluded_annotated_canonicals: z.number().int().nonnegative(),
+  pages: z.array(metadataPageOutputSchema).max(8),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(360)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    confidence: z.enum(["observed", "review"]),
+    source_page: z.number().int().min(1).max(8),
+    field: z.enum(METADATA_FIELDS),
+    count: z.number().int().nonnegative(),
+    related_pages: z.array(z.number().int().min(1).max(8)).max(7).optional(),
+    message: z.string().max(340),
+  })).max(MAX_METADATA_FINDINGS),
   findings_truncated: z.boolean(),
   overview: overviewSchema,
   error: z.string().optional(),
@@ -2361,6 +2423,75 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           "Sampled link evidence could not be compared.", error);
         return {
           structuredContent: { ...emptyInternalLinkReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "review_metadata_consistency",
+    {
+      title: "Review sampled metadata duplication and conflicting declarations",
+      description:
+        "Offline, bounded comparison of 1-8 caller-supplied same-origin static HTML pages. Reviews repeated/conflicting titles, descriptions and canonical preferences; Open Graph/Twitter text differences; explicit robots directives; and duplicate titles/descriptions across distinct sampled canonical preferences. No network requests, Google-selected canonical verification, rendering, ranking inference, or storage.",
+      inputSchema: {
+        pages: z.array(metadataPageInputSchema).min(1).max(8)
+          .describe("One to eight authorized same-origin static HTML pages with distinct safe URL labels; 900,000 UTF-8 bytes combined, none fetched."),
+      },
+      outputSchema: metadataConsistencyOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthWidget({
+        invoking: "Reviewing metadata consistency...",
+        invoked: "Sampled metadata consistency review complete.",
+      }),
+    },
+    async ({ pages }) => {
+      try {
+        const bytes = pages.reduce((total, p) =>
+          total + new TextEncoder().encode(p.htmlContent).byteLength, 0);
+        if (bytes > MAX_METADATA_TOTAL_BYTES) throw new Error("Combined HTML exceeds limit.");
+        const analysis = analyzeMetadataConsistency(pages.map(({ url, htmlContent }) =>
+          observeMetadata(htmlContent, url)));
+        const overview: ResultOverview = {
+          kind: "report",
+          status: analysis.conflicting_declaration_fields > 0 ? "needs_attention" : "partial",
+          title: "Sampled metadata consistency review",
+          headline: analysis.conflicting_declaration_fields + " conflicting field groups and " +
+            analysis.duplicate_declaration_fields + " repeated equivalent fields across " +
+            analysis.pages_sampled + " supplied pages.",
+          detail: analysis.cross_field_review_leads + " social/canonical review leads and " +
+            (analysis.duplicate_title_groups + analysis.duplicate_description_groups) +
+            " cross-page duplicate metadata groups. These are not live Google indexing or ranking judgments.",
+          total: analysis.total_findings,
+          shown: analysis.findings.length,
+          truncated: analysis.findings_truncated,
+          counts: [
+            metric("conflicting_fields", "Conflicting declarations", analysis.conflicting_declaration_fields, "warning"),
+            metric("duplicate_fields", "Repeated equivalent fields", analysis.duplicate_declaration_fields, "info"),
+            metric("cross_field", "Cross-field review leads", analysis.cross_field_review_leads, "info"),
+            metric("cross_page", "Cross-page metadata groups",
+              analysis.duplicate_title_groups + analysis.duplicate_description_groups, "info"),
+          ],
+          next_action: "Review the reported declarations in the sampled HTML and verify site intent; social metadata differences and repeated titles can be deliberate.",
+        };
+        return {
+          structuredContent: { ...analysis, overview },
+          content: contentForOverview(overview,
+            analysis.findings.map((finding) => ({
+              severity: finding.severity,
+              label: finding.code + " (page " + finding.source_page + ")",
+              message: finding.message,
+            }))),
+        };
+      } catch {
+        const error = "Metadata consistency could not be reviewed within the supplied URL, same-origin and size limits.";
+        const overview = failedOverview("report", "Metadata consistency",
+          "The supplied metadata sample could not be compared.", error);
+        return {
+          structuredContent: { ...emptyMetadataReview(), overview, error },
           content: contentForOverview(overview),
           isError: true,
         };

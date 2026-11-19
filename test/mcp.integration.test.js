@@ -30,6 +30,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "audit.history",
       "content.competitors",
       "content.duplicates",
+      "content.metadata",
       "content.provenance",
       "content.quality",
       "css.local",
@@ -109,6 +110,28 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.equal(duplicates.structuredContent?.pairs?.[0]?.similarity_percent, 100);
     assert.match(textContent(duplicates), /same-language/i);
     assert.doesNotMatch(JSON.stringify(duplicates), /safetopic50/);
+
+    const metadataPages = [
+      { url: "https://example.test/article",
+        htmlContent: '<html><head><title>Primary title</title><title>Second title</title>'
+          + '<meta name="description" content="Sample summary">'
+          + '<meta property="og:title" content="Social title">'
+          + '<link rel="canonical" href="/article"></head></html>' },
+      { url: "https://example.test/other",
+        htmlContent: '<html><head><title>Other title</title>'
+          + '<link rel="canonical" href="https://example.test/other"></head></html>' },
+    ];
+    const metadata = await client.callTool({
+      name: "content.metadata",
+      arguments: { pages: metadataPages },
+    });
+    assert.equal(metadata.isError, undefined);
+    assert.equal(metadata.structuredContent?.pages_sampled, 2);
+    assert.equal(metadata.structuredContent?.conflicting_declaration_fields, 1);
+    assert(metadata.structuredContent?.findings.some((f) => f.code === "conflicting_declaration"));
+    assert.equal(metadata.structuredContent?.coverage_limited, true);
+    assert.match(textContent(metadata), /Sampled metadata consistency review/);
+    assert.doesNotMatch(JSON.stringify(metadata), /Primary title|Second title|Sample summary/);
 
     const sampleCompetition = await client.callTool({
       name: "content.competitors",

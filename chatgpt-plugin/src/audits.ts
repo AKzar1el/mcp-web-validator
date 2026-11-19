@@ -999,7 +999,18 @@ export function toPublicHttpUrl(value: string, baseUrl?: string): URL | undefine
   }
 }
 
+function redactedLinkResultUrl(url: URL): string {
+  const display = new URL(url);
+  display.username = "";
+  display.password = "";
+  display.search = "";
+  display.hash = "";
+  return display.href;
+}
+
 async function fetchStatus(url: URL): Promise<LinkStatus> {
+  // Preserve the full URL for the request; omit sensitive URL fields in results.
+  const displayUrl = redactedLinkResultUrl(url);
   const execute = async (method: "HEAD" | "GET") => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -1039,7 +1050,7 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
       response = await execute("GET");
     }
     return {
-      url: url.toString(),
+      url: displayUrl,
       status: response.status,
       ok: response.status >= 200 && response.status < 400 && !isUnverifiedLinkStatus(response.status),
       message: response.status === 300
@@ -1056,7 +1067,7 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
     };
   } catch {
     return {
-      url: url.toString(),
+      url: displayUrl,
       status: "failed",
       ok: false,
       message: "Connection failed or timed out.",

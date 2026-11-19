@@ -5,19 +5,33 @@
  * Never fetch a referenced URL, infer Google's canonical choice, or echo
  * credentialed/query-bearing links.
  */
-import * as cheerio from "cheerio";
-
 export const MAX_MULTILINGUAL_PAGES = 16;
 export const MAX_HREFLANG_LOCALES = 16;
 export const MAX_HREFLANG_DECLARATIONS_SCANNED = 64;
 export const MAX_MULTILINGUAL_FINDINGS = 12;
 const MAX_PUBLIC_LABEL_CHARS = 256;
-const MAX_HTML_CHARS = 250_000;
+export const MAX_MULTILINGUAL_HTML_CHARS = 250_000;
 const MAX_EXAMPLE_URLS = 2;
 
 export interface MultilingualReference {
   locale: string;
   url: string;
+}
+
+export interface MultilingualHtmlLink {
+  rel?: string;
+  href?: string;
+  hreflang?: string;
+  hasMedia?: boolean;
+  hasType?: boolean;
+  hasLang?: boolean;
+}
+
+export interface ParsedMultilingualHtml {
+  rawUrl: string;
+  htmlLength: number;
+  rawLanguage?: string;
+  links: MultilingualHtmlLink[];
 }
 
 export type MultilingualCanonicalState = "missing" | "usable" | "ambiguous" | "unverifiable";
@@ -129,22 +143,23 @@ function emptyPage(url: string): MultilingualPageObservation {
   };
 }
 
-/** Head-only observations from one already-authorized static HTML document. */
-export function observeMultilingualPage(html: string, rawUrl: string): MultilingualPageObservation {
+/** Pure, runtime-independent validation of head-only HTML observations. */
+export function analyzeMultilingualHtmlSignals({
+  rawUrl, htmlLength, rawLanguage, links,
+}: ParsedMultilingualHtml): MultilingualPageObservation {
   const url = safeMultilingualUrl(rawUrl);
-  if (!url || html.length > MAX_HTML_CHARS || !html) return emptyPage(url ?? "");
-  const $ = cheerio.load(html);
-  const language = documentLanguage($("html").first().attr("lang")?.trim());
-  const canonicalLinks = $("head > link[rel]").toArray().filter((element) =>
-    relationIncludes($(element).attr("rel"), "canonical"));
+  if (!url || htmlLength > MAX_MULTILINGUAL_HTML_CHARS || htmlLength < 1) {
+    return emptyPage(url ?? "");
+  }
+  const language = documentLanguage(rawLanguage?.trim());
+  const canonicalLinks = links.filter((link) => relationIncludes(link.rel, "canonical"));
   let canonicalState: MultilingualCanonicalState = "missing";
   let canonicalUrl: string | undefined;
   if (canonicalLinks.length > 1) canonicalState = "ambiguous";
   else if (canonicalLinks.length === 1) {
-    const link = $(canonicalLinks[0]);
-    const hasAnnotations = ["hreflang", "media", "type", "lang"].some((attribute) =>
-      link.attr(attribute) !== undefined);
-    canonicalUrl = hasAnnotations ? undefined : safeMultilingualUrl(link.attr("href")?.trim() ?? "");
+    const link = canonicalLinks[0];
+    const hasAnnotations = link.hreflang !== undefined || link.hasMedia || link.hasType || link.hasLang;
+    canonicalUrl = hasAnnotations ? undefined : safeMultilingualUrl(link.href?.trim() ?? "");
     canonicalState = canonicalUrl ? "usable" : "unverifiable";
   }
 
@@ -154,15 +169,14 @@ export function observeMultilingualPage(html: string, rawUrl: string): Multiling
   let repeated = 0;
   let conflicting = 0;
   let overflow = false;
-  const declarations = $("head > link[hreflang]").toArray();
+  const declarations = links.filter((link) => link.hreflang !== undefined);
   if (declarations.length > MAX_HREFLANG_DECLARATIONS_SCANNED) overflow = true;
-  for (const element of declarations.slice(0, MAX_HREFLANG_DECLARATIONS_SCANNED)) {
-    const link = $(element);
-    const locale = normalizeHreflangLocale(link.attr("hreflang")?.trim() ?? "");
-    const target = safeMultilingualUrl(link.attr("href")?.trim() ?? "");
+  for (const link of declarations.slice(0, MAX_HREFLANG_DECLARATIONS_SCANNED)) {
+    const locale = normalizeHreflangLocale(link.hreflang?.trim() ?? "");
+    const target = safeMultilingualUrl(link.href?.trim() ?? "");
     // Media/type annotations on the same link are not supported by Google.
-    if (!relationIncludes(link.attr("rel"), "alternate") ||
-      ["media", "type"].some((attribute) => link.attr(attribute) !== undefined) ||
+    if (!relationIncludes(link.rel, "alternate") ||
+      link.hasMedia || link.hasType ||
       !locale || !target) {
       invalid += 1;
       continue;

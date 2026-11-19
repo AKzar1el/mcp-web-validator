@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   analyzeMultilingualClusters,
-  observeMultilingualPage,
   normalizeHreflangLocale,
   MAX_MULTILINGUAL_FINDINGS,
 } from "../dist/modules/site-architecture/multilingual-clusters.js";
+import { observeMultilingualPage } from "../dist/modules/site-architecture/extract-multilingual-page.js";
 
 const locales = ["en", "de", "fr", "es", "it", "pt", "nl", "sv", "no", "da", "fi", "pl", "cs", "sk", "hu", "sl"];
 const target = (language) => "https://example.test/" + language + "/";

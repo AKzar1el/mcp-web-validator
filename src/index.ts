@@ -38,9 +38,9 @@ import { observeMainContent } from "./modules/content-schema/extract-main-conten
 import { analyzeSameLanguageDuplicates } from "./modules/content-schema/same-language-duplicates.js";
 import {
   analyzeMultilingualClusters,
-  observeMultilingualPage,
   safeMultilingualUrl,
 } from "./modules/site-architecture/multilingual-clusters.js";
+import { observeMultilingualPage } from "./modules/site-architecture/extract-multilingual-page.js";
 import { PACKAGE_VERSION } from "./version.js";
 import {
   MAX_AUDIT_HISTORY,

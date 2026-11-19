@@ -6,7 +6,7 @@
 
 - Local stdio tool **site.hreflang** (offline): supply 1–16 page observations, each with an absolute HTTP(S) URL label and already obtained HTML. Max 125 kB/page, max 1.5 MB total. It does not crawl URLs, read local paths, store snapshots, run JS, inspect the browser, or contact a third-party service.
 - Hosted Worker **audit_public_site**: multilingual_clusters adds data from *only the pages already fetched* by the existing maximum-eight-page sitemap-first audit. Original robots, same-origin, request caps, redirect limits, rate limits, schemas, and network destinations are unchanged. It cannot confirm reciprocal links across unvisited pages, even if it reads 16 alternate declarations on each sampled page.
-- Single shared engine: src/modules/site-architecture/multilingual-clusters.ts. Hosted chatgpt-plugin/src/modules/site-architecture/multilingual-clusters.ts re-exports the same engine; no duplicate matching algorithm.
+- Single shared runtime-neutral engine: src/modules/site-architecture/multilingual-clusters.ts. The local src/modules/site-architecture/extract-multilingual-page.ts and hosted chatgpt-plugin/src/modules/site-architecture/multilingual-clusters.ts supply thin HTML-parser adapters using their own installed Cheerio dependency; only the shared engine decides which observations are valid and how clusters compare. No duplicate matching algorithm, and hosted-only dependency installation works.
 - Existing indexability_graph remains in place for backward compatibility; it supplies limited legacy observations. compare_site_audits accepts historical snapshots without this new optional field but does not pretend to compare multilingual changes over time.
 
 ## What the algorithm checks

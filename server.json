@@ -1971,6 +1971,225 @@
       }
     },
     {
+      "name": "media.diagnostics",
+      "title": "Review static images, video and media-loading evidence",
+      "description": "Local-only, offline review of caller-supplied HTML image alt/name evidence, responsive picture fallbacks, intrinsic dimensions, lazy loading/decoding/fetchpriority hints, video sources and caption tracks. Bounded and redacted; never fetches or renders media, executes scripts, measures layout, validates caption contents or certifies accessibility/performance.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "htmlContent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180000,
+            "description": "Caller-supplied static HTML markup to inspect offline; no URL, resource or local file is fetched."
+          }
+        },
+        "required": [
+          "htmlContent"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "caller_supplied_static_media_markup_only"
+          },
+          "images_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pictures_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "videos_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "source_elements_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "track_elements_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "media_elements_checked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 160
+          },
+          "media_elements_truncated": {
+            "type": "boolean"
+          },
+          "images_without_explicit_alt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "images_with_empty_alt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "images_without_intrinsic_dimensions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lazy_images_without_intrinsic_dimensions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "image_sources_unobserved": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "videos_without_observed_source": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "videos_without_caption_track": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "picture_fallbacks_unobserved": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 360
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "image_name_unobserved",
+                    "image_whitespace_alt",
+                    "linked_image_name_unobserved",
+                    "image_source_unobserved",
+                    "image_lazy_dimensions_unobserved",
+                    "image_invalid_loading",
+                    "image_invalid_decoding",
+                    "image_invalid_fetchpriority",
+                    "picture_fallback_unobserved",
+                    "picture_source_srcset_unobserved",
+                    "video_source_unobserved",
+                    "video_caption_track_unobserved",
+                    "video_caption_source_unobserved",
+                    "video_autoplay_without_muted"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "media_type": {
+                  "type": "string",
+                  "enum": [
+                    "image",
+                    "picture",
+                    "video"
+                  ]
+                },
+                "element": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 160
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 240
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "media_type",
+                "element",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "images_observed",
+          "pictures_observed",
+          "videos_observed",
+          "source_elements_observed",
+          "track_elements_observed",
+          "media_elements_checked",
+          "media_elements_truncated",
+          "images_without_explicit_alt",
+          "images_with_empty_alt",
+          "images_without_intrinsic_dimensions",
+          "lazy_images_without_intrinsic_dimensions",
+          "image_sources_unobserved",
+          "videos_without_observed_source",
+          "videos_without_caption_track",
+          "picture_fallbacks_unobserved",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "screenshot.capture",
       "title": "Capture responsive screenshots",
       "description": "Renders a local HTML file or HTTP(S) URL in a sandboxed local Chromium browser and writes PNG screenshots to the requested directory. Downloads the pinned headless browser on first use if it is not already cached. Existing matching files may be replaced. Completed PNG paths are included if a later viewport fails.",

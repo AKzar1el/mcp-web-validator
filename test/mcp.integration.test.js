@@ -37,6 +37,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "html.local",
       "html.url",
       "links.broken",
+      "media.diagnostics",
       "product.claims",
       "report.validation",
       "schema.markup",
@@ -94,6 +95,29 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "SEO narration must show at most three prioritized findings",
     );
     assert.doesNotMatch(seoText, /"(?:issues|totalIssues|truncated)"\s*:/);
+
+    const media = await client.callTool({
+      name: "media.diagnostics",
+      arguments: { htmlContent: '<html><body><main><img src="/img.jpg" loading="lazy">' +
+        '<video src="/video.mp4"><track kind="captions" src="/captions.vtt"></video>' +
+        '</main></body></html>' },
+    });
+    assert.equal(media.isError, undefined);
+    assert.equal(media.structuredContent?.images_observed, 1);
+    assert.equal(media.structuredContent?.videos_observed, 1);
+    assert.equal(media.structuredContent?.images_without_explicit_alt, 1);
+    assert.equal(media.structuredContent?.videos_without_caption_track, 0);
+    assert.equal(media.structuredContent?.coverage_limited, true);
+    assert.match(textContent(media), /Static media markup diagnostics/);
+    assert(!JSON.stringify(media).includes("/video.mp4"));
+    const mediaTool = tools.find((tool) => tool.name === "media.diagnostics");
+    assert.equal(mediaTool?.annotations?.readOnlyHint, true);
+    assert.equal(mediaTool?.annotations?.openWorldHint, false);
+    const invalidMedia = await client.callTool({
+      name: "media.diagnostics",
+      arguments: { htmlContent: "é".repeat(90_001) },
+    });
+    assert.equal(invalidMedia.isError, true);
 
     const duplicateWords = Array.from({ length: 130 }, (_, i) => `safetopic${i}`).join(" ");
     const duplicatePages = ["a", "b"].map((name) => ({

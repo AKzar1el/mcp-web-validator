@@ -1066,6 +1066,86 @@ describe("public webpage audit", () => {
 });
 
 describe("public site audit", () => {
+  it("keeps unrelated empty pages separate and detects unpunctuated repeated main content via MCP (#463)", async () => {
+    const root = "https://example.com/";
+    const paths = ["/privacy", "/contact", "/products/a", "/products/b", "/products/c"];
+    const common = Array.from({ length: 115 }, (_, i) => "sharedtemplate" + i).join(" ");
+    const visited: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      visited.push(url);
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response("<urlset>" + ["/", ...paths].map((p) =>
+          "<url><loc>https://example.com" + p + "</loc></url>").join("") + "</urlset>",
+          { headers: { "content-type": "application/xml" } });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      const pathname = new URL(url).pathname;
+      if (pathname === "/") return new Response(
+        "<html lang=en><body><main><p>" + Array.from({ length: 90 }, (_, i) =>
+          "homepage" + i).join(" ") + "</p></main></body></html>",
+        { headers: { "content-type": "text/html" } });
+      if (pathname === "/privacy" || pathname === "/contact") {
+        return new Response("<html lang=en><body><main></main></body></html>",
+          { headers: { "content-type": "text/html" } });
+      }
+      if (pathname.startsWith("/products/")) return new Response(
+        "<html lang=en><body><main><p>" + common + "</p><p>"
+          + Array.from({ length: 15 }, (_, i) => "unique" + pathname.slice(-1) + i).join(" ")
+          + "</p></main></body></html>", { headers: { "content-type": "text/html" } });
+      throw new Error("Unexpected URL " + url);
+    }));
+    const result = await callTool("audit_public_site", { site_url: root, max_pages: 6 });
+    expect(result.isError).toBeUndefined();
+    const quality = result.structuredContent.content_quality;
+    expect(quality.empty_main_pages).toBe(2);
+    expect(quality.repeated_boilerplate_pages).toBe(3);
+    expect(quality.findings.map((f: { code: string }) => f.code)).not.toContain("content.family_empty");
+    expect(quality.findings.map((f: { code: string }) => f.code)).toContain("content.family_repeated_boilerplate");
+    expect(JSON.stringify(result)).not.toContain("sharedtemplate51");
+    expect(visited.filter((url) => url === root || paths.some((path) => url === root.slice(0, -1) + path)))
+      .toHaveLength(6);
+  });
+
+  it("returns P1-03 empty-family review evidence from a real hosted MCP request without extra fetches", async () => {
+    const root = "https://example.com/";
+    const a = "https://example.com/faq/a", b = "https://example.com/faq/b";
+    const visited: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      visited.push(url);
+      if (url === "https://example.com/robots.txt") return new Response(
+        "User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+      if (url === "https://example.com/sitemap.xml") return new Response(
+        "<urlset><url><loc>" + root + "</loc></url><url><loc>" + a + "</loc></url><url><loc>" + b + "</loc></url></urlset>",
+        { headers: { "content-type": "application/xml" } });
+      if (url === root) return new Response(
+        "<!doctype html><html lang=en><head><title>Root</title></head><body><main>"
+          + Array.from({ length: 95 }, (_, i) => "original" + i).join(" ")
+          + "</main></body></html>", { headers: { "content-type": "text/html" } });
+      if (url === a || url === b) return new Response(
+        "<!doctype html><html lang=en><head><title>FAQ</title></head><body><nav>Useful navigation</nav><main></main></body></html>",
+        { headers: { "content-type": "text/html" } });
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error("Unexpected fetch: " + url);
+    }));
+    const response = await callTool("audit_public_site", { site_url: root, max_pages: 3 });
+    expect(response.isError).toBeUndefined();
+    expect(response.structuredContent.content_quality).toMatchObject({
+      scope: "sampled_pages_only", sampled_pages: 3, eligible_pages: 3, empty_main_pages: 2,
+    });
+    const quality = response.structuredContent.content_quality;
+    expect(quality.findings.map((f: { code: string }) => f.code)).toContain("content.family_empty");
+    expect(response.structuredContent.overview.counts).toContainEqual(expect.objectContaining({
+      key: "content_quality_findings", value: quality.total_findings,
+    }));
+    expect(response.structuredContent.pages.every((p: Record<string, unknown>) => !("mainContent" in p))).toBe(true);
+    expect(visited.filter((url) => url === root || url === a || url === b)).toEqual([root, a, b]);
+  });
+
   it("exposes P1-02 multilingual cluster errors in a real MCP HTTP response without extra fetches", async () => {
     const english = "https://example.com/";
     const german = "https://example.com/de/";

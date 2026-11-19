@@ -54,7 +54,7 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "content.duplicates", "css.local", "html.local", "html.url", "links.broken",
+      "audit.history", "content.duplicates", "content.quality", "css.local", "html.local", "html.url", "links.broken",
       "report.validation", "schema.markup", "screenshot.capture", "seo.metadata", "site.hreflang",
     ],
   );
@@ -84,6 +84,19 @@ try {
   assert.equal(duplicateContent.structuredContent?.pairs?.[0]?.kind, "exact");
   assert.ok(!JSON.stringify(duplicateContent).includes("installedtestword50"));
 
+  const quality = await client.callTool({
+    name: "content.quality",
+    arguments: {
+      pages: ["one", "two"].map((page) => ({
+        url: `https://example.test/products/${page}`,
+        htmlContent: "<!doctype html><html lang=en><main></main></html>",
+      })),
+    },
+  });
+  assert.notEqual(quality.isError, true);
+  assert.equal(quality.structuredContent?.empty_main_pages, 2);
+  assert.ok(quality.structuredContent?.findings?.some((f) => f.code === "content.family_empty"));
+
   const en = "https://example.test/en/", de = "https://example.test/de/";
   const hreflangHead = (canonical, alternates) =>
     '<html lang="en"><head><link rel="canonical" href="' + canonical + '">'
@@ -103,26 +116,39 @@ try {
   assert.ok(multilingual.structuredContent?.findings?.some((finding) =>
     finding.code === "multilingual.return_link_missing"));
 
-  const fixture = path.join(scratch, "fixture.html");
-  const outputDir = path.join(scratch, "screenshots");
-  await writeFile(fixture, "<!doctype html><title>Installed browser smoke</title><h1>Installed browser smoke</h1>");
+  if (process.env.MCP_SMOKE_SKIP_SCREENSHOT === "1") {
+    console.log("Installed npm tarball MCP handshake and offline feature tools: PASS (screenshot intentionally skipped)");
+  } else {
+    const fixture = path.join(scratch, "fixture.html");
+    const outputDir = path.join(scratch, "screenshots");
+    await writeFile(fixture, "<!doctype html><title>Installed browser smoke</title><h1>Installed browser smoke</h1>");
 
-  // The Ubuntu CI job configures an executable-specific AppArmor rule first;
-  // the browser must still launch with its sandbox intact.
-  const screenshot = await client.callTool({
-    name: "screenshot.capture",
-    arguments: {
-      targetPath: fixture,
-      outputDir,
-      viewports: [{ name: "installed", width: 800, height: 600 }],
-    },
-  });
-  assert.notEqual(screenshot.isError, true, JSON.stringify(screenshot.structuredContent));
-  assert.equal(screenshot.structuredContent?.screenshots?.length, 1);
-  const imagePath = screenshot.structuredContent.screenshots[0].outputPath;
-  assert.ok((await stat(imagePath)).size > 0);
-  console.log("Installed npm tarball MCP handshake, offline audits, multilingual comparison and sandboxed screenshot: PASS");
+    // The Ubuntu CI job configures an executable-specific AppArmor rule first;
+    // the browser must still launch with its sandbox intact.
+    const screenshot = await client.callTool({
+      name: "screenshot.capture",
+      arguments: {
+        targetPath: fixture,
+        outputDir,
+        viewports: [{ name: "installed", width: 800, height: 600 }],
+      },
+    });
+    assert.notEqual(screenshot.isError, true, JSON.stringify(screenshot.structuredContent));
+    assert.equal(screenshot.structuredContent?.screenshots?.length, 1);
+    const imagePath = screenshot.structuredContent.screenshots[0].outputPath;
+    assert.ok((await stat(imagePath)).size > 0);
+    console.log("Installed npm tarball MCP handshake, offline audits, multilingual comparison and sandboxed screenshot: PASS");
+  }
 } finally {
   if (client) await client.close();
-  await rm(scratch, { recursive: true, force: true });
+  try {
+    // Windows can briefly retain Chromium file handles after MCP shutdown.
+    await rm(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
+  } catch (error) {
+    // Report cleanup separately from functional test failure. The scratch path
+    // is a unique OS temp directory, never a user or project directory.
+    if (process.platform !== "win32" ||
+      !["EBUSY", "EPERM", "ENOTEMPTY"].includes(error?.code)) throw error;
+    console.warn("Windows kept the package smoke temporary directory locked; functional checks above are unaffected.");
+  }
 }

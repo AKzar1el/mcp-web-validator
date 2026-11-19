@@ -28,9 +28,16 @@ export function observeMainContent(html: string, url: string): MainContentObserv
   const source: MainContentSource = main.length ? "main" : article.length ? "article" : body.length ? "body_fallback" : "missing";
   if (!root.length) return { url, language, source: "missing", text: "" };
   root.find(MAIN_CONTENT_EXCLUDED_SELECTORS).remove();
+  const blocks = root.find("p,li,blockquote,pre").filter((_, element) =>
+    $(element).parents("p,li,blockquote,pre").length === 0).toArray()
+    .map((element) => $(element).text().replace(/\s+/gu, " ").trim())
+    .filter(Boolean);
   root.find(MAIN_CONTENT_BLOCK_SELECTORS).each((_, element) => {
     $(element).before(" ");
     $(element).after(" ");
   });
-  return { url, language, source, text: root.text() };
+  return {
+    url, language, source, text: root.text(),
+    blocks: blocks.slice(0, 240), blocksTruncated: blocks.length > 240,
+  };
 }

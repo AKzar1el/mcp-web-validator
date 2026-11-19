@@ -470,13 +470,13 @@
                   "type": "string",
                   "maxLength": 512,
                   "format": "uri",
-                  "description": "Public-style absolute page URL for comparison only; never fetched or echoed with query strings."
+                  "description": "Absolute page URL label only; no network request is made or query parameters accepted."
                 },
                 "htmlContent": {
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 250000,
-                  "description": "Static HTML of the corresponding page, limited to 250,000 UTF-8 bytes."
+                  "description": "Already obtained static HTML, at most 250,000 UTF-8 bytes per page."
                 }
               },
               "required": [
@@ -603,6 +603,198 @@
           "total_pairs",
           "pairs",
           "pairs_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "content.quality",
+      "title": "Review empty, short and repeated main content",
+      "description": "Offline, evidence-limited review of empty or thin static main text and substantive repeated sentences within same-language page families. Reports possible missing standalone value, not Google rankings or a semantic quality verdict. Accepts up to eight supplied HTML pages; no network, storage, browser or LLM.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pages": {
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Absolute page URL label only; no network request is made or query parameters accepted."
+                },
+                "htmlContent": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 250000,
+                  "description": "Already obtained static HTML, at most 250,000 UTF-8 bytes per page."
+                }
+              },
+              "required": [
+                "url",
+                "htmlContent"
+              ]
+            },
+            "description": "One to eight authorized HTML page observations; total supplied HTML must be at most 1 MB."
+          }
+        },
+        "required": [
+          "pages"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "sampled_pages_only"
+          },
+          "sampled_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "eligible_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "skipped_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "families_compared": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "empty_main_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "short_main_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "repeated_boilerplate_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "possible_low_value_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "coverage_limited": {
+            "type": "boolean"
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 300
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "confidence": {
+                  "type": "string",
+                  "enum": [
+                    "observed",
+                    "potential"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                },
+                "affected_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "example_urls": {
+                  "maxItems": 2,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 512
+                  }
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "confidence",
+                "message",
+                "affected_pages",
+                "example_urls"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "sampled_pages",
+          "eligible_pages",
+          "skipped_pages",
+          "families_compared",
+          "empty_main_pages",
+          "short_main_pages",
+          "repeated_boilerplate_pages",
+          "possible_low_value_pages",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false

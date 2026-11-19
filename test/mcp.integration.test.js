@@ -29,6 +29,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.deepEqual(names, [
       "audit.history",
       "content.duplicates",
+      "content.quality",
       "css.local",
       "html.local",
       "html.url",
@@ -103,6 +104,46 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.equal(duplicates.structuredContent?.pairs?.[0]?.similarity_percent, 100);
     assert.match(textContent(duplicates), /same-language/i);
     assert.doesNotMatch(JSON.stringify(duplicates), /safetopic50/);
+
+    const quality = await client.callTool({
+      name: "content.quality",
+      arguments: {
+        pages: ["one", "two"].map((page) => ({
+          url: `https://example.test/products/${page}`,
+          htmlContent: "<!doctype html><html lang=en><body><nav>Navigation</nav><main></main></body></html>",
+        })),
+      },
+    });
+    assert.equal(quality.isError, undefined);
+    assert.equal(quality.structuredContent?.empty_main_pages, 2);
+    assert(quality.structuredContent?.findings?.some((f) => f.code === "content.family_empty"));
+    assert.match(textContent(quality), /content-quality|main-content quality/i);
+
+    const unrelatedEmpty = await client.callTool({
+      name: "content.quality",
+      arguments: { pages: ["/privacy", "/contact"].map((path) => ({
+        url: "https://example.test" + path,
+        htmlContent: "<html lang=en><body><main></main></body></html>",
+      })) },
+    });
+    assert.equal(unrelatedEmpty.isError, undefined);
+    assert.equal(unrelatedEmpty.structuredContent?.empty_main_pages, 2);
+    assert(!unrelatedEmpty.structuredContent?.findings?.some((f) => f.code === "content.family_empty"));
+
+    const sharedUnpunctuated = Array.from({ length: 115 }, (_, i) => "reusable" + i).join(" ");
+    const repeatedMain = await client.callTool({
+      name: "content.quality",
+      arguments: { pages: ["a", "b", "c"].map((page) => ({
+        url: "https://example.test/products/" + page,
+        htmlContent: '<html lang=en><body><main><p>' + sharedUnpunctuated
+          + '</p><p>' + Array.from({ length: 15 }, (_, i) => "distinct" + page + i).join(" ")
+          + '</p></main></body></html>',
+      })) },
+    });
+    assert.equal(repeatedMain.isError, undefined);
+    assert.equal(repeatedMain.structuredContent?.repeated_boilerplate_pages, 3);
+    assert(repeatedMain.structuredContent?.findings?.some((f) => f.code === "content.family_repeated_boilerplate"));
+    assert.doesNotMatch(JSON.stringify(repeatedMain), /reusable50/);
 
     const english = "https://example.test/en/";
     const german = "https://example.test/de/";

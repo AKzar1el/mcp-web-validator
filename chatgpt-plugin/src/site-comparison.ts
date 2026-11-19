@@ -9,9 +9,10 @@ export type ComparisonStatus = "comparable" | "partial" | "not_comparable";
 // Historical audit snapshots predate the optional indexability graph and
 // same-language duplicate-content analysis. Neither is used for comparison.
 // This comparator only relies on page counts, URLs and grouped findings.
-export type ComparableSiteAudit = Omit<PublicSiteAuditResult, "indexability_graph" | "content_duplicates" | "multilingual_clusters"> & {
+export type ComparableSiteAudit = Omit<PublicSiteAuditResult, "indexability_graph" | "content_duplicates" | "content_quality" | "multilingual_clusters"> & {
   indexability_graph?: PublicSiteAuditResult["indexability_graph"];
   content_duplicates?: PublicSiteAuditResult["content_duplicates"];
+  content_quality?: PublicSiteAuditResult["content_quality"];
   multilingual_clusters?: PublicSiteAuditResult["multilingual_clusters"];
 };
 export type PageChangeKind =

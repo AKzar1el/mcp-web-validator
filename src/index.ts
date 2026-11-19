@@ -24,6 +24,7 @@ import { fetchPublicText, getErrorMessage, readTextFile } from "./network.js";
 import {
   cssValidationContent,
   contentDuplicateContent,
+  contentQualityContent,
   multilingualClusterContent,
   failureContent,
   htmlValidationContent,
@@ -36,6 +37,7 @@ import {
 } from "./presentation.js";
 import { observeMainContent } from "./modules/content-schema/extract-main-content.js";
 import { analyzeSameLanguageDuplicates } from "./modules/content-schema/same-language-duplicates.js";
+import { analyzePageContentQuality } from "./modules/content-schema/empty-boilerplate-content.js";
 import {
   analyzeMultilingualClusters,
   safeMultilingualUrl,
@@ -147,6 +149,44 @@ const duplicateAnalysisOutputSchema = {
   pairs_truncated: z.boolean(),
   error: z.string().optional(),
 };
+
+const contentQualityOutputSchema = {
+  scope: z.literal("sampled_pages_only"),
+  sampled_pages: z.number().int().min(0).max(8),
+  eligible_pages: z.number().int().min(0).max(8),
+  skipped_pages: z.number().int().min(0).max(8),
+  families_compared: z.number().int().min(0).max(8),
+  empty_main_pages: z.number().int().min(0).max(8),
+  short_main_pages: z.number().int().min(0).max(8),
+  repeated_boilerplate_pages: z.number().int().min(0).max(8),
+  possible_low_value_pages: z.number().int().min(0).max(8),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(300)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    confidence: z.enum(["observed", "potential"]),
+    message: z.string().max(320),
+    affected_pages: z.number().int().nonnegative(),
+    example_urls: z.array(z.string().max(512)).max(2),
+  })).max(12),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const boundedHtmlPageSnapshots = z.array(z.object({
+  url: z.string().url().max(512).refine((value) => {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol)
+      && !url.username && !url.password && !url.search && !url.hash;
+  }, "Use a query-free HTTP(S) URL without credentials or fragments.")
+    .describe("Absolute page URL label only; no network request is made or query parameters accepted."),
+  htmlContent: z.string().min(1).max(250_000).refine(
+    (value) => Buffer.byteLength(value, "utf8") <= 250_000,
+    "Each page must be at most 250,000 UTF-8 bytes.",
+  ).describe("Already obtained static HTML, at most 250,000 UTF-8 bytes per page."),
+})).min(1).max(8);
 
 const multilingualClusterOutputSchema = {
   scope: z.literal("sampled_pages_only"),
@@ -628,18 +668,7 @@ export function createServer(): McpServer {
       description:
         "Compares static main text across one to eight HTML pages supplied by the caller. Reports high-confidence exact matches and conservative near matches only within the same language (and script). No network requests or storage. Output is limited to this sample, not site-wide uniqueness.",
       inputSchema: {
-        pages: z.array(z.object({
-          url: z.string().url().max(512).refine((value) => {
-            const url = new URL(value);
-            return ["http:", "https:"].includes(url.protocol)
-              && !url.username && !url.password && !url.search && !url.hash;
-          }, "Use a query-free HTTP(S) URL without credentials or fragments.")
-            .describe("Public-style absolute page URL for comparison only; never fetched or echoed with query strings."),
-          htmlContent: z.string().min(1).max(250_000).refine(
-            (value) => Buffer.byteLength(value, "utf8") <= 250_000,
-            "Each page must be at most 250,000 UTF-8 bytes.",
-          ).describe("Static HTML of the corresponding page, limited to 250,000 UTF-8 bytes."),
-        })).min(1).max(8)
+        pages: boundedHtmlPageSnapshots
           .describe("One to eight HTML pages to compare; total HTML must be at most 1 MiB."),
       },
       outputSchema: duplicateAnalysisOutputSchema,
@@ -658,6 +687,38 @@ export function createServer(): McpServer {
         const error = "Main-content comparison could not be completed within its input limits.";
         return result({ ...empty, error }, failureContent(
           "Main-content comparison", error, "Use up to eight public-style URLs with bounded, valid HTML input.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "content.quality",
+    {
+      title: "Review empty, short and repeated main content",
+      description:
+        "Offline, evidence-limited review of empty or thin static main text and substantive repeated sentences within same-language page families. Reports possible missing standalone value, not Google rankings or a semantic quality verdict. Accepts up to eight supplied HTML pages; no network, storage, browser or LLM.",
+      inputSchema: {
+        pages: boundedHtmlPageSnapshots.describe(
+          "One to eight authorized HTML page observations; total supplied HTML must be at most 1 MB.",
+        ),
+      },
+      outputSchema: contentQualityOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ pages }) => {
+      const empty = analyzePageContentQuality([], { sampledPages: 0, coverageLimited: true });
+      try {
+        if (pages.reduce((sum, page) => sum + Buffer.byteLength(page.htmlContent, "utf8"), 0) > 1_000_000) {
+          throw new Error("Content-quality input exceeds 1,000,000 bytes.");
+        }
+        const analysis = analyzePageContentQuality(pages.map(({ htmlContent, url }) =>
+          observeMainContent(htmlContent, url)));
+        return result(analysis, contentQualityContent(analysis));
+      } catch {
+        const error = "Content-quality comparison could not be completed within its bounded input limits.";
+        return result({ ...empty, error }, failureContent(
+          "Content quality review", error, "Supply up to eight valid, query-free URL labels and static HTML documents.",
         ), true);
       }
     },

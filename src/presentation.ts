@@ -1,6 +1,7 @@
 import * as cheerio from "cheerio";
 import type { ValidationReport } from "./report.js";
 import type { SameLanguageDuplicateAnalysis } from "./modules/content-schema/same-language-duplicates.js";
+import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
   getW3CMessageSeverity,
@@ -396,6 +397,26 @@ export function contentDuplicateContent(analysis: SameLanguageDuplicateAnalysis)
     nextStep: analysis.pairs_truncated
       ? "More matches exist than the result cap; review these pairs and repeat on a narrower page sample."
       : "Review matched pages manually; this static-text comparison cannot infer search-engine canonicalization or semantic equivalence.",
+  });
+}
+
+export function multilingualClusterContent(analysis: MultilingualClusterAnalysis): string {
+  const observed = `${analysis.eligible_pages}/${analysis.sampled_pages} supplied pages were eligible`;
+  const count = analysis.total_findings;
+  return toolContent({
+    title: "Multilingual hreflang and canonical clusters",
+    status: count ? "attention needed" : analysis.coverage_limited ? "partial" : "clean",
+    outcome: count
+      ? `${countLabel(count, "cluster finding")} found across the supplied pages; ${observed}.`
+      : `No checked hreflang/canonical conflicts were found; ${observed}. This is not evidence that unseen targets are healthy.`,
+    actions: analysis.findings.map((finding) => ({
+      priority: finding.severity === "error" ? 0 : 1,
+      location: finding.example_urls.join(" ↔ "),
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: analysis.findings_truncated
+      ? "More findings exist than the result cap. Address the displayed conflicts and retest."
+      : "Review observed conflicts and provide additional authorized localized page HTML to verify any unseen reciprocal links.",
   });
 }
 

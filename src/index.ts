@@ -24,6 +24,7 @@ import { fetchPublicText, getErrorMessage, readTextFile } from "./network.js";
 import {
   cssValidationContent,
   contentDuplicateContent,
+  multilingualClusterContent,
   failureContent,
   htmlValidationContent,
   linkCheckContent,
@@ -35,6 +36,11 @@ import {
 } from "./presentation.js";
 import { observeMainContent } from "./modules/content-schema/extract-main-content.js";
 import { analyzeSameLanguageDuplicates } from "./modules/content-schema/same-language-duplicates.js";
+import {
+  analyzeMultilingualClusters,
+  observeMultilingualPage,
+  safeMultilingualUrl,
+} from "./modules/site-architecture/multilingual-clusters.js";
 import { PACKAGE_VERSION } from "./version.js";
 import {
   MAX_AUDIT_HISTORY,
@@ -139,6 +145,28 @@ const duplicateAnalysisOutputSchema = {
     second_words: z.number().int().nonnegative(),
   })).max(8),
   pairs_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const multilingualClusterOutputSchema = {
+  scope: z.literal("sampled_pages_only"),
+  sampled_pages: z.number().int().min(0).max(16),
+  eligible_pages: z.number().int().min(0).max(16),
+  pages_with_alternates: z.number().int().min(0).max(16),
+  locales_observed: z.number().int().nonnegative(),
+  unobserved_targets: z.number().int().nonnegative(),
+  invalid_declarations: z.number().int().nonnegative(),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(320)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["error", "warning"]),
+    confidence: z.enum(["observed", "potential"]),
+    message: z.string().max(320),
+    example_urls: z.array(z.string().max(256)).max(2),
+  })).max(12),
+  findings_truncated: z.boolean(),
   error: z.string().optional(),
 };
 
@@ -630,6 +658,44 @@ export function createServer(): McpServer {
         const error = "Main-content comparison could not be completed within its input limits.";
         return result({ ...empty, error }, failureContent(
           "Main-content comparison", error, "Use up to eight public-style URLs with bounded, valid HTML input.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "site.hreflang",
+    {
+      title: "Verify multilingual hreflang clusters",
+      description:
+        "Compares head-only hreflang and canonical declarations across up to sixteen supplied static HTML pages, including x-default, reciprocal references and same-locale target consistency. No URLs are fetched, and unsampled targets are not declared broken. Works across authorized domains; no browser, files or storage.",
+      inputSchema: {
+        pages: z.array(z.object({
+          url: z.string().url().max(256).refine((value) => Boolean(safeMultilingualUrl(value)),
+            "Use an absolute HTTP(S) URL without credentials, fragments, queries or nonstandard ports.")
+            .describe("Absolute authorized page URL label; not fetched. Cross-domain alternate sites are supported."),
+          htmlContent: z.string().min(1).max(125_000).refine(
+            (value) => Buffer.byteLength(value, "utf8") <= 125_000,
+            "Each page is limited to 125,000 UTF-8 bytes.",
+          ).describe("Already obtained static HTML for that page; no network requests are made."),
+        })).min(1).max(16)
+          .describe("Up to sixteen page observations; total supplied HTML must be at most 1.5 MB."),
+      },
+      outputSchema: multilingualClusterOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ pages }) => {
+      const empty = analyzeMultilingualClusters([], { sampledPages: 0, coverageLimited: true });
+      try {
+        const bytes = pages.reduce((total, page) => total + Buffer.byteLength(page.htmlContent, "utf8"), 0);
+        if (bytes > 1_500_000) throw new Error("Supplied HTML exceeds the 1.5 MB input cap.");
+        const analysis = analyzeMultilingualClusters(pages.map(({ htmlContent, url }) =>
+          observeMultilingualPage(htmlContent, url)));
+        return result(analysis, multilingualClusterContent(analysis));
+      } catch {
+        const error = "Multilingual cluster comparison could not be completed within its input limits.";
+        return result({ ...empty, error }, failureContent(
+          "Multilingual cluster comparison", error, "Supply up to 16 authorized HTML pages with absolute, query-free URL labels.",
         ), true);
       }
     },

@@ -55,7 +55,7 @@ try {
     tools.map(({ name }) => name).sort(),
     [
       "audit.history", "content.duplicates", "css.local", "html.local", "html.url", "links.broken",
-      "report.validation", "schema.markup", "screenshot.capture", "seo.metadata",
+      "report.validation", "schema.markup", "screenshot.capture", "seo.metadata", "site.hreflang",
     ],
   );
 
@@ -84,6 +84,25 @@ try {
   assert.equal(duplicateContent.structuredContent?.pairs?.[0]?.kind, "exact");
   assert.ok(!JSON.stringify(duplicateContent).includes("installedtestword50"));
 
+  const en = "https://example.test/en/", de = "https://example.test/de/";
+  const hreflangHead = (canonical, alternates) =>
+    '<html lang="en"><head><link rel="canonical" href="' + canonical + '">'
+    + alternates.map(([locale, target]) =>
+      '<link rel="alternate" hreflang="' + locale + '" href="' + target + '">').join("")
+    + '</head><body><main>Test page</main></body></html>';
+  const multilingual = await client.callTool({
+    name: "site.hreflang",
+    arguments: {
+      pages: [
+        { url: en, htmlContent: hreflangHead(en, [["en", en], ["de", de]]) },
+        { url: de, htmlContent: hreflangHead(de, [["de", de]]) },
+      ],
+    },
+  });
+  assert.notEqual(multilingual.isError, true);
+  assert.ok(multilingual.structuredContent?.findings?.some((finding) =>
+    finding.code === "multilingual.return_link_missing"));
+
   const fixture = path.join(scratch, "fixture.html");
   const outputDir = path.join(scratch, "screenshots");
   await writeFile(fixture, "<!doctype html><title>Installed browser smoke</title><h1>Installed browser smoke</h1>");
@@ -102,7 +121,7 @@ try {
   assert.equal(screenshot.structuredContent?.screenshots?.length, 1);
   const imagePath = screenshot.structuredContent.screenshots[0].outputPath;
   assert.ok((await stat(imagePath)).size > 0);
-  console.log("Installed npm tarball MCP handshake, offline audits, duplicate comparison and sandboxed screenshot: PASS");
+  console.log("Installed npm tarball MCP handshake, offline audits, multilingual comparison and sandboxed screenshot: PASS");
 } finally {
   if (client) await client.close();
   await rm(scratch, { recursive: true, force: true });

@@ -31,6 +31,12 @@ import {
   type MainContentObservation,
   type SameLanguageDuplicateAnalysis,
 } from "./modules/content-schema/same-language-duplicates";
+import {
+  analyzeMultilingualClusters,
+  observeMultilingualPage,
+  type MultilingualPageObservation,
+  type MultilingualClusterAnalysis,
+} from "./modules/site-architecture/multilingual-clusters";
 
 export type SitePageStatus = "passed" | "needs_attention" | "partial" | "failed" | "skipped";
 export type HtmlValidationStatus = "completed" | "timeout" | "unavailable" | "not_run";
@@ -102,12 +108,14 @@ export interface PublicSiteAuditResult {
   issue_groups_truncated: boolean;
   indexability_graph: SiteIndexabilityGraph;
   content_duplicates: SameLanguageDuplicateAnalysis;
+  multilingual_clusters: MultilingualClusterAnalysis;
 }
 
 type AuditedPage = SiteAuditPageSummary & {
   findings: SiteAuditFinding[];
   findingsTruncated: boolean;
   mainContent?: MainContentObservation;
+  multilingual?: MultilingualPageObservation;
 };
 
 interface RobotsRule {
@@ -914,6 +922,7 @@ async function auditFetchedPage(
     top_findings: actionableFindings(findings),
     indexability: extractPageIndexabilitySignals(fetched.html, fetched.finalUrl, fetched.xRobotsTag),
     mainContent: observeMainContent(fetched.html, safeOutputUrl(fetched.finalUrl)),
+    multilingual: observeMultilingualPage(fetched.html, safeOutputUrl(fetched.finalUrl)),
     findings,
     findingsTruncated,
   };
@@ -1104,6 +1113,7 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
     findings: _findings,
     findingsTruncated: _findingsTruncated,
     mainContent: _mainContent,
+    multilingual: _multilingual,
     ...page
   }) => page);
   const grouped = groupFindings(auditedPages);
@@ -1124,6 +1134,15 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
   });
   const duplicates = analyzeSameLanguageDuplicates(
     auditedPages.flatMap((page) => page.mainContent ? [page.mainContent] : []),
+    {
+      sampledPages: selected.length,
+      coverageLimited: discovery.discovery !== "sitemap" || !!discovery.discoveryError
+        || discovery.truncated || hasMorePages || pageOffset > 0 || pagesSkippedRobots > 0
+        || pages.some((page) => !page.page_fetched),
+    },
+  );
+  const multilingual = analyzeMultilingualClusters(
+    auditedPages.flatMap((page) => page.multilingual ? [page.multilingual] : []),
     {
       sampledPages: selected.length,
       coverageLimited: discovery.discovery !== "sitemap" || !!discovery.discoveryError
@@ -1155,5 +1174,6 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
     issue_groups_truncated: grouped.truncated,
     indexability_graph: graph,
     content_duplicates: duplicates,
+    multilingual_clusters: multilingual,
   };
 }

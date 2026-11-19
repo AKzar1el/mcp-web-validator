@@ -76,7 +76,7 @@ The hosted app exposes nine tools:
 | `audit_public_webpage` | Fetch one authorized public HTML page and run the combined HTML, SEO/accessibility-signal, and JSON-LD syntax audit. Link checks are optional. |
 | `audit_public_site` | Run a bounded sitemap-first audit of up to eight authorized, same-origin public pages. It respects `robots.txt`, returns compact page coverage and deduplicated findings, **plus a sampled cross-page indexability evidence graph** for canonical loops/chains, sitemap/noindex conflicts, duplicate titles, and hreflang return links. No site-wide link checks. |
 | `compare_site_audits` | Offline before/after comparison of two saved `audit_public_site` structured results. Flags per-page regressions, coverage loss, and sitemap drift; reports newly observed or no-longer observed grouped findings only for an identical, fully checked page sample; partial sitemap coverage never proves a site-wide fix. No network calls or retained history. |
-| `validate_html` | Validate raw HTML markup already supplied in the conversation. |
+| `validate_html` | Validate supplied HTML or a public webpage URL (`url` field, or standalone URL in `html`). Uses the same bounded, redirect-checked public fetch as the webpage audit for URL inputs. |
 | `validate_css` | Parse supplied CSS for syntax errors inside the Worker. |
 | `audit_seo_metadata` | Audit supplied HTML for covered on-page SEO, robots noindex, and accessibility signals. |
 | `validate_schema_markup` | Check JSON-LD blocks in supplied HTML for JSON syntax errors. |

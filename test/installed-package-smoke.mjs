@@ -58,7 +58,7 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "content.competitors", "content.duplicates", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "links.broken", "product.claims",
+      "audit.history", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "links.broken", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links",
     ],
   );
@@ -107,6 +107,23 @@ try {
   assert.equal(provenance.structuredContent?.citations_observed, 1);
   assert.equal(provenance.structuredContent?.consistent_declarations, 1);
   assert.equal(provenance.structuredContent?.conflicting_declarations, 0);
+
+  phase = "content_metadata";
+  const metadata = await client.callTool({
+    name: "content.metadata",
+    arguments: { pages: [
+      { url: "https://example.test/article",
+        htmlContent: '<html><head><title>Example</title>'
+          + '<link rel="canonical" href="/article">'
+          + '<meta property="og:url" content="https://example.test/article">'
+          + '</head></html>' },
+    ] },
+  });
+  assert.notEqual(metadata.isError, true);
+  assert.equal(metadata.structuredContent?.pages_sampled, 1);
+  assert.equal(metadata.structuredContent?.conflicting_declaration_fields, 0);
+  assert.equal(metadata.structuredContent?.cross_field_review_leads, 0);
+  assert.equal(metadata.structuredContent?.coverage_limited, true);
 
   phase = "schema_supported";
   const supported = await client.callTool({

@@ -30,6 +30,7 @@ import {
   intentComparisonContent,
   supportedSchemaContent,
   internalLinkContent,
+  metadataConsistencyContent,
   multilingualClusterContent,
   failureContent,
   htmlValidationContent,
@@ -84,6 +85,16 @@ import {
   MAX_LINK_FINDINGS,
 } from "./modules/site-architecture/internal-link-quality.js";
 import { observeInternalLinks } from "./modules/site-architecture/extract-internal-links.js";
+import {
+  analyzeMetadataConsistency,
+  emptyMetadataReview,
+  safeMetadataLabel,
+  METADATA_FIELDS,
+  MAX_METADATA_HTML_BYTES,
+  MAX_METADATA_TOTAL_BYTES,
+  MAX_METADATA_FINDINGS,
+} from "./modules/content-schema/metadata-consistency.js";
+import { observeMetadata } from "./modules/content-schema/extract-metadata-consistency.js";
 import {
   analyzeMultilingualClusters,
   safeMultilingualUrl,
@@ -451,6 +462,59 @@ const internalLinkOutputSchema = {
     count: z.number().int().nonnegative(),
     message: z.string().max(320),
   })).max(MAX_LINK_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const metadataPageInputSchema = z.object({
+  url: z.string().url().max(512)
+    .refine((value) => Boolean(safeMetadataLabel(value)),
+      "Use a safe query-free HTTP(S) URL label without credentials, fragments or nonstandard port.")
+    .describe("Caller-supplied page URL label; no URL or external metadata is fetched."),
+  htmlContent: z.string().min(1).max(MAX_METADATA_HTML_BYTES)
+    .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_METADATA_HTML_BYTES,
+      "Each static HTML page must be at most 180,000 UTF-8 bytes.")
+    .describe("Authorized supplied static HTML; 180 KB UTF-8 per page."),
+});
+const metadataPageOutputSchema = z.object({
+  page: z.number().int().min(1).max(8),
+  fields_present: z.number().int().min(0).max(10),
+  title_declarations: z.number().int().nonnegative().max(12),
+  description_declarations: z.number().int().nonnegative().max(12),
+  canonical_declarations: z.number().int().nonnegative().max(12),
+  robots_declarations: z.number().int().nonnegative().max(24),
+  duplicate_fields: z.number().int().nonnegative().max(10),
+  conflicting_fields: z.number().int().nonnegative().max(10),
+  unresolved_canonicals: z.number().int().nonnegative().max(12),
+  cross_field_review_leads: z.number().int().nonnegative().max(5),
+  extraction_limited: z.boolean(),
+});
+const metadataConsistencyOutputSchema = {
+  scope: z.literal("caller_supplied_same_origin_metadata_only"),
+  pages_sampled: z.number().int().min(0).max(8),
+  origin: z.string().max(200),
+  duplicate_declaration_fields: z.number().int().nonnegative(),
+  conflicting_declaration_fields: z.number().int().nonnegative(),
+  unresolved_canonical_references: z.number().int().nonnegative(),
+  explicit_robots_conflicts: z.number().int().nonnegative(),
+  cross_field_review_leads: z.number().int().nonnegative(),
+  duplicate_title_groups: z.number().int().nonnegative(),
+  duplicate_description_groups: z.number().int().nonnegative(),
+  excluded_annotated_canonicals: z.number().int().nonnegative(),
+  pages: z.array(metadataPageOutputSchema).max(8),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(360)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    confidence: z.enum(["observed", "review"]),
+    source_page: z.number().int().min(1).max(8),
+    field: z.enum(METADATA_FIELDS),
+    count: z.number().int().nonnegative(),
+    related_pages: z.array(z.number().int().min(1).max(8)).max(7).optional(),
+    message: z.string().max(340),
+  })).max(MAX_METADATA_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
 };
@@ -1421,6 +1485,37 @@ export function createServer(): McpServer {
         return result({ ...empty, error }, failureContent(
           "Citation and source evidence", error,
           "Supply 1-8 bounded HTML pages and optional safe, factual reference metadata.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "content.metadata",
+    {
+      title: "Review duplicate, conflicting and mismatched page metadata",
+      description:
+        "Offline bounded consistency check for 1-8 caller-supplied same-origin HTML pages: duplicate/conflicting title, description and canonical declarations, Open Graph/Twitter differences, explicit robots directives and repeated titles/descriptions across distinct sampled canonical preferences. Outputs review evidence, not a Google-selected canonical, indexing or ranking verdict. No network or storage.",
+      inputSchema: {
+        pages: z.array(metadataPageInputSchema).min(1).max(8)
+          .describe("One to eight authorized same-origin static HTML pages, distinct safe URL labels, combined maximum 900,000 UTF-8 bytes. None are fetched."),
+      },
+      outputSchema: metadataConsistencyOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ pages }) => {
+      try {
+        const bytes = pages.reduce((total, item) => total +
+          Buffer.byteLength(item.htmlContent, "utf8"), 0);
+        if (bytes > MAX_METADATA_TOTAL_BYTES) throw new Error("Combined HTML exceeds the size limit.");
+        const analysis = analyzeMetadataConsistency(pages.map(({ url, htmlContent }) =>
+          observeMetadata(htmlContent, url)));
+        return result(analysis, metadataConsistencyContent(analysis));
+      } catch {
+        const error = "Metadata consistency could not be compared within the supplied page, URL or size limits.";
+        return result({ ...emptyMetadataReview(), error }, failureContent(
+          "Metadata consistency review", error,
+          "Provide up to eight distinct same-origin HTML page labels with bounded authorized static content.",
         ), true);
       }
     },

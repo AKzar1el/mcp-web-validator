@@ -314,7 +314,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers fourteen accurately annotated tools", async () => {
+  it("discovers fifteen accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -331,6 +331,7 @@ describe("hosted tool contract", () => {
       "compare_competitor_intent",
       "validate_supported_schema",
       "review_internal_links",
+      "review_metadata_consistency",
     ]);
     const noAuthSecuritySchemes = [{ type: "noauth" }];
     for (const tool of tools) {
@@ -1442,6 +1443,83 @@ describe("P1-08 contextual internal-link review through hosted MCP HTTP", () => 
     expect(result.isError).toBe(true);
     const tools = await listTools();
     expect(tools.some((tool) => tool.name === "check_broken_links")).toBe(true);
+  });
+});
+
+describe("P1-09 metadata consistency through hosted MCP HTTP", () => {
+  const article = (title = "Site title") => ({
+    url: "https://example.com/article",
+    htmlContent: '<html><head><title>' + title + '</title>'
+      + '<meta name="description" content="Unique metadata summary">'
+      + '<link rel="canonical" href="/article">'
+      + '<meta property="og:title" content="Site title">'
+      + '</head><body><main>Text</main></body></html>',
+  });
+  const other = {
+    url: "https://example.com/product",
+    htmlContent: '<html><head><title>Other title</title>'
+      + '<link rel="canonical" href="/product">'
+      + '</head><body><main>Text</main></body></html>',
+  };
+
+  it("discovers the read-only offline tool and invokes it without a page fetch", async () => {
+    const fetching = vi.fn();
+    vi.stubGlobal("fetch", fetching);
+    const tools = await listTools();
+    expect(tools.find((tool) => tool.name === "review_metadata_consistency")?.annotations)
+      .toMatchObject({ readOnlyHint: true, openWorldHint: false, destructiveHint: false });
+    const result = await callTool("review_metadata_consistency", {
+      pages: [article(), other],
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      scope: "caller_supplied_same_origin_metadata_only",
+      pages_sampled: 2, conflicting_declaration_fields: 0,
+      duplicate_declaration_fields: 0, coverage_limited: true,
+    });
+    expect(result.structuredContent.overview.status).toBe("partial");
+    expect(fetching).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("Unique metadata summary");
+  });
+
+  it("reports incompatible declarations and keeps social differences informational", async () => {
+    const mutated = { ...article(),
+      htmlContent: article().htmlContent.replace("</title>", "</title><title>Second title</title>")
+        .replace('content="Site title"', 'content="Different social title"') };
+    const result = await callTool("review_metadata_consistency", { pages: [mutated] });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.conflicting_declaration_fields).toBe(1);
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(result.structuredContent.findings.some((f: { code: string }) =>
+      f.code === "conflicting_declaration")).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("Second title");
+  });
+
+  it("retains cross-page duplicate groups as review leads, not automatic SEO failures", async () => {
+    const result = await callTool("review_metadata_consistency", {
+      pages: [article(), { ...other,
+        htmlContent: '<html><head><title>Site title</title>'
+          + '<meta name="description" content="Unique metadata summary">'
+          + '<link rel="canonical" href="/product"></head></html>' }],
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.duplicate_title_groups).toBe(1);
+    expect(result.structuredContent.duplicate_description_groups).toBe(1);
+    expect(result.structuredContent.conflicting_declaration_fields).toBe(0);
+    expect(result.structuredContent.coverage_limited).toBe(true);
+  });
+
+  it("rejects unsafe labels, duplicate pages, mixed origins and oversized UTF-8 inputs", async () => {
+    for (const pages of [
+      [article(), { ...other, url: other.url + "?token=FAKE_SECRET" }],
+      [article(), article()],
+      [article(), { ...other, url: "https://other.example.com/product" }],
+      [{ ...article(), htmlContent: "é".repeat(90_001) }],
+    ]) {
+      const result = await callTool("review_metadata_consistency", { pages });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).not.toContain("FAKE_SECRET");
+    }
   });
 });
 

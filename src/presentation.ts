@@ -7,6 +7,7 @@ import type { ProvenanceResult } from "./modules/content-schema/citation-methodo
 import type { IntentComparison } from "./modules/content-schema/competitor-intent-comparison.js";
 import type { SupportedSchemaReview } from "./modules/content-schema/structured-data-validation.js";
 import type { InternalLinkReview } from "./modules/site-architecture/internal-link-quality.js";
+import type { MetadataReview } from "./modules/content-schema/metadata-consistency.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
@@ -511,6 +512,23 @@ export function internalLinkContent(analysis: InternalLinkReview): string {
       message: `${finding.code}: ${finding.message}`,
     })),
     nextStep: "Review contextual anchor labels against actual page purpose; supply more authorized target pages to inspect the sample. Unvisited links have not been tested, and lexical overlap is not a ranking signal.",
+  });
+}
+
+export function metadataConsistencyContent(analysis: MetadataReview): string {
+  return toolContent({
+    title: "Sampled metadata consistency review",
+    status: analysis.conflicting_declaration_fields > 0 ? "attention needed" : "partial",
+    outcome: `${analysis.pages_sampled} supplied pages: ${analysis.conflicting_declaration_fields} conflicting field groups, ` +
+      `${analysis.duplicate_declaration_fields} repeated equivalent fields, ` +
+      `${analysis.cross_field_review_leads} cross-field review leads, ` +
+      `${analysis.duplicate_title_groups + analysis.duplicate_description_groups} cross-page metadata groups.`,
+    actions: analysis.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: `Supplied page ${finding.source_page} - ${finding.field}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Review on-page declarations in context. Identical titles and social-metadata variations may be intentional; use authorized crawling and Search Console evidence before attributing search performance.",
   });
 }
 

@@ -31,10 +31,10 @@ try {
     npm,
     [
       "install", "--prefix", consumer, "--omit=dev",
-      "--ignore-scripts", "--no-audit", "--no-fund",
+      "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-offline",
       path.join(scratch, packages[0].filename),
     ],
-    { cwd: scratch, shell: process.platform === "win32" ? path.join(process.env.SystemRoot ?? "C:/Windows", "System32", "cmd.exe") : false, timeout: 120_000, maxBuffer: 2_000_000 },
+    { cwd: scratch, shell: process.platform === "win32" ? path.join(process.env.SystemRoot ?? "C:/Windows", "System32", "cmd.exe") : false, timeout: process.platform === "win32" ? 240_000 : 120_000, maxBuffer: 2_000_000 },
   );
 
   const installedEntry = path.join(
@@ -54,7 +54,7 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "content.duplicates", "content.quality", "css.local", "html.local", "html.url", "links.broken",
+      "audit.history", "content.duplicates", "content.quality", "css.local", "html.local", "html.url", "links.broken", "product.claims",
       "report.validation", "schema.markup", "screenshot.capture", "seo.metadata", "site.hreflang",
     ],
   );
@@ -83,6 +83,20 @@ try {
   assert.equal(duplicateContent.structuredContent?.total_pairs, 1);
   assert.equal(duplicateContent.structuredContent?.pairs?.[0]?.kind, "exact");
   assert.ok(!JSON.stringify(duplicateContent).includes("installedtestword50"));
+
+  const advertised = await client.callTool({
+    name: "product.claims",
+    arguments: {
+      htmlContent: '<html><body><main><section><h2>Local MCP tools</h2>'
+        + '<code>screenshot.capture</code><code>missing_fake_tool</code></section>'
+        + '<p>The local MCP provides responsive screenshots.</p></main></body></html>',
+    },
+  });
+  assert.notEqual(advertised.isError, true);
+  assert.equal(advertised.structuredContent?.catalog_available, true);
+  assert.equal(advertised.structuredContent?.contradicted_claims, 1);
+  assert.ok(advertised.structuredContent?.findings?.some((f) =>
+    f.code === "product.tool_missing" && f.claim === "missing_fake_tool"));
 
   const quality = await client.callTool({
     name: "content.quality",

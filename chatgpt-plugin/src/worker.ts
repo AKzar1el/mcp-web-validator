@@ -27,6 +27,13 @@ import {
 import { validateCss, validateHtmlDetailed } from "./validators";
 import { auditPublicSite } from "./site-audit";
 import { compareSiteAudits } from "./site-comparison";
+import {
+  compareProductClaims,
+  observeProductClaims,
+  registeredToolEvidence,
+  MAX_PRODUCT_CLAIM_HTML_BYTES,
+} from "./modules/content-schema/product-claims";
+import { safeObservedUrl } from "../../src/modules/content-schema/same-language-duplicates";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -190,6 +197,37 @@ const contentQualitySchema = z.object({
     example_urls: z.array(z.string().max(512)).max(2),
   })).max(12),
   findings_truncated: z.boolean(),
+});
+
+const productClaimSchema = z.object({
+  scope: z.literal("landing_html_vs_registered_mcp_metadata"),
+  surface: z.enum(["hosted", "local"]),
+  catalog_available: z.boolean(),
+  registered_tools: z.number().int().nonnegative().max(64),
+  tool_claims_checked: z.number().int().nonnegative().max(20),
+  checked_claims: z.number().int().nonnegative(),
+  consistent_claims: z.number().int().nonnegative(),
+  contradicted_claims: z.number().int().nonnegative(),
+  unverified_claims: z.number().int().nonnegative(),
+  advertised_tools: z.array(z.object({ name: z.string().max(64), registered: z.boolean() })).max(20),
+  site_batch_limit: z.object({
+    advertised: z.number().int().positive(),
+    registered: z.number().int().positive().optional(),
+  }).optional(),
+  coverage_limited: z.boolean(),
+  limitations: z.array(z.string().max(320)).max(5),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.string().max(80),
+    severity: z.enum(["warning", "info"]),
+    verdict: z.enum(["contradicted", "unverifiable"]),
+    claim: z.string().max(64),
+    message: z.string().max(240),
+    evidence_tool: z.string().max(64).optional(),
+  })).max(10),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
 });
 
 const multilingualClusterSchema = z.object({
@@ -1724,6 +1762,92 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           })),
         ),
       };
+    },
+  );
+
+  registerAppTool(
+    server,
+    "verify_product_claims",
+    {
+      title: "Verify product claims against registered hosted MCP tools",
+      description:
+        "Compare visible explicit ChatGPT-tool promises and bounded site-batch claims from authorized landing-page HTML or a single public URL against this Worker runtime's actually registered MCP tool names, input bounds, and read-only annotations. This is registry consistency, not proof that every tool call succeeds or that arbitrary marketing copy is true. No login, browser rendering or site-wide crawl.",
+      inputSchema: {
+        html: z.string().min(1).max(MAX_PRODUCT_CLAIM_HTML_BYTES).optional()
+          .describe("Static landing-page HTML, at most 250,000 UTF-8 bytes. Supply this or public_url, not both."),
+        public_url: z.string().url().max(512)
+          .refine((value) => Boolean(safeObservedUrl(value)),
+            "Use a public HTTP(S) URL without credentials, query parameters or fragments.").optional()
+          .describe("Alternative to HTML: one authorized public landing page, using the existing safe single-page fetch."),
+      },
+      outputSchema: productClaimSchema.shape,
+      annotations: externalReadOnlyAnnotations,
+      ...withNoAuthWidget({
+        invoking: "Checking documented tool promises…",
+        invoked: "Product claim comparison complete.",
+      }),
+    },
+    async ({ html, public_url }) => {
+      try {
+        if (Boolean(html) === Boolean(public_url)) {
+          throw new Error("Provide exactly one HTML document or public landing-page URL.");
+        }
+        const text = html ?? (await fetchPublicHtml(public_url!, {})).html;
+        const catalog = registeredToolEvidence(
+          (server as unknown as { _registeredTools?: unknown })._registeredTools,
+          (schema) => z.toJSONSchema(schema as z.ZodType),
+        );
+        const analysis = compareProductClaims(observeProductClaims(text), catalog, "hosted");
+        const overview: ResultOverview = {
+          kind: "report",
+          status: analysis.contradicted_claims > 0
+            ? "needs_attention" : analysis.coverage_limited ? "partial" : "passed",
+          title: "Product promises versus registered MCP capabilities",
+          headline: analysis.checked_claims
+            ? analysis.consistent_claims + " promises consistent with the registered hosted tools; "
+              + analysis.contradicted_claims + " contradicted and " + analysis.unverified_claims + " unverified."
+            : "No explicit hosted capability promises could be verified in this page sample.",
+          detail: "Compares visible explicit claims against this runtime's tools/list registration metadata, not the result of executing each tool or the semantic truth of arbitrary marketing language.",
+          total: analysis.checked_claims,
+          shown: analysis.findings.length,
+          truncated: analysis.findings_truncated || analysis.coverage_limited,
+          counts: [
+            metric("claims_checked", "Promises checked", analysis.checked_claims, "info"),
+            metric("registry_consistent", "Registry consistent", analysis.consistent_claims, "success"),
+            metric("contradicted", "Registry conflicts", analysis.contradicted_claims, "error"),
+            metric("unverified", "Unverified promises", analysis.unverified_claims, "warning"),
+          ],
+          next_action: analysis.contradicted_claims > 0
+            ? "Reconcile listed tools and numeric limits with the current MCP registry, then invoke affected tools before changing product copy."
+            : "Use functional MCP canaries to verify behavior; registry consistency alone cannot prove successful execution.",
+        };
+        return {
+          structuredContent: { ...analysis, overview },
+          content: contentForOverview(overview,
+            analysis.findings.map((finding) => ({
+              severity: finding.severity,
+              label: finding.claim,
+              message: finding.message,
+            }))),
+        };
+      } catch {
+        const error = "Product claims could not be compared within the public URL and input limits.";
+        const overview = failedOverview("report", "Product promise verification",
+          "Product promises could not be verified.", error);
+        return {
+          structuredContent: {
+            ...compareProductClaims({
+              hasMain: false, hostedSectionFound: false, localSectionFound: false,
+              hostedTools: [], localTools: [], localScreenshotClaim: false,
+              hostedReadOnlyClaim: false, hostedNoScreenshotsClaim: false,
+              extractionTruncated: false,
+            }, [], "hosted"),
+            overview, error,
+          },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
     },
   );
 

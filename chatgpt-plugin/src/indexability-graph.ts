@@ -288,7 +288,7 @@ export function buildSiteIndexabilityGraph(
         severity: "warning",
         confidence: "potential",
         message: "Different sampled canonical destinations share the same page title; check whether the pages are distinguishable in search.",
-        example_urls: matches.map(auditUrl).slice(0, MAX_EXAMPLE_URLS),
+        example_urls: matches.map(auditUrl).sort().slice(0, MAX_EXAMPLE_URLS),
       });
     }
   }

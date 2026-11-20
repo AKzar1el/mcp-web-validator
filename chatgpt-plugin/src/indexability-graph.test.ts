@@ -130,6 +130,17 @@ describe("indexability graph: sampled-only corroboration", () => {
     expect(build([a, consolidated]).findings.map((f) => f.code)).not.toContain("indexability.duplicate_title");
   });
 
+  it("keeps bounded duplicate-title URL examples stable across page discovery order", () => {
+    const pages = ["d", "b", "a", "c"].map((part) =>
+      page(`https://example.com/${part}`, `<title>Shared title</title><link rel=canonical href="/${part}">`));
+    const first = build(pages).findings.filter((f) => f.code === "indexability.duplicate_title");
+    const reversed = build([...pages].reverse()).findings.filter((f) => f.code === "indexability.duplicate_title");
+    expect(first).toEqual(reversed);
+    expect(first[0]?.example_urls).toEqual([
+      "https://example.com/a", "https://example.com/b", "https://example.com/c",
+    ]);
+  });
+
   it("checks return hreflang links only when both pages were sampled", () => {
     const a = page("https://example.com/en", '<title>English</title><link rel=alternate hreflang=de href="/de">');
     const b = page("https://example.com/de", '<title>Deutsch</title><link rel=alternate hreflang=de href="/de">');

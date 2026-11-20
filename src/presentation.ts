@@ -12,6 +12,7 @@ import type { MediaDiagnostics } from "./modules/browser-ux/media-diagnostics.js
 import type { WcagInteractionReview } from "./modules/browser-ux/wcag-interactions.js";
 import type { HttpDirectiveReview } from "./modules/http-crawl/non-html-directives.js";
 import type { HttpsSecurityReview } from "./modules/http-crawl/https-security.js";
+import type { UrlVariantReview } from "./modules/http-crawl/url-variants.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
@@ -571,6 +572,26 @@ export function mediaDiagnosticsContent(review: MediaDiagnostics): string {
       message: `${finding.code}: ${finding.message}`,
     })),
     nextStep: "Inspect the flagged elements and verify their rendered behavior separately. Static metadata cannot prove actual resource availability, accessibility compliance, loading speed or video caption accuracy.",
+  });
+}
+
+export function urlVariantsContent(review: UrlVariantReview): string {
+  const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
+  return toolContent({
+    title: "Supplied URL variant comparison",
+    status: warnings ? "attention needed" : "partial",
+    outcome: `${review.pages_sampled} supplied same-path URL observations: ` +
+      `${review.scheme_variants} scheme, ${review.www_variants} apex/www, ` +
+      `${review.slash_variants} trailing-slash, ${review.case_variants} path-case and ` +
+      `${review.query_variants} query dimensions; ${review.redirects_to_reference} redirect ` +
+      `declarations point to the supplied reference, ${review.matching_content_variants} ` +
+      `HTTP 200 variants carry matching caller SHA-256 body fingerprints.`,
+    actions: review.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: `Supplied URL observation ${finding.page}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Verify HTTP redirects to completion, intended query behavior, observed page bodies and canonical declarations with authorized live requests and Search Console. Path case and query parameters can represent different content; neither byte equality nor a declared canonical proves Google's selected canonical.",
   });
 }
 

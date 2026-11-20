@@ -22,3 +22,10 @@ TLS probing, browser execution or persistent storage. Exact limits,
 security caveats and the difference between static insecure declarations and
 browser-enforced mixed-content decisions are in
 `docs/p1-13-https-security.md`.
+
+P1-14's `url-variants.ts` is a Worker-safe re-export of the **exact** pure
+local URL-variant analyzer (zero Node or package imports). Hosted MCP tool
+`review_url_variants` uses only supplied same-reference-path HTTP/HTTPS status,
+redirect/canonical and optional caller-provided body-digest evidence. No new
+fetch, browser, storage, auth or site-crawling permissions. Unobserved variants
+remain unverified; see `docs/p1-14-url-variants.md`.

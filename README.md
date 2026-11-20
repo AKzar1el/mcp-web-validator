@@ -55,6 +55,7 @@ The npm package exposes these exact runtime tool names:
 | `html.url` | Validate the markup returned by a public URL. | Fetches the URL, then submits the returned markup to the external Nu checker. |
 | `http.directives` | Review 1-8 caller-supplied same-origin HTTP response observations for non-HTML document MIME types, X-Robots-Tag noindex/agent scopes and conflicts, HTTP Link canonical declarations, attachment dispositions and status. | **Offline; no HTTP requests or binary downloads.** Returns only bounded resource numbers/counts and fixed review messages, not original URLs, headers, files or Google indexing verdicts. |
 | `http.security` | Review 1–8 caller-supplied, same-host HTTP/HTTPS status and response-header records plus optional static HTML for declared HTTPS redirects, HSTS, enforcing/report-only CSP, Referrer-Policy, nosniff, framing, potentially blockable/upgradable mixed content and insecure form submissions. | **Fully offline** with no TLS connection, redirect following, JS/CSS execution, file writes, browser use or website fetching. Returns numeric counts and fixed redacted review messages, **not** a certificate/security audit or proof of actual browser enforcement. |
+| `http.variants` | Compare an explicit query-free reference against 1–12 supplied same-path HTTP/HTTPS, apex/www, trailing slash, path case and query response observations; analyze declared one-step redirects, canonical hints and optional SHA-256 body fingerprints for HTTP 200 responses. | **Fully offline** with no requests or redirects followed. Host/path families are only **candidate variants**; query or case differences may serve different content. Returns counts and fixed redacted findings, no URL paths, queries, raw response targets, hashes or Google-selected canonical verdicts. |
 | `css.local` | Validate a local CSS file. | Reads the selected file and submits its CSS to the external W3C Jigsaw CSS Validator. |
 | `seo.metadata` | Audit titles, descriptions, canonical tags, robots noindex directives, headings, viewport metadata, image alt attributes, and Open Graph metadata. | Processes supplied HTML locally. |
 | `content.duplicates` | Compare exact and conservative near-duplicate main content within the same language across up to eight supplied HTML pages. | Fully offline, with no network, browser execution or storage; returns only evidence pairs and coverage, never main text. |
@@ -84,7 +85,7 @@ fetches headers; the MCP `seo.metadata` tool still analyzes supplied HTML only.
 
 ## Hosted app tools
 
-The hosted app exposes seventeen tools in the proposed source code (deployed catalog may differ):
+The hosted app exposes eighteen tools in the proposed source code (deployed catalog may differ):
 
 | Tool | Purpose |
 | --- | --- |
@@ -103,6 +104,7 @@ The hosted app exposes seventeen tools in the proposed source code (deployed cat
 | `review_metadata_consistency` | Offline consistency review of duplicate/conflicting title, description and canonical declarations, social metadata and robots directives, and repeated titles/descriptions between supplied same-origin pages. No network, selected-canonical or ranking claims. |
 | `review_http_directives` | Offline review of 1-8 supplied same-origin non-HTML HTTP status, MIME, X-Robots-Tag, HTTP Link canonical and attachment observations. No live document request, indexed-status judgment, raw URL/headers or storage. |
 | `review_https_security` | Offline review of 1–8 same-host supplied HTTP/HTTPS response/Location/HSTS/CSP/referrer/framing/nosniff observations plus optional static HTML mixed-content and insecure-form declarations. Bounded redacted review leads; no TLS probe, network, certificate check or browser enforcement claim. |
+| `review_url_variants` | Offline comparison of 1–12 supplied same-path HTTP/HTTPS, apex/www, slash, case and query URL observations against an explicit reference. Inspects observed one-step Location and canonical declarations, optional HTTP 200 SHA-256 bodies; no network, raw URL/query leakage, crawler verification or Google-selected canonical assertion. |
 | `check_broken_links` | Check up to 20 authorized public links extracted from supplied HTML. |
 | `generate_validation_report` | Combine the checks for supplied markup; `base_url` resolves relative links but does not fetch a page. |
 

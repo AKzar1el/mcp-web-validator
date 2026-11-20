@@ -58,7 +58,7 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "http.directives", "http.security", "links.broken", "media.diagnostics", "product.claims",
+      "audit.history", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "http.directives", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links",
     ],
   );
@@ -125,6 +125,30 @@ try {
   assert.equal(httpsEvidence.structuredContent?.pages?.[0]?.hsts_state, "enabled");
   assert.equal(httpsEvidence.structuredContent?.coverage_limited, true);
   assert.ok(!JSON.stringify(httpsEvidence).includes("/private/headers"));
+
+  phase = "url_variants";
+  const referenceUrl = "https://example.test/Products/Widget";
+  const urlVariants = await client.callTool({
+    name: "http.variants",
+    arguments: {
+      reference_url: referenceUrl,
+      observations: [
+        { url: referenceUrl, status_code: 200,
+          content_sha256: "a".repeat(64), canonicals: [referenceUrl] },
+        { url: "http://example.test/Products/Widget", status_code: 308,
+          location: referenceUrl },
+        { url: referenceUrl + "?token=FAKE_PRIVATE_QUERY", status_code: 200,
+          content_sha256: "a".repeat(64), canonicals: [referenceUrl] },
+      ],
+    },
+  });
+  assert.notEqual(urlVariants.isError, true);
+  assert.equal(urlVariants.structuredContent?.pages_sampled, 3);
+  assert.equal(urlVariants.structuredContent?.redirects_to_reference, 1);
+  assert.equal(urlVariants.structuredContent?.query_variants, 1);
+  assert.equal(urlVariants.structuredContent?.matching_content_variants, 1);
+  assert.equal(urlVariants.structuredContent?.coverage_limited, true);
+  assert.ok(!JSON.stringify(urlVariants).includes("FAKE_PRIVATE_QUERY"));
 
   const sampleWords = Array.from({ length: 120 }, (_, i) => `installedtestword${i}`).join(" ");
   phase = "content_duplicates";

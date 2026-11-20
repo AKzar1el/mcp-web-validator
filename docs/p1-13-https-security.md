@@ -2,6 +2,12 @@
 
 **Owner:** M01 `http-crawl`. **Runtimes:** local Node/stdio `http.security` and hosted Worker `review_https_security`. **Status:** working **partial** feature, not a full security audit. The Worker imports the *same* pure analyzer through a thin re-export; browser, network and filesystem permissions are **not** extended.
 
+**Runtime isolation:** The pure shared analyzer has no external parser import.
+Each MCP entrypoint supplies its own already-declared Cheerio HTML loader from
+its own installed package dependencies. This is important for independent
+hosted-only `npm ci` CI and deployment environments, which do not install
+the root package's dependencies.
+
 ## What is observed
 
 Accepts 1–8 **caller-supplied HTTP/HTTPS response observations for the same hostname**. Accepting both schemes is intentional: HTTP-to-HTTPS redirect declarations can be compared. Input URL labels must be HTTP(S), absolute and query/fragment/credential/custom-port free; no URL is ever fetched or returned.

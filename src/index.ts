@@ -6,6 +6,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { boundedMcpArray, boundedMcpIssues, boundedMcpReport } from "./mcp-bounds.js";
 import { z } from "zod";
+import { load as loadCheerio } from "cheerio";
 import { captureScreenshots, PartialScreenshotCaptureError } from "./screenshot.js";
 import {
   reviewMediaHtml,
@@ -1707,7 +1708,7 @@ export function createServer(): McpServer {
     },
     async ({ pages }) => {
       try {
-        const review = analyzeHttpsSecurity(pages);
+        const review = analyzeHttpsSecurity(pages, loadCheerio);
         return result(review, httpsSecurityContent(review));
       } catch {
         const error = "Supplied HTTPS security evidence could not be reviewed within URL, same-host, header or HTML safety limits.";

@@ -5,6 +5,7 @@ import {
 } from "@modelcontextprotocol/ext-apps/server";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { load as loadCheerio } from "cheerio";
 import { auditSeoMetadata, checkBrokenLinksDetailed, isHttpRedirectStatus, isUnverifiedLinkStatus, validateSchemaMarkup } from "./audits";
 import {
   CSS_MAX_LENGTH,
@@ -2709,7 +2710,7 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
     },
     async ({ pages }) => {
       try {
-        const review = analyzeHttpsSecurity(pages);
+        const review = analyzeHttpsSecurity(pages, loadCheerio);
         const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
         const overview: ResultOverview = {
           kind: "report",

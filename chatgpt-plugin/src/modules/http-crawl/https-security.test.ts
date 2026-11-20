@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { load as loadCheerio } from "cheerio";
 import {
-  analyzeHttpsSecurity, emptyHttpsSecurityReview,
+  analyzeHttpsSecurity as analyzeHttpsSecurityCore, emptyHttpsSecurityReview,
   MAX_SECURITY_FINDINGS, MAX_SECURITY_HTML_BYTES, MAX_SECURITY_PAGES,
 } from "./https-security";
+
+const analyzeHttpsSecurity = (pages: Parameters<typeof analyzeHttpsSecurityCore>[0]) =>
+  analyzeHttpsSecurityCore(pages, loadCheerio);
 
 const base = "https://sample.example/";
 const observed = (extra: Record<string, unknown> = {}) => ({

@@ -3,7 +3,6 @@
  * HTTP response headers and optional static HTML. Shared by local/Worker.
  * No requests, TLS handshake, certificate inspection or browser execution.
  */
-import { load } from "cheerio";
 import { safeHttpResourceUrl } from "./non-html-directives.js";
 
 export const MAX_SECURITY_PAGES = 8;
@@ -193,16 +192,33 @@ interface StaticDeclarations {
   truncated: boolean;
   metaCsp: string[];
 }
+
+// The same pure analyzer is imported from both Node and the hosted Worker.
+// Each runtime passes its OWN installed Cheerio loader, avoiding a hidden
+// dependency on a sibling package's node_modules (hosted-only CI installs).
+// Keep only the tiny structural API needed by the shared static inspector.
+interface SecurityHtmlSelection {
+  attr(name: string): string | undefined;
+  toArray(): unknown[];
+  first(): SecurityHtmlSelection;
+  parent(): SecurityHtmlSelection;
+  closest(selector: string): SecurityHtmlSelection;
+  is(selector: string): boolean;
+  html(): string | null;
+  readonly length: number;
+}
+type SecurityHtmlQuery = (selector: unknown) => SecurityHtmlSelection;
+export type SecurityHtmlLoader = (html: string) => unknown;
 /**
  * Only static HTML declarations. Excludes JS-computed requests, dynamic CSS,
  * browser upgrades and enforcement. URL contents are never returned.
  */
-function inspectStaticHtml(html: string, pageUrl: string): StaticDeclarations {
+function inspectStaticHtml(html: string, pageUrl: string, loadHtml: SecurityHtmlLoader): StaticDeclarations {
   const result: StaticDeclarations = {
     blockable: 0, upgradable: 0, forms: 0,
     ipHosts: 0, insecureBase: false, truncated: false, metaCsp: [],
   };
-  const $ = load(html);
+  const $ = loadHtml(html) as SecurityHtmlQuery;
   const meta = $("head meta[http-equiv]").toArray();
   for (const element of meta.slice(0, 12)) {
     if (($(element).attr("http-equiv") || "").toLowerCase() === "content-security-policy") {
@@ -269,7 +285,8 @@ function inspectStaticHtml(html: string, pageUrl: string): StaticDeclarations {
     if (declarations >= MAX_SECURITY_RESOURCE_DECLARATIONS) {
       result.truncated = true; break;
     }
-    const tag = ("tagName" in element ? String(element.tagName).toLowerCase() : "");
+    const tag = element !== null && typeof element === "object" && "tagName" in element
+      ? String(element.tagName).toLowerCase() : "";
     const node = $(element);
     if (node.closest("template").length > 0) continue;
     if (tag === "form") add(node.attr("action"), "form");
@@ -299,7 +316,9 @@ function inspectStaticHtml(html: string, pageUrl: string): StaticDeclarations {
 }
 
 /** Audit supplied observations; no network or filesystem effects, no echoed inputs. */
-export function analyzeHttpsSecurity(pages: SecurityPageObservation[]): HttpsSecurityReview {
+export function analyzeHttpsSecurity(
+  pages: SecurityPageObservation[], loadHtml: SecurityHtmlLoader,
+): HttpsSecurityReview {
   if (!Array.isArray(pages) || pages.length < 1 || pages.length > MAX_SECURITY_PAGES) {
     throw new Error("One to eight supplied HTTP security observations are required");
   }
@@ -373,7 +392,7 @@ export function analyzeHttpsSecurity(pages: SecurityPageObservation[]): HttpsSec
     const enforced = (record.content_security_policy ?? []).filter((value) => value.trim());
     const reports = (record.content_security_policy_report_only ?? []).filter((value) => value.trim());
     const staticHtml = record.htmlContent !== undefined && scheme === "https"
-      ? inspectStaticHtml(record.htmlContent, safe) : undefined;
+      ? inspectStaticHtml(record.htmlContent, safe, loadHtml) : undefined;
     const metaCsp = staticHtml?.metaCsp ?? [];
     const cspState: CspState = (enforced.length || metaCsp.length) && reports.length ? "both"
       : enforced.length ? "enforced" : metaCsp.length ? "meta_only"

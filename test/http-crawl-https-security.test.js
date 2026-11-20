@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { load as loadCheerio } from "cheerio";
 import {
   analyzeHttpsSecurity, emptyHttpsSecurityReview,
   MAX_SECURITY_PAGES, MAX_SECURITY_FINDINGS, MAX_SECURITY_DOM_ELEMENTS,
@@ -10,7 +11,7 @@ import {
 const https = "https://example.test/";
 const http = "http://example.test/";
 const page = (extra = {}) => ({ url: https, status_code: 200, ...extra });
-const review = (...items) => analyzeHttpsSecurity(items);
+const review = (...items) => analyzeHttpsSecurity(items, loadCheerio);
 const found = (data, code) => data.findings.filter((f) => f.code === code);
 
 test("P1-13: offline secure headers and mixed-free supplied HTML report observed signals, not security certification", () => {

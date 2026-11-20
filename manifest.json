@@ -73,6 +73,10 @@
       "description": "Combines W3C HTML/CSS validation, local SEO/accessibility checks, JSON-LD syntax checks, and a bounded public-link check into a Markdown and structured report."
     },
     {
+      "name": "audit.monitor",
+      "description": "Manual, offline, read-only P2-02 regression/optional-alert PREVIEW for two to ten existing saved audit.history IDs in oldest-first order. Configurable 1–8 sampled regressed pages, net error/warning increases, 1–4 step regression streak and review-only coverage loss/sitemap drift. Candidate alerts require complete comparable observations with unambiguous chronology; nothing is sent, scheduled, persisted, fetched or connected to GSC/GA4."
+    },
+    {
       "name": "audit.trends",
       "description": "Read-only, offline longitudinal comparison of 2–10 previously saved local audit.history version IDs (oldest first). Uses only the existing compact audit archive, compares adjacent and first/last snapshots plus an exact fully-checked all-version cohort, separates coverage loss from real changes and gates issue-group disappearance on identical complete selected samples. No new site requests, archive mutations, scheduled checks or Google-indexing claims. Returns only redacted numeric evidence, never page URLs, issue messages or stored snapshots."
     },
@@ -87,6 +91,10 @@
     {
       "name": "media.diagnostics",
       "description": "Local-only, offline review of caller-supplied HTML image alt/name evidence, responsive picture fallbacks, intrinsic dimensions, lazy loading/decoding/fetchpriority hints, video sources and caption tracks. Bounded and redacted; never fetches or renders media, executes scripts, measures layout, validates caption contents or certifies accessibility/performance."
+    },
+    {
+      "name": "http.delivery",
+      "description": "V01: one bounded public HTTP GET probe (up to three same-origin redirects), or one to four ordered caller-supplied response observations. Diagnose 403/429/5xx, redirect completeness, HTTP cache flags, Retry-After and Cloudflare challenge evidence. No body download, JS execution, Googlebot identity verification, monitoring, raw header values or query-bearing URL output. Supply exactly one of url or observations."
     },
     {
       "name": "http.variants",

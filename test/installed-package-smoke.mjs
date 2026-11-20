@@ -61,10 +61,24 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "audit.trends", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "http.directives", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
+      "audit.history", "audit.monitor", "audit.trends", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "http.delivery", "http.directives", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links",
     ],
   );
+
+  phase = "v01_delivery";
+  const delivery = await client.callTool({
+    name: "http.delivery",
+    arguments: { observations: [{
+      url: "https://example.com/", status_code: 403,
+      headers: { "cf-mitigated": "challenge", "cf-ray": "private-package-test-id" },
+    }] },
+  });
+  assert.notEqual(delivery.isError, true);
+  assert.equal(delivery.structuredContent?.hops_observed, 1);
+  assert.equal(delivery.structuredContent?.errors_observed, 1);
+  assert.equal(delivery.structuredContent?.challenges_observed, 1);
+  assert(!JSON.stringify(delivery).includes("private-package-test-id"));
 
   phase = "history_trend";
   const historySnapshot = (count) => JSON.stringify({
@@ -105,6 +119,25 @@ try {
   assert.equal(historyTrend.structuredContent?.coverage_limited, true);
   assert.ok(!JSON.stringify(historyTrend).includes("https://example.test/"));
   assert.ok(!JSON.stringify(historyTrend).includes(storedHistoryIds[0]));
+  assert.deepEqual(await readFile(historyFile), historyBytesBefore);
+
+  phase = "monitor_dry_run";
+  const monitorPreview = await client.callTool({
+    name: "audit.monitor",
+    arguments: { ids: storedHistoryIds, dry_run: true },
+  });
+  assert.notEqual(monitorPreview.isError, true);
+  assert.equal(monitorPreview.structuredContent?.scope,
+    "manual_sampled_regression_alert_preview_only");
+  assert.equal(monitorPreview.structuredContent?.source, "local_saved_ids");
+  assert.equal(monitorPreview.structuredContent?.candidate_count, 2);
+  assert.equal(monitorPreview.structuredContent?.dry_run, true);
+  assert.equal(monitorPreview.structuredContent?.notifications_sent, 0);
+  assert.equal(monitorPreview.structuredContent?.scheduler_enabled, false);
+  assert.equal(monitorPreview.structuredContent?.delivery_enabled, false);
+  assert.equal(monitorPreview.structuredContent?.external_integrations_used, false);
+  assert.ok(!JSON.stringify(monitorPreview).includes(storedHistoryIds[0]));
+  assert.ok(!JSON.stringify(monitorPreview).includes("https://example.test/"));
   assert.deepEqual(await readFile(historyFile), historyBytesBefore);
 
   // No external validator or third-party website is contacted by this tool.

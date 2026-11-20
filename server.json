@@ -1874,6 +1874,347 @@
       }
     },
     {
+      "name": "audit.monitor",
+      "title": "Dry-run regression monitoring of existing local audit history",
+      "description": "Manual, offline, read-only P2-02 regression/optional-alert PREVIEW for two to ten existing saved audit.history IDs in oldest-first order. Configurable 1–8 sampled regressed pages, net error/warning increases, 1–4 step regression streak and review-only coverage loss/sitemap drift. Candidate alerts require complete comparable observations with unambiguous chronology; nothing is sent, scheduled, persisted, fetched or connected to GSC/GA4.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "minItems": 2,
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "description": "Two to ten already-saved distinct local history version IDs, oldest to newest; the archive is never modified by monitoring."
+          },
+          "dry_run": {
+            "default": true,
+            "description": "Strictly manual simulation. Only true is accepted; no alert delivery or scheduling exists.",
+            "type": "boolean",
+            "const": true
+          },
+          "policy": {
+            "description": "Optional bounded manual-only thresholds and review toggles, not persisted or scheduled.",
+            "type": "object",
+            "properties": {
+              "min_regressed_pages": {
+                "description": "Minimum number of regressed matched pages in the latest fully comparable sample (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "min_net_error_increase": {
+                "description": "Minimum positive net change in observed error counts across matching completed pages (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "min_net_warning_increase": {
+                "description": "Minimum positive net change in observed warning counts across matching completed pages (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "min_coverage_lost_pages": {
+                "description": "Minimum previously completed pages now missing a complete check for a review-only observation (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "consecutive_regressing_steps": {
+                "description": "Consecutive fully comparable regression transitions needed for the regressed-pages candidate (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4
+              },
+              "review_coverage_loss": {
+                "description": "Include review-only validator coverage-loss observations without treating them as defects (default true).",
+                "type": "boolean"
+              },
+              "review_sitemap_drift": {
+                "description": "Include review-only discovery fingerprint changes, never as defect alarms (default true).",
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "manual_sampled_regression_alert_preview_only"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "local_saved_ids",
+              "caller_supplied_snapshots"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "preview_ready",
+              "review_only",
+              "no_candidate",
+              "insufficient_evidence"
+            ]
+          },
+          "dry_run": {
+            "type": "boolean",
+            "const": true
+          },
+          "manually_invoked": {
+            "type": "boolean",
+            "const": true
+          },
+          "scheduler_enabled": {
+            "type": "boolean",
+            "const": false
+          },
+          "delivery_enabled": {
+            "type": "boolean",
+            "const": false
+          },
+          "notifications_sent": {
+            "type": "number",
+            "const": 0
+          },
+          "external_integrations_used": {
+            "type": "boolean",
+            "const": false
+          },
+          "latest_baseline_version": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "latest_current_version": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "latest_comparability": {
+            "type": "string",
+            "enum": [
+              "comparable_sample",
+              "partial",
+              "not_comparable"
+            ]
+          },
+          "latest_compared_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "latest_completed_pairs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "candidate_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "review_only_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "suppressed_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "policy": {
+            "type": "object",
+            "properties": {
+              "min_regressed_pages": {
+                "description": "Minimum number of regressed matched pages in the latest fully comparable sample (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "min_net_error_increase": {
+                "description": "Minimum positive net change in observed error counts across matching completed pages (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "min_net_warning_increase": {
+                "description": "Minimum positive net change in observed warning counts across matching completed pages (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "min_coverage_lost_pages": {
+                "description": "Minimum previously completed pages now missing a complete check for a review-only observation (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "consecutive_regressing_steps": {
+                "description": "Consecutive fully comparable regression transitions needed for the regressed-pages candidate (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4
+              },
+              "review_coverage_loss": {
+                "description": "Include review-only validator coverage-loss observations without treating them as defects (default true).",
+                "type": "boolean"
+              },
+              "review_sitemap_drift": {
+                "description": "Include review-only discovery fingerprint changes, never as defect alarms (default true).",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "min_regressed_pages",
+              "min_net_error_increase",
+              "min_net_warning_increase",
+              "min_coverage_lost_pages",
+              "consecutive_regressing_steps",
+              "review_coverage_loss",
+              "review_sitemap_drift"
+            ],
+            "additionalProperties": false
+          },
+          "rules": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "regressed_pages",
+                    "net_error_increase",
+                    "net_warning_increase",
+                    "coverage_loss",
+                    "sitemap_drift"
+                  ]
+                },
+                "decision": {
+                  "type": "string",
+                  "enum": [
+                    "preview_candidate",
+                    "review_only",
+                    "suppressed",
+                    "below_threshold",
+                    "disabled"
+                  ]
+                },
+                "reason_code": {
+                  "type": "string",
+                  "enum": [
+                    "threshold_met",
+                    "threshold_not_met",
+                    "rule_disabled",
+                    "incomplete_latest_pair",
+                    "ambiguous_version_order",
+                    "insufficient_streak_history",
+                    "regression_streak_not_met",
+                    "observed_validator_coverage_loss",
+                    "observed_sitemap_drift",
+                    "not_enough_observed_comparisons"
+                  ]
+                },
+                "latest_observed_value": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "threshold": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10000
+                },
+                "review_required": {
+                  "type": "boolean"
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 290
+                }
+              },
+              "required": [
+                "rule",
+                "decision",
+                "reason_code",
+                "latest_observed_value",
+                "threshold",
+                "review_required",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 360
+            }
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "source",
+          "status",
+          "dry_run",
+          "manually_invoked",
+          "scheduler_enabled",
+          "delivery_enabled",
+          "notifications_sent",
+          "external_integrations_used",
+          "latest_baseline_version",
+          "latest_current_version",
+          "latest_comparability",
+          "latest_compared_pages",
+          "latest_completed_pairs",
+          "candidate_count",
+          "review_only_count",
+          "suppressed_count",
+          "coverage_limited",
+          "policy",
+          "rules",
+          "limitations"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "audit.trends",
       "title": "Compare two to ten locally saved site-audit history versions",
       "description": "Read-only, offline longitudinal comparison of 2–10 previously saved local audit.history version IDs (oldest first). Uses only the existing compact audit archive, compares adjacent and first/last snapshots plus an exact fully-checked all-version cohort, separates coverage loss from real changes and gates issue-group disappearance on identical complete selected samples. No new site requests, archive mutations, scheduled checks or Google-indexing claims. Returns only redacted numeric evidence, never page URLs, issue messages or stored snapshots.",
@@ -3059,6 +3400,336 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "http.delivery",
+      "title": "Diagnose live or supplied HTTP delivery and edge responses",
+      "description": "V01: one bounded public HTTP GET probe (up to three same-origin redirects), or one to four ordered caller-supplied response observations. Diagnose 403/429/5xx, redirect completeness, HTTP cache flags, Retry-After and Cloudflare challenge evidence. No body download, JS execution, Googlebot identity verification, monitoring, raw header values or query-bearing URL output. Supply exactly one of url or observations.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "description": "Authorized public query-free HTTP(S) URL to probe once (GET).",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "observations": {
+            "description": "One to four caller-observed response hops instead of live network traffic.",
+            "minItems": 1,
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Safe query-free URL label of this already-observed HTTP hop; never echoed."
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599,
+                  "description": "Observed HTTP response status code from this hop, never inferred."
+                },
+                "method": {
+                  "description": "Actual HTTP request method used for this observed response.",
+                  "type": "string",
+                  "enum": [
+                    "GET",
+                    "HEAD"
+                  ]
+                },
+                "headers": {
+                  "description": "Optional allowlisted response-header observations, not returned verbatim.",
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 512
+                  }
+                }
+              },
+              "required": [
+                "url",
+                "status_code"
+              ]
+            }
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "live_public_http_probe",
+              "caller_supplied_http_observations"
+            ]
+          },
+          "hops_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4
+          },
+          "redirects_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4
+          },
+          "final_http_status": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "errors_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4
+          },
+          "challenges_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4
+          },
+          "redirect_chain_complete": {
+            "type": "boolean"
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 260
+            }
+          },
+          "hops": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "hop": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "success",
+                    "redirect",
+                    "forbidden",
+                    "rate_limited",
+                    "server_error",
+                    "client_error",
+                    "other"
+                  ]
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "GET",
+                    "HEAD",
+                    "unspecified"
+                  ]
+                },
+                "https": {
+                  "type": "boolean"
+                },
+                "redirect_target": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "same_origin",
+                    "cross_origin",
+                    "https_downgrade",
+                    "query_target",
+                    "invalid",
+                    "missing"
+                  ]
+                },
+                "next_hop_observed": {
+                  "type": "boolean"
+                },
+                "cache_state": {
+                  "type": "string",
+                  "enum": [
+                    "hit",
+                    "miss",
+                    "bypass",
+                    "dynamic",
+                    "expired",
+                    "stale",
+                    "other",
+                    "unknown"
+                  ]
+                },
+                "cache_no_store": {
+                  "type": "boolean"
+                },
+                "cache_no_cache": {
+                  "type": "boolean"
+                },
+                "cache_private": {
+                  "type": "boolean"
+                },
+                "cache_max_age_seconds": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "age_seconds": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "retry_after_present": {
+                  "type": "boolean"
+                },
+                "retry_after_seconds": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "cf_challenge": {
+                  "type": "boolean"
+                },
+                "cf_ray_present": {
+                  "type": "boolean"
+                },
+                "cloudflare_server": {
+                  "type": "boolean"
+                },
+                "content_type_html": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "hop",
+                "status_code",
+                "status",
+                "method",
+                "https",
+                "redirect_target",
+                "next_hop_observed",
+                "cache_state",
+                "cache_no_store",
+                "cache_no_cache",
+                "cache_private",
+                "retry_after_present",
+                "cf_challenge",
+                "cf_ray_present",
+                "cloudflare_server",
+                "content_type_html"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "hop": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "http_forbidden",
+                    "http_rate_limited",
+                    "http_server_error",
+                    "http_client_error",
+                    "cloudflare_challenge",
+                    "redirect_missing_location",
+                    "redirect_invalid_location",
+                    "redirect_query_target",
+                    "redirect_cross_origin",
+                    "redirect_https_downgrade",
+                    "redirect_observation_mismatch",
+                    "redirect_loop",
+                    "redirect_incomplete",
+                    "redirect_chain_long"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 260
+                }
+              },
+              "required": [
+                "hop",
+                "code",
+                "severity",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "hops_observed",
+          "redirects_observed",
+          "errors_observed",
+          "challenges_observed",
+          "redirect_chain_complete",
+          "coverage_limited",
+          "limitations",
+          "hops",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
       },
       "execution": {
         "taskSupport": "forbidden"

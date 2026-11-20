@@ -64,6 +64,16 @@ import {
   VARIANT_FINDING_CODES,
 } from "./modules/http-crawl/url-variants.js";
 import {
+  analyzeHttpDelivery,
+  emptyDeliveryReview,
+  MAX_DELIVERY_HOPS,
+  MAX_DELIVERY_FINDINGS,
+  MAX_DELIVERY_HEADER_VALUE_BYTES,
+  DELIVERY_HEADER_NAMES,
+  DELIVERY_FINDING_CODES,
+} from "./modules/http-crawl/http-delivery.js";
+import { probeHttpDelivery } from "./modules/http-crawl/http-delivery-probe.js";
+import {
   auditSeoMetadata,
   auditSeoMetadataDetailed,
   checkBrokenLinks,
@@ -93,6 +103,7 @@ import {
   httpsSecurityContent,
   urlVariantsContent,
   historicalComparisonContent,
+  regressionPreviewContent,
   multilingualClusterContent,
   failureContent,
   htmlValidationContent,
@@ -179,6 +190,14 @@ import {
   HISTORICAL_STATUSES,
   HISTORICAL_FINDING_CODES,
 } from "./modules/change-regression/historical-comparisons.js";
+import {
+  previewRegressionAlerts,
+  emptyMonitorPreview,
+  MONITOR_RULES,
+  MONITOR_DECISIONS,
+  MONITOR_STATUSES,
+  MONITOR_REASON_CODES,
+} from "./modules/change-regression/regression-alerts.js";
 import {
   getW3CMessageSeverity,
   type HtmlValidationMediaType,
@@ -707,6 +726,56 @@ const mediaReviewOutputSchema = {
   error: z.string().optional(),
 };
 
+const monitorPolicyInputSchema = z.object({
+  min_regressed_pages: z.number().int().min(1).max(8).optional()
+    .describe("Minimum number of regressed matched pages in the latest fully comparable sample (default 1)."),
+  min_net_error_increase: z.number().int().min(1).max(10_000).optional()
+    .describe("Minimum positive net change in observed error counts across matching completed pages (default 1)."),
+  min_net_warning_increase: z.number().int().min(1).max(10_000).optional()
+    .describe("Minimum positive net change in observed warning counts across matching completed pages (default 1)."),
+  min_coverage_lost_pages: z.number().int().min(1).max(8).optional()
+    .describe("Minimum previously completed pages now missing a complete check for a review-only observation (default 1)."),
+  consecutive_regressing_steps: z.number().int().min(1).max(4).optional()
+    .describe("Consecutive fully comparable regression transitions needed for the regressed-pages candidate (default 1)."),
+  review_coverage_loss: z.boolean().optional()
+    .describe("Include review-only validator coverage-loss observations without treating them as defects (default true)."),
+  review_sitemap_drift: z.boolean().optional()
+    .describe("Include review-only discovery fingerprint changes, never as defect alarms (default true)."),
+}).strict();
+const monitorPolicyOutputSchema = monitorPolicyInputSchema.required();
+const monitorOutputSchema = {
+  scope: z.literal("manual_sampled_regression_alert_preview_only"),
+  source: z.enum(["local_saved_ids", "caller_supplied_snapshots"]),
+  status: z.enum(MONITOR_STATUSES),
+  dry_run: z.literal(true),
+  manually_invoked: z.literal(true),
+  scheduler_enabled: z.literal(false),
+  delivery_enabled: z.literal(false),
+  notifications_sent: z.literal(0),
+  external_integrations_used: z.literal(false),
+  latest_baseline_version: z.number().int().min(0).max(MAX_HISTORICAL_VERSIONS),
+  latest_current_version: z.number().int().min(0).max(MAX_HISTORICAL_VERSIONS),
+  latest_comparability: z.enum(HISTORICAL_STATUSES),
+  latest_compared_pages: z.number().int().nonnegative().max(8),
+  latest_completed_pairs: z.number().int().nonnegative().max(8),
+  candidate_count: z.number().int().nonnegative().max(MONITOR_RULES.length),
+  review_only_count: z.number().int().nonnegative().max(MONITOR_RULES.length),
+  suppressed_count: z.number().int().nonnegative().max(MONITOR_RULES.length),
+  coverage_limited: z.literal(true),
+  policy: monitorPolicyOutputSchema,
+  rules: z.array(z.object({
+    rule: z.enum(MONITOR_RULES),
+    decision: z.enum(MONITOR_DECISIONS),
+    reason_code: z.enum(MONITOR_REASON_CODES),
+    latest_observed_value: z.number().int(),
+    threshold: z.number().int().min(1).max(10_000),
+    review_required: z.boolean(),
+    message: z.string().max(290),
+  })).max(MONITOR_RULES.length),
+  limitations: z.array(z.string().max(360)).max(4),
+  error: z.string().optional(),
+};
+
 const historicalStepSchema = z.object({
   baseline_version: z.number().int().min(1).max(MAX_HISTORICAL_VERSIONS),
   current_version: z.number().int().min(1).max(MAX_HISTORICAL_VERSIONS),
@@ -982,6 +1051,65 @@ const httpDirectivesOutputSchema = {
     resource: z.number().int().min(1).max(MAX_HTTP_RESOURCES),
     message: z.string().max(300),
   })).max(MAX_HTTP_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const deliveryInputUrl = z.string().url().max(512)
+  .refine((value) => Boolean(safeHttpResourceUrl(value)),
+    "Use a query-free HTTP(S) URL without credentials, fragment or custom port.");
+const deliveryHeaderSchema = z.record(z.string(), z.string().max(MAX_DELIVERY_HEADER_VALUE_BYTES))
+  .refine((headers) => Object.entries(headers).every(([name, value]) =>
+    DELIVERY_HEADER_NAMES.includes(name.toLowerCase() as typeof DELIVERY_HEADER_NAMES[number])
+    && !/[\r\n\u0000]/u.test(value)),
+  "Only V01 allowlisted HTTP headers with single-line values may be supplied.");
+const deliveryObservationSchema = z.object({
+  url: deliveryInputUrl.describe("Safe query-free URL label of this already-observed HTTP hop; never echoed."),
+  status_code: z.number().int().min(100).max(599)
+    .describe("Observed HTTP response status code from this hop, never inferred."),
+  method: z.enum(["GET", "HEAD"]).optional()
+    .describe("Actual HTTP request method used for this observed response."),
+  headers: deliveryHeaderSchema.optional()
+    .describe("Optional allowlisted response-header observations, not returned verbatim."),
+});
+const deliveryOutputSchema = {
+  scope: z.enum(["live_public_http_probe", "caller_supplied_http_observations"]),
+  hops_observed: z.number().int().min(0).max(MAX_DELIVERY_HOPS),
+  redirects_observed: z.number().int().nonnegative().max(MAX_DELIVERY_HOPS),
+  final_http_status: z.number().int().min(100).max(599).optional(),
+  errors_observed: z.number().int().nonnegative().max(MAX_DELIVERY_HOPS),
+  challenges_observed: z.number().int().nonnegative().max(MAX_DELIVERY_HOPS),
+  redirect_chain_complete: z.boolean(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(260)).max(4),
+  hops: z.array(z.object({
+    hop: z.number().int().min(1).max(MAX_DELIVERY_HOPS),
+    status_code: z.number().int().min(100).max(599),
+    status: z.enum(["success", "redirect", "forbidden", "rate_limited", "server_error", "client_error", "other"]),
+    method: z.enum(["GET", "HEAD", "unspecified"]),
+    https: z.boolean(),
+    redirect_target: z.enum(["none", "same_origin", "cross_origin", "https_downgrade", "query_target", "invalid", "missing"]),
+    next_hop_observed: z.boolean(),
+    cache_state: z.enum(["hit", "miss", "bypass", "dynamic", "expired", "stale", "other", "unknown"]),
+    cache_no_store: z.boolean(),
+    cache_no_cache: z.boolean(),
+    cache_private: z.boolean(),
+    cache_max_age_seconds: z.number().int().nonnegative().optional(),
+    age_seconds: z.number().int().nonnegative().optional(),
+    retry_after_present: z.boolean(),
+    retry_after_seconds: z.number().int().nonnegative().optional(),
+    cf_challenge: z.boolean(),
+    cf_ray_present: z.boolean(),
+    cloudflare_server: z.boolean(),
+    content_type_html: z.boolean(),
+  })).max(MAX_DELIVERY_HOPS),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    hop: z.number().int().min(1).max(MAX_DELIVERY_HOPS),
+    code: z.enum(DELIVERY_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(260),
+  })).max(MAX_DELIVERY_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
 };
@@ -1728,6 +1856,39 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
+    "audit.monitor",
+    {
+      title: "Dry-run regression monitoring of existing local audit history",
+      description:
+        "Manual, offline, read-only P2-02 regression/optional-alert PREVIEW for two to ten existing saved audit.history IDs in oldest-first order. Configurable 1–8 sampled regressed pages, net error/warning increases, 1–4 step regression streak and review-only coverage loss/sitemap drift. Candidate alerts require complete comparable observations with unambiguous chronology; nothing is sent, scheduled, persisted, fetched or connected to GSC/GA4.",
+      inputSchema: {
+        ids: z.array(z.string().uuid()).min(2).max(MAX_HISTORICAL_VERSIONS)
+          .describe("Two to ten already-saved distinct local history version IDs, oldest to newest; the archive is never modified by monitoring."),
+        dry_run: z.literal(true).default(true)
+          .describe("Strictly manual simulation. Only true is accepted; no alert delivery or scheduling exists."),
+        policy: monitorPolicyInputSchema.optional()
+          .describe("Optional bounded manual-only thresholds and review toggles, not persisted or scheduled."),
+      },
+      outputSchema: monitorOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ ids, policy }) => {
+      try {
+        const versions = await getAuditHistoryVersions(ids);
+        const history = analyzeHistoricalAudits(versions, "local_saved_ids");
+        const preview = previewRegressionAlerts(history, policy);
+        return result(preview, regressionPreviewContent(preview));
+      } catch {
+        const error = "Manual regression preview cannot safely evaluate the saved versions, chronology, scope, policy or audit coverage. No notifications, schedules, or history changes occurred.";
+        return result({ ...emptyMonitorPreview("local_saved_ids"), error }, failureContent(
+          "Manual regression alert preview", error,
+          "List audit.history, supply two to ten existing IDs oldest first and valid bounded policy thresholds; no alerts can be sent.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
     "audit.trends",
     {
       title: "Compare two to ten locally saved site-audit history versions",
@@ -1871,6 +2032,49 @@ export function createServer(): McpServer {
         return result({ ...emptyMediaDiagnostics(), error }, failureContent(
           "Static media diagnostics", error,
           "Supply nonempty HTML markup within the declared UTF-8 byte limit.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "http.delivery",
+    {
+      title: "Diagnose live or supplied HTTP delivery and edge responses",
+      description:
+        "V01: one bounded public HTTP GET probe (up to three same-origin redirects), or one to four ordered caller-supplied response observations. Diagnose 403/429/5xx, redirect completeness, HTTP cache flags, Retry-After and Cloudflare challenge evidence. No body download, JS execution, Googlebot identity verification, monitoring, raw header values or query-bearing URL output. Supply exactly one of url or observations.",
+      inputSchema: {
+        url: deliveryInputUrl.optional()
+          .describe("Authorized public query-free HTTP(S) URL to probe once (GET)."),
+        observations: z.array(deliveryObservationSchema).min(1).max(MAX_DELIVERY_HOPS).optional()
+          .describe("One to four caller-observed response hops instead of live network traffic."),
+      },
+      outputSchema: deliveryOutputSchema,
+      annotations: externalReadOnlyAnnotations,
+    },
+    async ({ url, observations }) => {
+      try {
+        if (Boolean(url) === Boolean(observations)) {
+          throw new Error("Choose exactly one input mode.");
+        }
+        const review = observations
+          ? analyzeHttpDelivery(observations)
+          : await probeHttpDelivery(url!);
+        const warnings = review.findings.filter((item) => item.severity === "warning");
+        const text = "HTTP delivery: " + review.hops_observed + " observed response(s), "
+          + review.redirects_observed + " followed redirect(s), "
+          + review.errors_observed + " HTTP error response(s) and "
+          + review.challenges_observed + " confirmed Cloudflare challenge header(s). "
+          + (warnings.length > 0
+            ? "Review " + warnings.map((finding) => finding.code).slice(0, 4).join(", ") + ". "
+            : "No error or explicit challenge header observed. ")
+          + "This is point-in-time evidence, not a Googlebot or availability-history verdict.";
+        return result(review, text, Boolean(review.error));
+      } catch {
+        const error = "HTTP delivery could not be assessed within the safe URL, response and input limits.";
+        return result({ ...emptyDeliveryReview(), error }, failureContent(
+          "HTTP delivery diagnostics", error,
+          "Supply one authorized query-free public URL or a bounded list of ordered response observations.",
         ), true);
       }
     },

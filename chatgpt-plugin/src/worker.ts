@@ -16,7 +16,7 @@ import {
   SITE_AUDIT_MAX_PAGES,
   SITE_AUDIT_MAX_SITEMAP_URLS,
 } from "./constants";
-import { fetchPublicHtml, PublicHtmlFetchError, type HtmlMediaType } from "./network";
+import { fetchPublicHtml, probePublicHttp, PublicHtmlFetchError, type HtmlMediaType } from "./network";
 import {
   contentForOverview,
   overviewSchema,
@@ -38,6 +38,14 @@ import {
   HISTORICAL_STATUSES,
   HISTORICAL_FINDING_CODES,
 } from "./modules/change-regression/historical-comparisons";
+import {
+  previewRegressionAlerts,
+  emptyMonitorPreview,
+  MONITOR_RULES,
+  MONITOR_DECISIONS,
+  MONITOR_STATUSES,
+  MONITOR_REASON_CODES,
+} from "./modules/change-regression/regression-alerts";
 import {
   compareProductClaims,
   observeProductClaims,
@@ -132,6 +140,15 @@ import {
   VARIANT_CANONICAL_STATES,
   VARIANT_FINDING_CODES,
 } from "./modules/http-crawl/url-variants";
+import {
+  analyzeHttpDelivery,
+  emptyDeliveryReview,
+  MAX_DELIVERY_HOPS,
+  MAX_DELIVERY_FINDINGS,
+  MAX_DELIVERY_HEADER_VALUE_BYTES,
+  DELIVERY_HEADER_NAMES,
+  DELIVERY_FINDING_CODES,
+} from "./modules/http-crawl/http-delivery";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -155,6 +172,63 @@ const GLAMA_CONNECTOR_METADATA = {
   $schema: "https://glama.ai/mcp/schemas/connector.json",
   maintainers: [{ email: "tomi.seregi99@gmail.com" }],
 };
+
+const deliveryInputUrl = z.string().url().max(512)
+  .refine((value) => Boolean(safeHttpResourceUrl(value)),
+    "Use a query-free HTTP(S) URL without credentials, fragment or custom port.");
+const deliveryHeaderSchema = z.record(z.string(), z.string().max(MAX_DELIVERY_HEADER_VALUE_BYTES))
+  .refine((headers) => Object.entries(headers).every(([name, value]) =>
+    DELIVERY_HEADER_NAMES.includes(name.toLowerCase() as typeof DELIVERY_HEADER_NAMES[number])
+    && !/[\r\n\u0000]/u.test(value)),
+  "Only V01 allowlisted HTTP headers with single-line values may be supplied.");
+const deliveryObservationSchema = z.object({
+  url: deliveryInputUrl,
+  status_code: z.number().int().min(100).max(599),
+  method: z.enum(["GET", "HEAD"]).optional(),
+  headers: deliveryHeaderSchema.optional(),
+});
+const deliveryOutputSchema = z.object({
+  scope: z.enum(["live_public_http_probe", "caller_supplied_http_observations"]),
+  hops_observed: z.number().int().min(0).max(MAX_DELIVERY_HOPS),
+  redirects_observed: z.number().int().nonnegative().max(MAX_DELIVERY_HOPS),
+  final_http_status: z.number().int().min(100).max(599).optional(),
+  errors_observed: z.number().int().nonnegative().max(MAX_DELIVERY_HOPS),
+  challenges_observed: z.number().int().nonnegative().max(MAX_DELIVERY_HOPS),
+  redirect_chain_complete: z.boolean(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(260)).max(4),
+  hops: z.array(z.object({
+    hop: z.number().int().min(1).max(MAX_DELIVERY_HOPS),
+    status_code: z.number().int().min(100).max(599),
+    status: z.enum(["success", "redirect", "forbidden", "rate_limited", "server_error", "client_error", "other"]),
+    method: z.enum(["GET", "HEAD", "unspecified"]),
+    https: z.boolean(),
+    redirect_target: z.enum(["none", "same_origin", "cross_origin", "https_downgrade", "query_target", "invalid", "missing"]),
+    next_hop_observed: z.boolean(),
+    cache_state: z.enum(["hit", "miss", "bypass", "dynamic", "expired", "stale", "other", "unknown"]),
+    cache_no_store: z.boolean(),
+    cache_no_cache: z.boolean(),
+    cache_private: z.boolean(),
+    cache_max_age_seconds: z.number().int().nonnegative().optional(),
+    age_seconds: z.number().int().nonnegative().optional(),
+    retry_after_present: z.boolean(),
+    retry_after_seconds: z.number().int().nonnegative().optional(),
+    cf_challenge: z.boolean(),
+    cf_ray_present: z.boolean(),
+    cloudflare_server: z.boolean(),
+    content_type_html: z.boolean(),
+  })).max(MAX_DELIVERY_HOPS),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    hop: z.number().int().min(1).max(MAX_DELIVERY_HOPS),
+    code: z.enum(DELIVERY_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(260),
+  })).max(MAX_DELIVERY_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+  overview: overviewSchema,
+});
 
 const validationMessageSchema = z.object({
   type: z.enum(["error", "warning", "info"]),
@@ -845,6 +919,56 @@ const siteAuditSnapshotSchema = z.object({
   pages: z.array(sitePageSchema).max(SITE_AUDIT_MAX_PAGES),
   issue_groups: z.array(siteIssueGroupSchema).max(50),
   overview: overviewSchema.optional(),
+  error: z.string().optional(),
+});
+
+const monitorPolicyInputSchema = z.object({
+  min_regressed_pages: z.number().int().min(1).max(8).optional()
+    .describe("Minimum regressed pages for an unsent preview in the latest fully comparable sampled pair (default 1)."),
+  min_net_error_increase: z.number().int().min(1).max(10_000).optional()
+    .describe("Minimum positive net error-count increase across matched completed pages (default 1)."),
+  min_net_warning_increase: z.number().int().min(1).max(10_000).optional()
+    .describe("Minimum positive net warning-count increase across matched completed pages (default 1)."),
+  min_coverage_lost_pages: z.number().int().min(1).max(8).optional()
+    .describe("Minimum completed pages losing coverage to trigger a review-only observation (default 1)."),
+  consecutive_regressing_steps: z.number().int().min(1).max(4).optional()
+    .describe("How many fully comparable consecutive regressing samples are required for the page-regression rule (default 1)."),
+  review_coverage_loss: z.boolean().optional()
+    .describe("Whether to preview validator coverage loss as a review-only observation (default true)."),
+  review_sitemap_drift: z.boolean().optional()
+    .describe("Whether to preview sitemap fingerprint drift as a review-only observation (default true)."),
+}).strict();
+const monitorOutputSchema = z.object({
+  scope: z.literal("manual_sampled_regression_alert_preview_only"),
+  source: z.enum(["local_saved_ids", "caller_supplied_snapshots"]),
+  status: z.enum(MONITOR_STATUSES),
+  dry_run: z.literal(true),
+  manually_invoked: z.literal(true),
+  scheduler_enabled: z.literal(false),
+  delivery_enabled: z.literal(false),
+  notifications_sent: z.literal(0),
+  external_integrations_used: z.literal(false),
+  latest_baseline_version: z.number().int().min(0).max(MAX_HISTORICAL_VERSIONS),
+  latest_current_version: z.number().int().min(0).max(MAX_HISTORICAL_VERSIONS),
+  latest_comparability: z.enum(HISTORICAL_STATUSES),
+  latest_compared_pages: z.number().int().nonnegative().max(8),
+  latest_completed_pairs: z.number().int().nonnegative().max(8),
+  candidate_count: z.number().int().nonnegative().max(MONITOR_RULES.length),
+  review_only_count: z.number().int().nonnegative().max(MONITOR_RULES.length),
+  suppressed_count: z.number().int().nonnegative().max(MONITOR_RULES.length),
+  coverage_limited: z.literal(true),
+  policy: monitorPolicyInputSchema.required(),
+  rules: z.array(z.object({
+    rule: z.enum(MONITOR_RULES),
+    decision: z.enum(MONITOR_DECISIONS),
+    reason_code: z.enum(MONITOR_REASON_CODES),
+    latest_observed_value: z.number().int(),
+    threshold: z.number().int().min(1).max(10_000),
+    review_required: z.boolean(),
+    message: z.string().max(290),
+  })).max(MONITOR_RULES.length),
+  limitations: z.array(z.string().max(360)).max(4),
+  overview: overviewSchema,
   error: z.string().optional(),
 });
 
@@ -2356,6 +2480,77 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
 
   registerAppTool(
     server,
+    "preview_regression_alerts",
+    {
+      title: "Preview configurable regression alerts (manual dry-run only)",
+      description:
+        "Fully offline P2-02 MANUAL alert preview for two to ten caller-supplied historical audit snapshots. Configurable sampled-page regression, net error/warning thresholds and up to four consecutive comparable regression steps. Incomplete coverage and changed sitemap are review-only; incomplete or ambiguous defect evidence is suppressed. Output is a preview, NOT a sent notification. No scheduler, network fetch, stored state, webhook, email, Google Search Console or Analytics integration.",
+      inputSchema: {
+        versions: historicalVersionsInputSchema
+          .describe("Two to ten already-observed timestamped compact site-audit snapshots, oldest first; no URLs are fetched and no history is stored."),
+        dry_run: z.literal(true).default(true)
+          .describe("Must remain true; no delivery, automatic polling or schedules exist."),
+        policy: monitorPolicyInputSchema.optional()
+          .describe("Bounded manual-only rule thresholds; no destination addresses or automation settings are accepted."),
+      },
+      outputSchema: monitorOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Simulating regression alert rules without sending...",
+        invoked: "Dry-run regression preview complete; no alerts sent.",
+      }),
+    },
+    async ({ versions, policy }) => {
+      try {
+        const history = analyzeHistoricalAudits(versions, "caller_supplied_snapshots");
+        const preview = previewRegressionAlerts(history, policy);
+        const overview: ResultOverview = {
+          kind: "site",
+          status: preview.candidate_count > 0 ? "needs_attention" : "partial",
+          title: "Unsent manual regression alert preview",
+          headline: preview.candidate_count + " unsent alert candidate(s), " +
+            preview.review_only_count + " review-only observation(s), " +
+            preview.suppressed_count + " suppressed rule(s) from the latest " +
+            preview.latest_completed_pairs + " completed matched page pair(s).",
+          detail: "Manual dry-run only. No notifications, email/webhook, background scheduler, " +
+            "source fetch, storage or external analytics. A zero-candidate result is not a full-site health verdict.",
+          total: preview.rules.length,
+          shown: preview.rules.length,
+          truncated: false,
+          counts: [
+            metric("candidates", "Unsent candidate alerts", preview.candidate_count, "warning"),
+            metric("review_only", "Coverage/discovery reviews", preview.review_only_count, "info"),
+            metric("suppressed", "Suppressed uncertain rules", preview.suppressed_count, "info"),
+            metric("complete_pages", "Comparable latest page pairs", preview.latest_completed_pairs, "info"),
+          ],
+          next_action: "Manually verify matched fully checked source pages and policy thresholds. " +
+            "No automated notifications or live monitoring are enabled; do not infer traffic, rankings or sitewide results.",
+        };
+        return {
+          structuredContent: { ...preview, overview },
+          content: contentForOverview(overview, preview.rules
+            .filter((rule) => rule.review_required)
+            .map((rule) => ({
+              severity: rule.decision === "preview_candidate" ? "warning" as const : "info" as const,
+              label: rule.rule + " (not sent)",
+              message: rule.message,
+            }))),
+        };
+      } catch {
+        const error = "Manual monitoring preview could not safely evaluate the supplied historical versions, chronology or bounded policy; no messages were sent.";
+        const overview = failedOverview("site", "Regression alert dry-run",
+          "The manual-only preview could not be evaluated.", error);
+        return {
+          structuredContent: { ...emptyMonitorPreview("caller_supplied_snapshots"), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
     "compare_historical_audits",
     {
       title: "Compare two to ten supplied site audit versions",
@@ -2928,6 +3123,81 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           "The supplied metadata sample could not be compared.", error);
         return {
           structuredContent: { ...emptyMetadataReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "diagnose_http_delivery",
+    {
+      title: "Diagnose HTTP delivery, redirects, cache and edge challenges",
+      description:
+        "V01: bounded single public HTTP GET (up to three same-origin redirects) or up to four already-supplied HTTP response hops. Identifies 403, 429, 5xx, incomplete redirects, cache-state flags, Retry-After, and cf-mitigated challenge evidence. No response body, scripts, cookies, authenticated browser, Googlebot identity verification, historical monitoring or raw header/URL-token output.",
+      inputSchema: {
+        url: deliveryInputUrl.optional()
+          .describe("One authorized public query-free HTTP(S) URL to probe once (GET)."),
+        observations: z.array(deliveryObservationSchema).min(1).max(MAX_DELIVERY_HOPS).optional()
+          .describe("One to four already-observed ordered response hops instead of making an HTTP request."),
+      },
+      outputSchema: deliveryOutputSchema.shape,
+      annotations: externalReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Diagnosing HTTP delivery response evidence...",
+        invoked: "HTTP delivery diagnostics complete.",
+      }),
+    },
+    async ({ url, observations }) => {
+      try {
+        if (Boolean(url) === Boolean(observations)) throw new Error("Exactly one input mode is required.");
+        if (url) {
+          const allowed = await env.SITE_AUDIT_RATE_LIMITER.limit({ key: siteAuditRateLimitKey });
+          if (!allowed.success) throw new Error("Rate limited");
+        }
+        const review = analyzeHttpDelivery(
+          observations ?? await probePublicHttp(url!),
+          url ? "live_public_http_probe" : "caller_supplied_http_observations",
+        );
+        const warnings = review.findings.filter((finding) => finding.severity === "warning");
+        const overview: ResultOverview = {
+          kind: "report",
+          status: warnings.length ? "needs_attention" : "partial",
+          title: "HTTP delivery diagnostics (V01)",
+          headline: review.hops_observed + " HTTP response(s), "
+            + review.errors_observed + " HTTP error(s), "
+            + review.challenges_observed + " explicit Cloudflare challenge signal(s).",
+          detail: review.redirects_observed + " redirect(s) observed; "
+            + (review.redirect_chain_complete ? "the sampled chain completed." : "the sampled redirect chain was incomplete.")
+            + " Single observation only; search crawler behavior and edge/origin causality were not verified.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("http_errors", "HTTP errors", review.errors_observed, "warning"),
+            metric("challenges", "Explicit challenges", review.challenges_observed, "warning"),
+            metric("redirects", "Observed redirects", review.redirects_observed, "info"),
+          ],
+          next_action: warnings.length > 0
+            ? "Inspect affected hops in origin and Cloudflare logs and compare with verified crawler records; do not infer Googlebot was blocked from this probe."
+            : "Repeat with authorized observations when the issue recurs and compare with server/crawler logs.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview, review.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code + " (hop " + finding.hop + ")",
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "HTTP delivery could not be assessed within the public URL, input and rate limits.";
+        const overview = failedOverview("report", "HTTP delivery diagnostics (V01)",
+          "The HTTP delivery sample could not be completed.", error);
+        return {
+          structuredContent: { ...emptyDeliveryReview(), overview, error },
           content: contentForOverview(overview),
           isError: true,
         };

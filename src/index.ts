@@ -15,6 +15,18 @@ import {
   MAX_MEDIA_FINDINGS,
 } from "./modules/browser-ux/media-diagnostics.js";
 import {
+  analyzeHttpDirectives,
+  emptyHttpDirectiveReview,
+  safeHttpResourceUrl,
+  MAX_HTTP_RESOURCES,
+  MAX_HTTP_FINDINGS,
+  MAX_HTTP_HEADER_VALUES,
+  MAX_HTTP_HEADER_BYTES,
+  HTTP_MIME_CATEGORIES,
+  HTTP_CANONICAL_STATES,
+  HTTP_FINDING_CODES,
+} from "./modules/http-crawl/non-html-directives.js";
+import {
   auditSeoMetadata,
   auditSeoMetadataDetailed,
   checkBrokenLinks,
@@ -39,6 +51,7 @@ import {
   internalLinkContent,
   metadataConsistencyContent,
   mediaDiagnosticsContent,
+  httpDirectivesContent,
   multilingualClusterContent,
   failureContent,
   htmlValidationContent,
@@ -604,6 +617,73 @@ const mediaReviewOutputSchema = {
     element: z.number().int().min(1).max(MAX_MEDIA_ELEMENTS),
     message: z.string().max(240),
   })).max(MAX_MEDIA_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const httpHeaderInputSchema = z.string().max(MAX_HTTP_HEADER_BYTES)
+  .refine((value) => !/[\r\n\u0000]/u.test(value)
+    && new TextEncoder().encode(value).byteLength <= MAX_HTTP_HEADER_BYTES,
+  "Headers may not contain CR/LF/NUL and must fit within 2,048 UTF-8 bytes.");
+const httpObservationInputSchema = z.object({
+  url: z.string().url().max(512)
+    .refine((value) => Boolean(safeHttpResourceUrl(value)),
+      "Use a query-free HTTP(S) URL label without credentials, fragments or custom ports.")
+    .describe("Safe same-origin resource URL label; never fetched or echoed."),
+  status_code: z.number().int().min(100).max(599)
+    .describe("Observed HTTP response status code, not a guessed crawler state."),
+  method: z.enum(["HEAD", "GET"]).optional()
+    .describe("Optional actual request method of this caller-supplied header observation."),
+  content_type: httpHeaderInputSchema.optional()
+    .describe("Optional raw Content-Type HTTP response header value."),
+  content_disposition: httpHeaderInputSchema.optional()
+    .describe("Optional raw Content-Disposition HTTP response header value; filenames are never returned."),
+  x_robots_tag: z.array(httpHeaderInputSchema).max(MAX_HTTP_HEADER_VALUES).optional()
+    .describe("Zero to eight X-Robots-Tag HTTP response header values, in received order."),
+  link: z.array(httpHeaderInputSchema).max(MAX_HTTP_HEADER_VALUES).optional()
+    .describe("Zero to eight Link HTTP response header values (including rel=canonical if present)."),
+});
+const httpDirectivesOutputSchema = {
+  scope: z.literal("caller_supplied_http_headers_only"),
+  resources_sampled: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  non_html_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  html_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  unknown_mime_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  non_success_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  explicit_noindex_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  googlebot_noindex_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  googlebot_noimageindex_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  conflicting_robots_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  canonical_header_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  conflicting_canonical_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  unresolved_canonical_references: z.number().int().nonnegative(),
+  attachment_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(340)).max(4),
+  resources: z.array(z.object({
+    resource: z.number().int().min(1).max(MAX_HTTP_RESOURCES),
+    status_code: z.number().int().min(100).max(599),
+    method: z.enum(["HEAD", "GET", "unspecified"]),
+    mime_category: z.enum(HTTP_MIME_CATEGORIES),
+    non_html: z.boolean(),
+    x_robots_observed: z.boolean(),
+    explicit_noindex: z.boolean(),
+    googlebot_noindex: z.boolean(),
+    googlebot_noimageindex: z.boolean(),
+    conflicting_robots: z.boolean(),
+    canonical_declarations: z.number().int().nonnegative(),
+    canonical_valid_targets: z.number().int().nonnegative(),
+    canonical_state: z.enum(HTTP_CANONICAL_STATES),
+    attachment_declared: z.boolean(),
+    header_coverage_limited: z.boolean(),
+  })).max(MAX_HTTP_RESOURCES),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(HTTP_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    resource: z.number().int().min(1).max(MAX_HTTP_RESOURCES),
+    message: z.string().max(300),
+  })).max(MAX_HTTP_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
 };
@@ -1428,6 +1508,33 @@ export function createServer(): McpServer {
         return result({ ...emptyMediaDiagnostics(), error }, failureContent(
           "Static media diagnostics", error,
           "Supply nonempty HTML markup within the declared UTF-8 byte limit.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "http.directives",
+    {
+      title: "Review observed non-HTML HTTP indexing directives",
+      description:
+        "Offline, bounded analysis of one to eight caller-supplied same-origin HTTP response header observations, including PDF/media MIME types, X-Robots-Tag (scoped Googlebot directives and contradictions), Link rel=canonical declarations, Content-Disposition and response status. No URL fetch, binary download, robots.txt inspection, Google indexing assertion, or storage. Sensitive raw URLs, headers, filenames and query tokens are not returned.",
+      inputSchema: {
+        resources: z.array(httpObservationInputSchema).min(1).max(MAX_HTTP_RESOURCES)
+          .describe("One to eight authorized same-origin HTTP response header observations, no live network or binary fetching; 30 KB combined header budget."),
+      },
+      outputSchema: httpDirectivesOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ resources }) => {
+      try {
+        const review = analyzeHttpDirectives(resources);
+        return result(review, httpDirectivesContent(review));
+      } catch {
+        const error = "HTTP directive observations could not be reviewed within the URL, same-origin, status or header limits.";
+        return result({ ...emptyHttpDirectiveReview(), error }, failureContent(
+          "Non-HTML HTTP directives", error,
+          "Supply one to eight same-origin resource URL labels and bounded observed response headers.",
         ), true);
       }
     },

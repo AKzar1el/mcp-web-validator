@@ -314,7 +314,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers fifteen accurately annotated tools", async () => {
+  it("discovers sixteen accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -332,6 +332,7 @@ describe("hosted tool contract", () => {
       "validate_supported_schema",
       "review_internal_links",
       "review_metadata_consistency",
+      "review_http_directives",
     ]);
     const noAuthSecuritySchemes = [{ type: "noauth" }];
     for (const tool of tools) {
@@ -1587,6 +1588,74 @@ describe("P1-09 metadata consistency through hosted MCP HTTP", () => {
     ]) {
       const result = await callTool("review_metadata_consistency", { pages });
       expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).not.toContain("FAKE_SECRET");
+    }
+  });
+});
+
+describe("P1-11 HTTP response directive MCP contract", () => {
+  const pdf = {
+    url: "https://example.com/files/report.pdf", status_code: 200,
+    method: "HEAD", content_type: "application/pdf",
+    x_robots_tag: ["googlebot: noindex"],
+    link: ['<https://example.com/reports/latest>; rel="canonical"'],
+  };
+
+  it("discovers and invokes the offline non-HTML tool with genuine MCP RPC, no fetch", async () => {
+    const fetching = vi.fn();
+    vi.stubGlobal("fetch", fetching);
+    const tools = await listTools();
+    expect(tools.find((tool) => tool.name === "review_http_directives")?.annotations)
+      .toMatchObject({ readOnlyHint: true, openWorldHint: false, destructiveHint: false });
+    const result = await callTool("review_http_directives", { resources: [pdf] });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      scope: "caller_supplied_http_headers_only", resources_sampled: 1,
+      non_html_resources: 1, googlebot_noindex_resources: 1,
+      conflicting_robots_resources: 0, canonical_header_resources: 1,
+      coverage_limited: true,
+    });
+    expect(result.structuredContent.resources[0]).toMatchObject({
+      mime_category: "pdf", canonical_state: "one", method: "HEAD",
+    });
+    expect(result.structuredContent.overview.status).toBe("partial");
+    expect(fetching).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("/files/report.pdf");
+    expect(JSON.stringify(result)).not.toContain("/reports/latest");
+  });
+
+  it("prioritizes contradictory indexing and canonical declarations without echoing secrets", async () => {
+    const secret = "FAKE_HTTP_TOKEN_FROM_HEADERS";
+    const result = await callTool("review_http_directives", {
+      resources: [{
+        ...pdf, x_robots_tag: ["index, noindex"],
+        link: [
+          "<https://example.com/a?token=" + secret + ">; rel=canonical",
+          "<https://example.com/b>; rel=canonical",
+        ],
+        content_disposition: 'attachment; filename="' + secret + '"',
+      }],
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.conflicting_robots_resources).toBe(1);
+    expect(result.structuredContent.conflicting_canonical_resources).toBe(1);
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
+  it("fails closed for unsafe labels, mixed origins and oversized header values", async () => {
+    for (const resources of [
+      [{ ...pdf, url: "https://example.com/report.pdf?token=FAKE_SECRET" }],
+      [pdf, pdf],
+      [pdf, { ...pdf, url: "https://another.example.com/file.pdf" }],
+      [{ ...pdf, x_robots_tag: ["é".repeat(1_025)] }],
+      [{ ...pdf, content_disposition: "attachment\r\nSet-Cookie: FAKE_SECRET" }],
+    ]) {
+      const result = await callTool("review_http_directives", { resources });
+      expect(result.isError).toBe(true);
+      // Zod rejects malformed input *before* the tool callback, whereas
+      // same-origin/dedup guards return a structured tool error.
+      expect(result.structuredContent?.error || result.content?.length).toBeTruthy();
       expect(JSON.stringify(result)).not.toContain("FAKE_SECRET");
     }
   });

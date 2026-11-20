@@ -58,7 +58,7 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "links.broken", "media.diagnostics", "product.claims",
+      "audit.history", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "http.directives", "links.broken", "media.diagnostics", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links",
     ],
   );
@@ -88,6 +88,23 @@ try {
   assert.equal(media.structuredContent?.videos_without_caption_track, 0);
   assert.equal(media.structuredContent?.coverage_limited, true);
   assert.ok(!JSON.stringify(media).includes("movie.mp4"));
+
+  phase = "http_directives";
+  const responseHeaders = await client.callTool({
+    name: "http.directives",
+    arguments: { resources: [{
+      url: "https://example.test/documents/report.pdf",
+      status_code: 200, method: "HEAD", content_type: "application/pdf",
+      x_robots_tag: ["noindex, nofollow"],
+      link: ['<https://example.test/report>; rel="canonical"'],
+    }] },
+  });
+  assert.notEqual(responseHeaders.isError, true);
+  assert.equal(responseHeaders.structuredContent?.non_html_resources, 1);
+  assert.equal(responseHeaders.structuredContent?.googlebot_noindex_resources, 1);
+  assert.equal(responseHeaders.structuredContent?.resources?.[0]?.canonical_state, "one");
+  assert.equal(responseHeaders.structuredContent?.coverage_limited, true);
+  assert.ok(!JSON.stringify(responseHeaders).includes("/documents/report.pdf"));
 
   const sampleWords = Array.from({ length: 120 }, (_, i) => `installedtestword${i}`).join(" ");
   phase = "content_duplicates";

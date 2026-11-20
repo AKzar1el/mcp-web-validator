@@ -2190,6 +2190,366 @@
       }
     },
     {
+      "name": "http.directives",
+      "title": "Review observed non-HTML HTTP indexing directives",
+      "description": "Offline, bounded analysis of one to eight caller-supplied same-origin HTTP response header observations, including PDF/media MIME types, X-Robots-Tag (scoped Googlebot directives and contradictions), Link rel=canonical declarations, Content-Disposition and response status. No URL fetch, binary download, robots.txt inspection, Google indexing assertion, or storage. Sensitive raw URLs, headers, filenames and query tokens are not returned.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "resources": {
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Safe same-origin resource URL label; never fetched or echoed."
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599,
+                  "description": "Observed HTTP response status code, not a guessed crawler state."
+                },
+                "method": {
+                  "description": "Optional actual request method of this caller-supplied header observation.",
+                  "type": "string",
+                  "enum": [
+                    "HEAD",
+                    "GET"
+                  ]
+                },
+                "content_type": {
+                  "description": "Optional raw Content-Type HTTP response header value.",
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "content_disposition": {
+                  "description": "Optional raw Content-Disposition HTTP response header value; filenames are never returned.",
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "x_robots_tag": {
+                  "description": "Zero to eight X-Robots-Tag HTTP response header values, in received order.",
+                  "maxItems": 8,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "link": {
+                  "description": "Zero to eight Link HTTP response header values (including rel=canonical if present).",
+                  "maxItems": 8,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                }
+              },
+              "required": [
+                "url",
+                "status_code"
+              ]
+            },
+            "description": "One to eight authorized same-origin HTTP response header observations, no live network or binary fetching; 30 KB combined header budget."
+          }
+        },
+        "required": [
+          "resources"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "caller_supplied_http_headers_only"
+          },
+          "resources_sampled": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "non_html_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "html_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "unknown_mime_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "non_success_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "explicit_noindex_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "googlebot_noindex_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "googlebot_noimageindex_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "conflicting_robots_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "canonical_header_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "conflicting_canonical_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "unresolved_canonical_references": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "attachment_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 340
+            }
+          },
+          "resources": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "resource": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "HEAD",
+                    "GET",
+                    "unspecified"
+                  ]
+                },
+                "mime_category": {
+                  "type": "string",
+                  "enum": [
+                    "html",
+                    "pdf",
+                    "image",
+                    "video",
+                    "audio",
+                    "text",
+                    "data",
+                    "binary",
+                    "unknown"
+                  ]
+                },
+                "non_html": {
+                  "type": "boolean"
+                },
+                "x_robots_observed": {
+                  "type": "boolean"
+                },
+                "explicit_noindex": {
+                  "type": "boolean"
+                },
+                "googlebot_noindex": {
+                  "type": "boolean"
+                },
+                "googlebot_noimageindex": {
+                  "type": "boolean"
+                },
+                "conflicting_robots": {
+                  "type": "boolean"
+                },
+                "canonical_declarations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "canonical_valid_targets": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "canonical_state": {
+                  "type": "string",
+                  "enum": [
+                    "absent",
+                    "one",
+                    "repeated",
+                    "conflicting",
+                    "unresolved"
+                  ]
+                },
+                "attachment_declared": {
+                  "type": "boolean"
+                },
+                "header_coverage_limited": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "resource",
+                "status_code",
+                "method",
+                "mime_category",
+                "non_html",
+                "x_robots_observed",
+                "explicit_noindex",
+                "googlebot_noindex",
+                "googlebot_noimageindex",
+                "conflicting_robots",
+                "canonical_declarations",
+                "canonical_valid_targets",
+                "canonical_state",
+                "attachment_declared",
+                "header_coverage_limited"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "explicit_noindex",
+                    "googlebot_noindex",
+                    "conflicting_robots",
+                    "explicit_noimageindex",
+                    "unresolved_canonical",
+                    "conflicting_canonical",
+                    "attachment_disposition",
+                    "non_success_response",
+                    "partial_http_response",
+                    "unknown_content_type",
+                    "html_in_non_html_review",
+                    "link_header_limited",
+                    "pdf_type_mismatch"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "resource": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 300
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "resource",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "resources_sampled",
+          "non_html_resources",
+          "html_resources",
+          "unknown_mime_resources",
+          "non_success_resources",
+          "explicit_noindex_resources",
+          "googlebot_noindex_resources",
+          "googlebot_noimageindex_resources",
+          "conflicting_robots_resources",
+          "canonical_header_resources",
+          "conflicting_canonical_resources",
+          "unresolved_canonical_references",
+          "attachment_resources",
+          "coverage_limited",
+          "limitations",
+          "resources",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "screenshot.capture",
       "title": "Capture responsive screenshots",
       "description": "Renders a local HTML file or HTTP(S) URL in a sandboxed local Chromium browser and writes PNG screenshots to the requested directory. Downloads the pinned headless browser on first use if it is not already cached. Existing matching files may be replaced. Completed PNG paths are included if a later viewport fails.",

@@ -33,10 +33,14 @@ try {
     npm,
     [
       "install", "--prefix", consumer, "--omit=dev",
-      "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-offline",
+      "--ignore-scripts", "--no-audit", "--no-fund",
+      process.env.MCP_WEB_VALIDATOR_SMOKE_OFFLINE === "1" ? "--offline" : "--prefer-offline",
       path.join(scratch, packages[0].filename),
     ],
-    { cwd: scratch, shell: process.platform === "win32" ? path.join(process.env.SystemRoot ?? "C:/Windows", "System32", "cmd.exe") : false, timeout: process.platform === "win32" ? 240_000 : 120_000, maxBuffer: 2_000_000 },
+    // Windows Defender/slow storage can make a cold clean-room npm install
+    // reach the old 4-minute limit even after npm reports cache hits. The
+    // larger allowance applies only to the explicitly opted-in offline smoke.
+    { cwd: scratch, shell: process.platform === "win32" ? path.join(process.env.SystemRoot ?? "C:/Windows", "System32", "cmd.exe") : false, timeout: process.platform === "win32" ? (process.env.MCP_WEB_VALIDATOR_SMOKE_OFFLINE === "1" ? 480_000 : 240_000) : 120_000, maxBuffer: 2_000_000 },
   );
 
   const installedEntry = path.join(
@@ -61,10 +65,30 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "audit.monitor", "audit.trends", "availability.history", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
+      "audit.history", "audit.monitor", "audit.trends", "availability.history", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links",
     ],
   );
+
+  phase = "v04_redirect_canonical";
+  const chain = await client.callTool({
+    name: "http.redirect_chain",
+    arguments: {
+      source_url: "https://example.com/",
+      expected_destination: "https://example.com/redirected",
+      observations: [
+        { url: "https://example.com/", status_code: 301, location: "/redirected" },
+        { url: "https://example.com/redirected", status_code: 200,
+          html: "<html><head><meta name='googlebot' content='noindex'></head></html>",
+          x_robots_tag: [] },
+      ],
+    },
+  });
+  assert.notEqual(chain.isError, true);
+  assert.equal(chain.structuredContent?.chain_complete, true);
+  assert.equal(chain.structuredContent?.expected_destination_match, true);
+  assert.equal(chain.structuredContent?.nonindexable_destination, true);
+  assert(!JSON.stringify(chain).includes("/redirected"));
 
   phase = "v03_crawler_access";
   const crawler = await client.callTool({

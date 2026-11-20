@@ -44,6 +44,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "http.availability",
       "http.delivery",
       "http.directives",
+      "http.redirect_chain",
       "http.security",
       "http.variants",
       "links.broken",
@@ -57,6 +58,29 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "site.hreflang",
       "site.links",
     ]);
+
+    const chainTool = tools.find((tool) => tool.name === "http.redirect_chain");
+    assert.equal(chainTool?.annotations?.readOnlyHint, true);
+    assert.equal(chainTool?.outputSchema?.properties?.hops_observed?.maximum, 8);
+    const chain = await client.callTool({
+      name: "http.redirect_chain",
+      arguments: {
+        source_url: "https://example.com/",
+        expected_destination: "https://example.com/landing",
+        observations: [
+          { url: "https://example.com/", status_code: 301, location: "/landing" },
+          { url: "https://example.com/landing", status_code: 200,
+            html: "<html><head><meta name='robots' content='noindex'></head></html>",
+            x_robots_tag: [] },
+        ],
+      },
+    });
+    assert.equal(chain.isError, undefined);
+    assert.equal(chain.structuredContent?.hops_observed, 2);
+    assert.equal(chain.structuredContent?.chain_complete, true);
+    assert.equal(chain.structuredContent?.nonindexable_destination, true);
+    assert.equal(chain.structuredContent?.expected_destination_match, true);
+    assert(!JSON.stringify(chain).includes("https://example.com/landing"));
 
     const crawlerTool = tools.find((tool) => tool.name === "crawler.access");
     assert.equal(crawlerTool?.annotations?.readOnlyHint, true);

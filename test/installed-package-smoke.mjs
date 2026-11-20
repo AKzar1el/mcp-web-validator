@@ -61,10 +61,29 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "audit.monitor", "audit.trends", "availability.history", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
+      "audit.history", "audit.monitor", "audit.trends", "availability.history", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links",
     ],
   );
+
+  phase = "v03_crawler_access";
+  const crawler = await client.callTool({
+    name: "crawler.access",
+    arguments: {
+      site_url: "https://example.com/",
+      robots_txt: "User-agent: Googlebot\nDisallow: /private",
+      pages: [{
+        url: "https://example.com/private/secret",
+        html: "<meta name='googlebot' content='noindex'>",
+        x_robots_tag: [],
+      }],
+      profiles: ["googlebot-smartphone", "bingbot"],
+    },
+  });
+  assert.notEqual(crawler.isError, true);
+  assert.equal(crawler.structuredContent?.rows_checked, 2);
+  assert.equal(crawler.structuredContent?.crawler_disallowed_rows, 1);
+  assert(!JSON.stringify(crawler).includes("/private/secret"));
 
   phase = "v01_delivery";
   const delivery = await client.callTool({

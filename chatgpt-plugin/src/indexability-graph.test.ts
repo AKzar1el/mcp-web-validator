@@ -56,6 +56,21 @@ describe("indexability signal extraction", () => {
       .toBe(false);
   });
 
+  it("keeps comma-separated X-Robots-Tag directives scoped to their named crawler", () => {
+    const cases: Array<[string, boolean]> = [
+      ["bingbot: nofollow, noindex", false],
+      ["bingbot: noindex, nofollow, googlebot: follow", false],
+      ["googlebot: nofollow, noindex", true],
+      ["bingbot: nofollow, googlebot: noindex", true],
+      ["bingbot: noindex\nnoindex", true],
+      ["max-snippet:20, noindex", true],
+    ];
+    for (const [header, expected] of cases) {
+      expect(extractPageIndexabilitySignals(html("<title>A</title>"), "https://example.com/a", header).noindex_observed)
+        .toBe(expected);
+    }
+  });
+
   it("does not trust canonicals with credentials, secrets in queries, unsupported schemes, or multiple declarations", () => {
     const cases = [
       '<link rel=canonical href="https://user:secret@example.com/page">',

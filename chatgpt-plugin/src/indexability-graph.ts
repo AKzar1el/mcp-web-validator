@@ -66,16 +66,23 @@ function hasNoindexDirective(value: string | undefined): boolean {
 
 function hasGoogleNoindexHeader(header: string | undefined): boolean {
   if (!header) return false;
-  // Each HTTP header field may apply to all crawlers or carry a named
-  // user-agent prefix. A Bingbot-only directive is not a Googlebot directive.
-  return header.split(/[\r\n]+/).some((field) =>
-    field.split(",").some((clause) => {
-      const directive = clause.trim();
-      const agent = /^([a-z][a-z0-9_-]*):\s*/i.exec(directive);
-      if (agent && agent[1].toLowerCase() !== "googlebot") return false;
-      return hasNoindexDirective(agent ? directive.slice(agent[0].length) : directive);
-    }),
-  );
+  // Comma-separated directives inherit their field's last crawler prefix;
+  // a new header field starts unscoped. Colon-valued directives are not bots.
+  const valuedRules = new Set(["max-snippet", "max-video-preview", "max-image-preview", "unavailable_after"]);
+  return header.split(/[\r\n]+/).some((field) => {
+    let crawler: string | undefined;
+    for (const part of field.split(",")) {
+      const directive = part.trim();
+      const agent = /^([a-z][a-z0-9_-]*):\s*(.*)$/i.exec(directive);
+      if (agent && !valuedRules.has(agent[1].toLowerCase())) {
+        crawler = agent[1].toLowerCase();
+        if (crawler === "googlebot" && hasNoindexDirective(agent[2])) return true;
+      } else if ((!crawler || crawler === "googlebot") && hasNoindexDirective(directive)) {
+        return true;
+      }
+    }
+    return false;
+  });
 }
 
 /** Extract only cheap, static HTML signals from an already fetched document. */

@@ -85,6 +85,10 @@
       "description": "Opt-in local-only site-audit snapshot history. Save a previous hosted audit_public_site structured result as JSON, list saved IDs, or retrieve an exact version. A single compact local JSON file retains at most 10 versions; saving the 11th removes the oldest. No database, background task, or network request."
     },
     {
+      "name": "browser.resource_failures",
+      "description": "V08 local-only: analyze up to 64 observed browser HTTP/network outcomes or navigate one robots-allowed public URL in fresh sandboxed Chromium with DNS-pinned proxy. Distinguishes real HTTP 4xx/5xx resource responses from transport failures, pending requests, and explicit tool-policy blocks. Groups script/CSS/document/API/image/font issues without returning URLs, headers, error text, response bodies or credentials. Browser allows same-origin assets by default, never private IPs; optional public third-party resource access is capped. Does not impersonate Google WRS or establish actual indexing, user experience, performance guarantees or causation."
+    },
+    {
       "name": "browser.dom_diff",
       "description": "V07 local-only: compare two caller-supplied raw/rendered HTML snapshots offline, or render caller-supplied HTML in fresh network-denied Chromium with inline scripts only, or fetch one robots-allowed public HTML page and sample its inline-script DOM. Detects changed/missing title, description, H1, text, same-origin anchor links, canonical, noindex and JSON-LD declarations using bounded redacted evidence. Does not load external JS/CSS/assets, impersonate Google WRS, access GSC/GA4, claim indexing or save content. Inline modes execute untrusted JS only inside fresh browser sandbox; external requests are denied."
     },

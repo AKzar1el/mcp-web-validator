@@ -1874,6 +1874,347 @@
       }
     },
     {
+      "name": "audit.monitor",
+      "title": "Dry-run regression monitoring of existing local audit history",
+      "description": "Manual, offline, read-only P2-02 regression/optional-alert PREVIEW for two to ten existing saved audit.history IDs in oldest-first order. Configurable 1–8 sampled regressed pages, net error/warning increases, 1–4 step regression streak and review-only coverage loss/sitemap drift. Candidate alerts require complete comparable observations with unambiguous chronology; nothing is sent, scheduled, persisted, fetched or connected to GSC/GA4.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "minItems": 2,
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "description": "Two to ten already-saved distinct local history version IDs, oldest to newest; the archive is never modified by monitoring."
+          },
+          "dry_run": {
+            "default": true,
+            "description": "Strictly manual simulation. Only true is accepted; no alert delivery or scheduling exists.",
+            "type": "boolean",
+            "const": true
+          },
+          "policy": {
+            "description": "Optional bounded manual-only thresholds and review toggles, not persisted or scheduled.",
+            "type": "object",
+            "properties": {
+              "min_regressed_pages": {
+                "description": "Minimum number of regressed matched pages in the latest fully comparable sample (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "min_net_error_increase": {
+                "description": "Minimum positive net change in observed error counts across matching completed pages (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "min_net_warning_increase": {
+                "description": "Minimum positive net change in observed warning counts across matching completed pages (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "min_coverage_lost_pages": {
+                "description": "Minimum previously completed pages now missing a complete check for a review-only observation (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "consecutive_regressing_steps": {
+                "description": "Consecutive fully comparable regression transitions needed for the regressed-pages candidate (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4
+              },
+              "review_coverage_loss": {
+                "description": "Include review-only validator coverage-loss observations without treating them as defects (default true).",
+                "type": "boolean"
+              },
+              "review_sitemap_drift": {
+                "description": "Include review-only discovery fingerprint changes, never as defect alarms (default true).",
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "manual_sampled_regression_alert_preview_only"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "local_saved_ids",
+              "caller_supplied_snapshots"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "preview_ready",
+              "review_only",
+              "no_candidate",
+              "insufficient_evidence"
+            ]
+          },
+          "dry_run": {
+            "type": "boolean",
+            "const": true
+          },
+          "manually_invoked": {
+            "type": "boolean",
+            "const": true
+          },
+          "scheduler_enabled": {
+            "type": "boolean",
+            "const": false
+          },
+          "delivery_enabled": {
+            "type": "boolean",
+            "const": false
+          },
+          "notifications_sent": {
+            "type": "number",
+            "const": 0
+          },
+          "external_integrations_used": {
+            "type": "boolean",
+            "const": false
+          },
+          "latest_baseline_version": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "latest_current_version": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "latest_comparability": {
+            "type": "string",
+            "enum": [
+              "comparable_sample",
+              "partial",
+              "not_comparable"
+            ]
+          },
+          "latest_compared_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "latest_completed_pairs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "candidate_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "review_only_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "suppressed_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "policy": {
+            "type": "object",
+            "properties": {
+              "min_regressed_pages": {
+                "description": "Minimum number of regressed matched pages in the latest fully comparable sample (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "min_net_error_increase": {
+                "description": "Minimum positive net change in observed error counts across matching completed pages (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "min_net_warning_increase": {
+                "description": "Minimum positive net change in observed warning counts across matching completed pages (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "min_coverage_lost_pages": {
+                "description": "Minimum previously completed pages now missing a complete check for a review-only observation (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "consecutive_regressing_steps": {
+                "description": "Consecutive fully comparable regression transitions needed for the regressed-pages candidate (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4
+              },
+              "review_coverage_loss": {
+                "description": "Include review-only validator coverage-loss observations without treating them as defects (default true).",
+                "type": "boolean"
+              },
+              "review_sitemap_drift": {
+                "description": "Include review-only discovery fingerprint changes, never as defect alarms (default true).",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "min_regressed_pages",
+              "min_net_error_increase",
+              "min_net_warning_increase",
+              "min_coverage_lost_pages",
+              "consecutive_regressing_steps",
+              "review_coverage_loss",
+              "review_sitemap_drift"
+            ],
+            "additionalProperties": false
+          },
+          "rules": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "regressed_pages",
+                    "net_error_increase",
+                    "net_warning_increase",
+                    "coverage_loss",
+                    "sitemap_drift"
+                  ]
+                },
+                "decision": {
+                  "type": "string",
+                  "enum": [
+                    "preview_candidate",
+                    "review_only",
+                    "suppressed",
+                    "below_threshold",
+                    "disabled"
+                  ]
+                },
+                "reason_code": {
+                  "type": "string",
+                  "enum": [
+                    "threshold_met",
+                    "threshold_not_met",
+                    "rule_disabled",
+                    "incomplete_latest_pair",
+                    "ambiguous_version_order",
+                    "insufficient_streak_history",
+                    "regression_streak_not_met",
+                    "observed_validator_coverage_loss",
+                    "observed_sitemap_drift",
+                    "not_enough_observed_comparisons"
+                  ]
+                },
+                "latest_observed_value": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "threshold": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10000
+                },
+                "review_required": {
+                  "type": "boolean"
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 290
+                }
+              },
+              "required": [
+                "rule",
+                "decision",
+                "reason_code",
+                "latest_observed_value",
+                "threshold",
+                "review_required",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 360
+            }
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "source",
+          "status",
+          "dry_run",
+          "manually_invoked",
+          "scheduler_enabled",
+          "delivery_enabled",
+          "notifications_sent",
+          "external_integrations_used",
+          "latest_baseline_version",
+          "latest_current_version",
+          "latest_comparability",
+          "latest_compared_pages",
+          "latest_completed_pairs",
+          "candidate_count",
+          "review_only_count",
+          "suppressed_count",
+          "coverage_limited",
+          "policy",
+          "rules",
+          "limitations"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "audit.trends",
       "title": "Compare two to ten locally saved site-audit history versions",
       "description": "Read-only, offline longitudinal comparison of 2–10 previously saved local audit.history version IDs (oldest first). Uses only the existing compact audit archive, compares adjacent and first/last snapshots plus an exact fully-checked all-version cohort, separates coverage loss from real changes and gates issue-group disappearance on identical complete selected samples. No new site requests, archive mutations, scheduled checks or Google-indexing claims. Returns only redacted numeric evidence, never page URLs, issue messages or stored snapshots.",

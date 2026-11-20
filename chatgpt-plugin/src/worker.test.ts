@@ -314,7 +314,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers nineteen accurately annotated tools", async () => {
+  it("discovers twenty accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -325,6 +325,7 @@ describe("hosted tool contract", () => {
       "generate_validation_report",
       "audit_public_webpage",
       "audit_public_site",
+      "preview_regression_alerts",
       "compare_historical_audits",
       "compare_site_audits",
       "verify_product_claims",
@@ -2313,6 +2314,104 @@ describe("hosted site audit comparison", () => {
     saved_at: new Date(Date.UTC(2026, 9, 1 + index)).toISOString(),
     snapshot: snapshot(issueCount),
   }));
+
+  it("P2-02: hosted MCP previews bounded rules without sending, storing or fetching", async () => {
+    const fetchSpy = vi.fn(() => { throw new Error("No request in manual monitoring preview"); });
+    vi.stubGlobal("fetch", fetchSpy);
+    const tools = await listTools();
+    expect(tools.find((tool) => tool.name === "preview_regression_alerts")?.annotations)
+      .toMatchObject({ readOnlyHint: true, openWorldHint: false, destructiveHint: false });
+    const result = await callTool("preview_regression_alerts", {
+      dry_run: true, versions: historicalVersions(0, 2),
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      scope: "manual_sampled_regression_alert_preview_only",
+      source: "caller_supplied_snapshots",
+      status: "preview_ready", candidate_count: 2,
+      review_only_count: 0, suppressed_count: 0,
+      manually_invoked: true, dry_run: true,
+      scheduler_enabled: false, delivery_enabled: false,
+      notifications_sent: 0, external_integrations_used: false,
+      overview: { kind: "site", status: "needs_attention" },
+    });
+    expect(result.structuredContent.rules.map((r: { rule: string }) => r.rule))
+      .toEqual(["regressed_pages", "net_error_increase", "net_warning_increase", "coverage_loss", "sitemap_drift"]);
+    expect(result.content[0].text).toContain("No notifications");
+    expect(JSON.stringify(result)).not.toContain("https://example.com/");
+    expect(JSON.stringify(result)).not.toContain("Page title is missing");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("P2-02: user policy can suppress small regressions without changing defaults for next call", async () => {
+    const a = await callTool("preview_regression_alerts", {
+      versions: historicalVersions(0, 2),
+      policy: { min_regressed_pages: 2, min_net_error_increase: 3 },
+    });
+    expect(a.isError).not.toBe(true);
+    expect(a.structuredContent.status).toBe("no_candidate");
+    expect(a.structuredContent.candidate_count).toBe(0);
+    const b = await callTool("preview_regression_alerts", {
+      versions: historicalVersions(0, 2),
+    });
+    expect(b.structuredContent.candidate_count).toBe(2);
+    expect(b.structuredContent.policy.min_regressed_pages).toBe(1);
+    expect(b.structuredContent.delivery_enabled).toBe(false);
+  });
+
+  it("P2-02: incomplete coverage and sitemap drift yield review-only, not false defect alarms", async () => {
+    const versions = historicalVersions(2, 0);
+    versions[1].snapshot = snapshot(0, {
+      discovery_fingerprint: "b".repeat(64), pages_partial: 1, pages_audited: 0,
+      pages: [{
+        ...snapshot(0).pages[0], status: "partial",
+        html_validation_status: "timeout", health_score: undefined,
+      }],
+    });
+    const r = await callTool("preview_regression_alerts", { versions });
+    expect(r.isError).not.toBe(true);
+    expect(r.structuredContent).toMatchObject({
+      status: "review_only", candidate_count: 0,
+      review_only_count: 2, suppressed_count: 3, notifications_sent: 0,
+      latest_comparability: "partial",
+    });
+    expect(r.structuredContent.rules.find((x: { rule: string }) => x.rule === "coverage_loss").decision)
+      .toBe("review_only");
+  });
+
+  it("P2-02: persistent regressions require actual consecutive comparable samples", async () => {
+    const r = await callTool("preview_regression_alerts", {
+      versions: historicalVersions(0, 1, 2),
+      policy: { consecutive_regressing_steps: 2 },
+    });
+    expect(r.isError).not.toBe(true);
+    expect(r.structuredContent.rules.find((x: { rule: string }) => x.rule === "regressed_pages").decision)
+      .toBe("preview_candidate");
+    const tooShort = await callTool("preview_regression_alerts", {
+      versions: historicalVersions(0, 2),
+      policy: { consecutive_regressing_steps: 3 },
+    });
+    expect(tooShort.structuredContent.rules.find((x: { rule: string }) => x.rule === "regressed_pages").reason_code)
+      .toBe("insufficient_streak_history");
+  });
+
+  it("P2-02: fail closed for non-dry-run, invalid policy, foreign origins and saved IDs", async () => {
+    const secret = "PRIVATE_WEBHOOK_TOKEN_P202";
+    const versions = historicalVersions(0, 2);
+    for (const input of [
+      { versions, dry_run: false },
+      { versions, policy: { min_regressed_pages: -1 } },
+      { versions, policy: { webhook_url: "https://private.example/?key=" + secret } },
+      { versions: [versions[0], { ...versions[1], snapshot: {
+        ...versions[1].snapshot, site_url: "https://elsewhere.example/",
+      } }] },
+      { ids: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"] },
+    ]) {
+      const response = await callTool("preview_regression_alerts", input);
+      expect(response.isError).toBe(true);
+      expect(JSON.stringify(response)).not.toContain(secret);
+    }
+  });
 
   it("P2-01: discovers and invokes hosted historical comparison fully offline with stable cohort trends", async () => {
     vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Historical comparison must be offline"); }));

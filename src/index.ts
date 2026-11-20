@@ -93,6 +93,7 @@ import {
   httpsSecurityContent,
   urlVariantsContent,
   historicalComparisonContent,
+  regressionPreviewContent,
   multilingualClusterContent,
   failureContent,
   htmlValidationContent,
@@ -179,6 +180,14 @@ import {
   HISTORICAL_STATUSES,
   HISTORICAL_FINDING_CODES,
 } from "./modules/change-regression/historical-comparisons.js";
+import {
+  previewRegressionAlerts,
+  emptyMonitorPreview,
+  MONITOR_RULES,
+  MONITOR_DECISIONS,
+  MONITOR_STATUSES,
+  MONITOR_REASON_CODES,
+} from "./modules/change-regression/regression-alerts.js";
 import {
   getW3CMessageSeverity,
   type HtmlValidationMediaType,
@@ -704,6 +713,56 @@ const mediaReviewOutputSchema = {
     message: z.string().max(240),
   })).max(MAX_MEDIA_FINDINGS),
   findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const monitorPolicyInputSchema = z.object({
+  min_regressed_pages: z.number().int().min(1).max(8).optional()
+    .describe("Minimum number of regressed matched pages in the latest fully comparable sample (default 1)."),
+  min_net_error_increase: z.number().int().min(1).max(10_000).optional()
+    .describe("Minimum positive net change in observed error counts across matching completed pages (default 1)."),
+  min_net_warning_increase: z.number().int().min(1).max(10_000).optional()
+    .describe("Minimum positive net change in observed warning counts across matching completed pages (default 1)."),
+  min_coverage_lost_pages: z.number().int().min(1).max(8).optional()
+    .describe("Minimum previously completed pages now missing a complete check for a review-only observation (default 1)."),
+  consecutive_regressing_steps: z.number().int().min(1).max(4).optional()
+    .describe("Consecutive fully comparable regression transitions needed for the regressed-pages candidate (default 1)."),
+  review_coverage_loss: z.boolean().optional()
+    .describe("Include review-only validator coverage-loss observations without treating them as defects (default true)."),
+  review_sitemap_drift: z.boolean().optional()
+    .describe("Include review-only discovery fingerprint changes, never as defect alarms (default true)."),
+}).strict();
+const monitorPolicyOutputSchema = monitorPolicyInputSchema.required();
+const monitorOutputSchema = {
+  scope: z.literal("manual_sampled_regression_alert_preview_only"),
+  source: z.enum(["local_saved_ids", "caller_supplied_snapshots"]),
+  status: z.enum(MONITOR_STATUSES),
+  dry_run: z.literal(true),
+  manually_invoked: z.literal(true),
+  scheduler_enabled: z.literal(false),
+  delivery_enabled: z.literal(false),
+  notifications_sent: z.literal(0),
+  external_integrations_used: z.literal(false),
+  latest_baseline_version: z.number().int().min(0).max(MAX_HISTORICAL_VERSIONS),
+  latest_current_version: z.number().int().min(0).max(MAX_HISTORICAL_VERSIONS),
+  latest_comparability: z.enum(HISTORICAL_STATUSES),
+  latest_compared_pages: z.number().int().nonnegative().max(8),
+  latest_completed_pairs: z.number().int().nonnegative().max(8),
+  candidate_count: z.number().int().nonnegative().max(MONITOR_RULES.length),
+  review_only_count: z.number().int().nonnegative().max(MONITOR_RULES.length),
+  suppressed_count: z.number().int().nonnegative().max(MONITOR_RULES.length),
+  coverage_limited: z.literal(true),
+  policy: monitorPolicyOutputSchema,
+  rules: z.array(z.object({
+    rule: z.enum(MONITOR_RULES),
+    decision: z.enum(MONITOR_DECISIONS),
+    reason_code: z.enum(MONITOR_REASON_CODES),
+    latest_observed_value: z.number().int(),
+    threshold: z.number().int().min(1).max(10_000),
+    review_required: z.boolean(),
+    message: z.string().max(290),
+  })).max(MONITOR_RULES.length),
+  limitations: z.array(z.string().max(360)).max(4),
   error: z.string().optional(),
 };
 
@@ -1723,6 +1782,39 @@ export function createServer(): McpServer {
           ),
           true,
         );
+      }
+    },
+  );
+
+  server.registerTool(
+    "audit.monitor",
+    {
+      title: "Dry-run regression monitoring of existing local audit history",
+      description:
+        "Manual, offline, read-only P2-02 regression/optional-alert PREVIEW for two to ten existing saved audit.history IDs in oldest-first order. Configurable 1–8 sampled regressed pages, net error/warning increases, 1–4 step regression streak and review-only coverage loss/sitemap drift. Candidate alerts require complete comparable observations with unambiguous chronology; nothing is sent, scheduled, persisted, fetched or connected to GSC/GA4.",
+      inputSchema: {
+        ids: z.array(z.string().uuid()).min(2).max(MAX_HISTORICAL_VERSIONS)
+          .describe("Two to ten already-saved distinct local history version IDs, oldest to newest; the archive is never modified by monitoring."),
+        dry_run: z.literal(true).default(true)
+          .describe("Strictly manual simulation. Only true is accepted; no alert delivery or scheduling exists."),
+        policy: monitorPolicyInputSchema.optional()
+          .describe("Optional bounded manual-only thresholds and review toggles, not persisted or scheduled."),
+      },
+      outputSchema: monitorOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ ids, policy }) => {
+      try {
+        const versions = await getAuditHistoryVersions(ids);
+        const history = analyzeHistoricalAudits(versions, "local_saved_ids");
+        const preview = previewRegressionAlerts(history, policy);
+        return result(preview, regressionPreviewContent(preview));
+      } catch {
+        const error = "Manual regression preview cannot safely evaluate the saved versions, chronology, scope, policy or audit coverage. No notifications, schedules, or history changes occurred.";
+        return result({ ...emptyMonitorPreview("local_saved_ids"), error }, failureContent(
+          "Manual regression alert preview", error,
+          "List audit.history, supply two to ten existing IDs oldest first and valid bounded policy thresholds; no alerts can be sent.",
+        ), true);
       }
     },
   );

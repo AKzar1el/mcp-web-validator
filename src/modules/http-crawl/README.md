@@ -1,0 +1,29 @@
+# M01 - http-crawl (local)
+
+**Owns:** V01-V05, P1-11, P1-13, P1-14. HTTP delivery, availability observations, bot/crawl access, redirects/canonicals, sitemap and URL variants.
+
+- **Source:** `src/modules/http-crawl/<feature-slug>.ts` (exact name per `docs/architecture/seo-modules.md`).
+- **Tests:** `test/http-crawl-<feature-slug>.test.js` (root `npm test` discovers flat tests after build).
+- **Reuse:** `src/network.ts`, `src/seo-auditor.ts`; registrations remain in `src/index.ts`.
+- **Guardrail:** Preserve public-IP/SSRF, redirects, robots, byte/time/concurrency caps. V02 history is owned by M05.
+
+P1-11 now provides a bounded **offline HTTP response-observation analyzer** in
+`non-html-directives.ts`, exposed through local MCP `http.directives`. It
+parses supplied headers only; no binary download, URL probing or crawler
+verification. See `docs/p1-11-non-html-http-directives.md`. Live non-HTML
+probes, variant tests and other M01 features require separate work.
+
+P1-13 adds local `http.security` using the same shared pure
+`https-security.ts` analyzer as hosted `review_https_security`. It examines
+bounded, supplied HTTP/HTTPS status, Location/HSTS/CSP/referrer/nosniff/framing
+headers and static mixed-content, CSS and form-action declarations. There is
+**no network fetch, browser, TLS handshake, certificate validation or
+security verdict**. See `docs/p1-13-https-security.md` for contracts and limits.
+
+P1-14 adds local `http.variants` through a pure shared `url-variants.ts`
+analyzer. Its hosted adapter reexports the same implementation.
+Caller-supplied URL/status/Location/canonical/body-SHA observations are checked
+across explicit HTTP/HTTPS, apex/www, slash, ASCII path case and query candidate
+variants without any URL fetch, redirect following or SEO canonical-selection
+assertions. Case/query differences do **not** imply duplicate pages; see
+`docs/p1-14-url-variants.md` for bounds, sample input and caveats.

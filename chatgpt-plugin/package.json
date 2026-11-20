@@ -1,6 +1,6 @@
 {
   "name": "web-validator-chatgpt-plugin",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "description": "Public ChatGPT Apps SDK deployment for Web Validator by DigestSEO.",
   "type": "module",
@@ -17,7 +17,6 @@
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^2.0.4",
     "@modelcontextprotocol/server": "2.4.0",
-    "agents": "^0.33.0",
     "cheerio": "^1.0.0",
     "encoding-sniffer": "1.0.2",
     "ipaddr.js": "^2.5.0",

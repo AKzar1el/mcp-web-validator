@@ -71,7 +71,7 @@ describe("fetchPublicHtml", () => {
     });
     expect(init?.headers).toEqual({
       accept: "text/html,application/xhtml+xml;q=0.9",
-      "user-agent": expect.stringContaining("DigestSEO-Web-Validator/0.5.0"),
+      "user-agent": expect.stringContaining("DigestSEO-Web-Validator/0.6.0"),
     });
   });
 

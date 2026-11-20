@@ -144,6 +144,85 @@ describe("V01 real hosted MCP tool diagnostics", () => {
   });
 });
 
+describe("V06 hosted MCP internal-link graph", () => {
+  const html = (links: string) => "<html><body><nav>" + links + "</nav></body></html>";
+
+  it("discovers a read-only V06 tool, analyzes offline graph and never exposes page paths", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    const tool = (await listTools()).find((entry) => entry.name === "review_internal_link_graph");
+    expect(tool?.annotations).toMatchObject({
+      readOnlyHint: true, destructiveHint: false, openWorldHint: true,
+    });
+    const result = await callTool("review_internal_link_graph", {
+      site_url: "https://example.com/",
+      pages: [
+        { url: "https://example.com/", status_code: 200,
+          html: html('<a href="/target">Target</a>') },
+        { url: "https://example.com/target", status_code: 200,
+          html: html("") },
+        { url: "https://example.com/orphan-token-secret", status_code: 200,
+          html: html("") },
+      ],
+      sitemap_urls: ["https://example.com/target",
+        "https://example.com/orphan-token-secret", "https://example.com/unseen-token-secret"],
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      scope: "caller_supplied_link_graph", pages_observed: 3,
+      unique_observed_sample_edges: 1, pages_reachable_within_sample: 2,
+      potential_orphans_within_sample: 1, sitemap_urls_without_page_sample: 1,
+      overview: { status: "partial" },
+    });
+    expect(JSON.stringify(result)).not.toContain("orphan-token-secret");
+    expect(JSON.stringify(result)).not.toContain("unseen-token-secret");
+    expect(mock).not.toHaveBeenCalled();
+  });
+
+  it("runs the actual hosted MCP with at most 3 guarded pages and robots.txt", async () => {
+    const mock = vi.fn(async (resource: RequestInfo | URL) => {
+      const uri = String(resource);
+      if (uri.endsWith("/robots.txt")) return new Response("User-agent: *\nAllow: /\n",
+        { status: 200, headers: { "content-type": "text/plain" } });
+      return new Response(uri === "https://example.com/"
+        ? html('<a href="/a">A</a><a href="/b">B</a>')
+        : html(""), { status: 200, headers: { "content-type": "text/html" } });
+    });
+    vi.stubGlobal("fetch", mock);
+    const result = await callTool("review_internal_link_graph", {
+      url: "https://example.com/",
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      scope: "live_bounded_public_link_graph",
+      pages_observed: 3, pages_reachable_within_sample: 3,
+      unique_observed_sample_edges: 2,
+    });
+    expect(mock).toHaveBeenCalledTimes(4);
+  });
+
+  it("rejects mixed modes, injected query tokens, oversized HTML without making requests", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    for (const args of [
+      { url: "https://example.com/?token=private-v06" },
+      { url: "https://example.com/", site_url: "https://example.com/",
+        pages: [{ url: "https://example.com/", html: html("") }] },
+      { site_url: "https://example.com/", pages: [
+        { url: "https://example.com/?token=private-v06", html: html("") },
+      ] },
+      { site_url: "https://example.com/", pages: [
+        { url: "https://example.com/", html: "x".repeat(1_048_577) },
+      ] },
+    ]) {
+      const r = await callTool("review_internal_link_graph", args);
+      expect(r.isError).toBe(true);
+      expect(JSON.stringify(r)).not.toContain("private-v06");
+    }
+    expect(mock).not.toHaveBeenCalled();
+  });
+});
+
 describe("V05 hosted MCP sitemap inventory", () => {
   const sitemap = (path: string) => '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
     + '<url><loc>https://example.com/' + path + "</loc></url></urlset>";
@@ -645,7 +724,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers twenty-five accurately annotated tools", async () => {
+  it("discovers twenty-six accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -663,6 +742,7 @@ describe("hosted tool contract", () => {
       "verify_content_provenance",
       "compare_competitor_intent",
       "validate_supported_schema",
+      "review_internal_link_graph",
       "review_internal_links",
       "review_metadata_consistency",
       "review_sitemap_inventory",

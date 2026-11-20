@@ -56,9 +56,41 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "screenshot.capture",
       "seo.metadata",
       "site.hreflang",
+      "site.link_graph",
       "site.links",
       "site.sitemaps",
     ]);
+
+    const graphTool = tools.find((tool) => tool.name === "site.link_graph");
+    assert.equal(graphTool?.annotations?.readOnlyHint, true);
+    assert.equal(graphTool?.outputSchema?.properties?.pages_observed?.maximum, 8);
+    const graph = await client.callTool({
+      name: "site.link_graph",
+      arguments: {
+        site_url: "https://example.com/",
+        pages: [
+          { url: "https://example.com/", status_code: 200,
+            html: '<html><body><nav><a href="/known">Known</a></nav><a href="/unknown-secret">Unknown</a></body></html>' },
+          { url: "https://example.com/known", status_code: 200,
+            html: "<html><body><h1>Known</h1></body></html>" },
+          { url: "https://example.com/orphan-secret", status_code: 200,
+            html: "<html><body><h1>Orphan candidate</h1></body></html>" },
+        ],
+        sitemap_urls: [
+          "https://example.com/", "https://example.com/known",
+          "https://example.com/orphan-secret", "https://example.com/not-sampled-secret",
+        ],
+      },
+    });
+    assert.equal(graph.isError, undefined);
+    assert.equal(graph.structuredContent?.scope, "caller_supplied_link_graph");
+    assert.equal(graph.structuredContent?.pages_observed, 3);
+    assert.equal(graph.structuredContent?.unique_observed_sample_edges, 1);
+    assert.equal(graph.structuredContent?.pages_reachable_within_sample, 2);
+    assert.equal(graph.structuredContent?.potential_orphans_within_sample, 1);
+    assert.equal(graph.structuredContent?.sitemap_urls_without_page_sample, 1);
+    assert(!JSON.stringify(graph).includes("orphan-secret"));
+    assert(!JSON.stringify(graph).includes("not-sampled-secret"));
 
     const sitemapTool = tools.find((tool) => tool.name === "site.sitemaps");
     assert.equal(sitemapTool?.annotations?.readOnlyHint, true);

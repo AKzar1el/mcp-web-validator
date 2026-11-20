@@ -195,6 +195,12 @@ import {
 } from "./modules/site-architecture/internal-link-quality.js";
 import { observeInternalLinks } from "./modules/site-architecture/extract-internal-links.js";
 import {
+  analyzeInternalLinkGraph, emptyInternalLinkGraphReview,
+  MAX_GRAPH_PAGES, MAX_GRAPH_HTML_BYTES, MAX_GRAPH_TOTAL_HTML_BYTES,
+  MAX_GRAPH_CATALOG_URLS, MAX_GRAPH_FINDINGS, GRAPH_FINDING_CODES,
+} from "./modules/site-architecture/internal-link-graph.js";
+import { probeInternalLinkGraph } from "./modules/site-architecture/internal-link-graph-probe.js";
+import {
   analyzeMetadataConsistency,
   emptyMetadataReview,
   safeMetadataLabel,
@@ -588,6 +594,89 @@ const internalLinkOutputSchema = {
     count: z.number().int().nonnegative(),
     message: z.string().max(320),
   })).max(MAX_LINK_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const graphLabelSchema = z.string().url().max(512)
+  .refine((value) => Boolean(safeLinkPageUrl(value)),
+    "Use a safe same-origin query-free HTTP(S) URL without credentials, fragment or port.");
+const graphPageInputSchema = z.object({
+  url: graphLabelSchema.describe("Observed page URL; only the supplied label is compared."),
+  html: z.string().max(MAX_GRAPH_HTML_BYTES).refine(
+    (value) => Buffer.byteLength(value, "utf8") <= MAX_GRAPH_HTML_BYTES,
+    "Observed static HTML must fit the 1 MiB UTF-8 cap.").optional()
+    .describe("Optional static HTML of this page; absent HTML never certifies an empty link graph."),
+  status_code: z.number().int().min(100).max(599).optional()
+    .describe("Optional independently observed HTTP response status."),
+  robots_allowed: z.boolean().optional()
+    .describe("Optional independently observed crawler access; unknown when absent."),
+  noindex: z.boolean().optional()
+    .describe("Optional independently observed Google-applicable noindex declaration."),
+  canonical_url: graphLabelSchema.optional()
+    .describe("Optional observed preferred canonical target, not Google's selected canonical."),
+}).strict();
+const graphOutputPageSchema = z.object({
+  page: z.number().int().min(1).max(MAX_GRAPH_PAGES),
+  html_examined: z.boolean(),
+  status_code: z.number().int().min(100).max(599).optional(),
+  robots_access: z.enum(["allowed", "disallowed", "unknown"]),
+  noindex_state: z.enum(["declared", "not_observed", "unknown"]),
+  canonical_state: z.enum(["self", "different", "ambiguous", "unknown"]),
+  links_observed: z.number().int().nonnegative(),
+  internal_links: z.number().int().nonnegative(),
+  external_links: z.number().int().nonnegative(),
+  fragment_links: z.number().int().nonnegative(),
+  query_links_excluded: z.number().int().nonnegative(),
+  unsafe_links_excluded: z.number().int().nonnegative(),
+  self_links: z.number().int().nonnegative(),
+  nofollow_internal: z.number().int().nonnegative(),
+  sampled_targets: z.number().int().nonnegative(),
+  unobserved_internal_targets: z.number().int().nonnegative(),
+  incoming_sampled_sources: z.number().int().nonnegative(),
+  depth_from_entry: z.number().int().min(0).max(MAX_GRAPH_PAGES).nullable(),
+  potential_orphan_in_sample: z.boolean(),
+  extraction_limited: z.boolean(),
+});
+const graphOutputShape = {
+  scope: z.enum(["caller_supplied_link_graph", "live_bounded_public_link_graph"]),
+  pages_observed: z.number().int().min(0).max(MAX_GRAPH_PAGES),
+  html_pages_examined: z.number().int().nonnegative(),
+  entry_pages_observed: z.number().int().nonnegative(),
+  entry_pages_missing: z.number().int().nonnegative(),
+  pages_reachable_within_sample: z.number().int().nonnegative(),
+  pages_unreachable_within_sample: z.number().int().nonnegative(),
+  deepest_observed_sample_depth: z.number().int().min(0).max(MAX_GRAPH_PAGES).nullable(),
+  deep_pages_at_three_or_more: z.number().int().nonnegative(),
+  potential_orphans_within_sample: z.number().int().nonnegative(),
+  unique_observed_sample_edges: z.number().int().nonnegative(),
+  internal_links_observed: z.number().int().nonnegative(),
+  external_links_observed: z.number().int().nonnegative(),
+  nofollow_internal_links: z.number().int().nonnegative(),
+  distinct_unsampled_link_targets: z.number().int().nonnegative(),
+  unsafe_or_query_links_excluded: z.number().int().nonnegative(),
+  pages_with_truncated_links: z.number().int().nonnegative(),
+  linked_http_error_pages: z.number().int().nonnegative(),
+  linked_robots_blocked_pages: z.number().int().nonnegative(),
+  linked_declared_noindex_pages: z.number().int().nonnegative(),
+  linked_noncanonical_pages: z.number().int().nonnegative(),
+  sitemap_urls_provided: z.number().int().nonnegative(),
+  sitemap_urls_without_page_sample: z.number().int().nonnegative(),
+  sampled_pages_not_in_sitemap: z.number().int().nonnegative(),
+  robots_unknown_pages: z.number().int().nonnegative(),
+  status_unknown_pages: z.number().int().nonnegative(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(350)).max(4),
+  pages: z.array(graphOutputPageSchema).max(MAX_GRAPH_PAGES),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(GRAPH_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    page: z.number().int().min(0).max(MAX_GRAPH_PAGES),
+    target_page: z.number().int().min(1).max(MAX_GRAPH_PAGES).optional(),
+    count: z.number().int().nonnegative(),
+    message: z.string().max(360),
+  })).max(MAX_GRAPH_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
 };
@@ -2903,6 +2992,61 @@ export function createServer(): McpServer {
         return result({ ...emptyMetadataReview(), error }, failureContent(
           "Metadata consistency review", error,
           "Provide up to eight distinct same-origin HTML page labels with bounded authorized static content.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "site.link_graph",
+    {
+      title: "Review sampled internal-link graph, depth and possible orphans",
+      description:
+        "V06: evaluate one to eight caller-supplied same-origin static HTML/page observations and up to 256 previously observed sitemap labels, or perform a guarded public sample of one robots.txt and up to three HTML pages. Counts standard anchor links including navigation, computes shortest sample-only entry paths, and flags nofollow-only, missing inbound, unobserved URL, blocked/HTTP-error, noindex and noncanonical targets. Orphan candidates are not verified site-wide orphans. No raw URLs/HTML, JavaScript, full crawl, Googlebot impersonation, PageRank, GSC or production changes.",
+      inputSchema: {
+        url: deliveryInputUrl.optional()
+          .describe("Live mode: one authorized public query-free entry URL, at most three bounded same-origin HTML GETs after robots.txt permission."),
+        site_url: graphLabelSchema.optional()
+          .describe("Offline mode: site URL used as the exact-origin comparison scope."),
+        pages: z.array(graphPageInputSchema).min(1).max(MAX_GRAPH_PAGES).optional()
+          .describe("Offline mode: one to eight distinct page observations with optional already obtained HTML, no requests."),
+        entry_urls: z.array(graphLabelSchema).max(MAX_GRAPH_PAGES).optional()
+          .describe("Optional explicit entry roots; when absent, the site homepage is used only if supplied."),
+        sitemap_urls: z.array(graphLabelSchema).max(MAX_GRAPH_CATALOG_URLS).optional()
+          .describe("Optional already observed sitemap page labels; URLs not in the page sample are unverified, never called orphans."),
+      },
+      outputSchema: graphOutputShape,
+      annotations: externalReadOnlyAnnotations,
+    },
+    async ({ url, site_url, pages, entry_urls, sitemap_urls }) => {
+      try {
+        if (url
+          ? Boolean(site_url || pages || entry_urls || sitemap_urls)
+          : !(site_url && pages)) {
+          throw new Error("Choose one guarded live URL or complete caller-supplied graph evidence.");
+        }
+        const review = url
+          ? await probeInternalLinkGraph(url)
+          : analyzeInternalLinkGraph({
+            site_url: site_url!, pages: pages!,
+            ...(entry_urls ? { entry_urls } : {}),
+            ...(sitemap_urls ? { sitemap_urls } : {}),
+          });
+        return result(review,
+          "Sampled link graph: " + review.pages_observed + " pages, "
+          + review.unique_observed_sample_edges + " unique observed page-to-page edges, "
+          + review.pages_reachable_within_sample + " reachable within this sample, "
+          + review.pages_unreachable_within_sample + " without an observed entry path, "
+          + review.potential_orphans_within_sample + " possible orphan candidates, "
+          + review.distinct_unsampled_link_targets + " unverified link destinations. "
+          + "Deepest observed sample path: "
+          + (review.deepest_observed_sample_depth ?? "unknown") + ". "
+          + "No full-site orphan, PageRank, Googlebot crawl or Google indexing conclusion is implied.");
+      } catch {
+        const error = "Internal-link graph could not be evaluated within bounded HTML, same-origin, robots and network limits.";
+        return result({ ...emptyInternalLinkGraphReview(), error }, failureContent(
+          "Internal-link graph", error,
+          "Provide a guarded live entry URL or up to eight same-origin static HTML/page observations.",
         ), true);
       }
     },

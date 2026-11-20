@@ -66,9 +66,31 @@ try {
     tools.map(({ name }) => name).sort(),
     [
       "audit.history", "audit.monitor", "audit.trends", "availability.history", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
-      "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links", "site.sitemaps",
+      "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.link_graph", "site.links", "site.sitemaps",
     ],
   );
+
+  phase = "v06_internal_link_graph";
+  const graph = await client.callTool({
+    name: "site.link_graph",
+    arguments: {
+      site_url: "https://example.com/",
+      pages: [
+        { url: "https://example.com/", status_code: 200,
+          html: '<html><body><nav><a href="/target">Target</a></nav></body></html>' },
+        { url: "https://example.com/target", status_code: 200,
+          html: "<html><body><h1>Target</h1></body></html>" },
+        { url: "https://example.com/private-orphan", status_code: 200,
+          html: "<html><body><h1>Candidate</h1></body></html>" },
+      ],
+    },
+  });
+  assert.notEqual(graph.isError, true);
+  assert.equal(graph.structuredContent?.pages_observed, 3);
+  assert.equal(graph.structuredContent?.unique_observed_sample_edges, 1);
+  assert.equal(graph.structuredContent?.pages_reachable_within_sample, 2);
+  assert.equal(graph.structuredContent?.potential_orphans_within_sample, 1);
+  assert(!JSON.stringify(graph).includes("private-orphan"));
 
   phase = "v05_sitemap_inventory";
   const sitemap = await client.callTool({

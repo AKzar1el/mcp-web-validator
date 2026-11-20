@@ -66,9 +66,30 @@ try {
     tools.map(({ name }) => name).sort(),
     [
       "audit.history", "audit.monitor", "audit.trends", "availability.history", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
-      "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links",
+      "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links", "site.sitemaps",
     ],
   );
+
+  phase = "v05_sitemap_inventory";
+  const sitemap = await client.callTool({
+    name: "site.sitemaps",
+    arguments: {
+      site_url: "https://example.com/",
+      documents: [{
+        sitemap_url: "https://example.com/sitemap.xml",
+        content: '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+          + '<url><loc>https://example.com/audit-target-v05</loc></url></urlset>',
+      }],
+      page_observations: [{
+        url: "https://example.com/audit-target-v05",
+        status_code: 404, noindex: true,
+      }],
+    },
+  });
+  assert.notEqual(sitemap.isError, true);
+  assert.equal(sitemap.structuredContent?.distinct_page_urls, 1);
+  assert.equal(sitemap.structuredContent?.known_indexability_conflicts, 1);
+  assert(!JSON.stringify(sitemap).includes("audit-target-v05"));
 
   phase = "v04_redirect_canonical";
   const chain = await client.callTool({

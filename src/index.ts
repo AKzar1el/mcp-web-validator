@@ -102,6 +102,14 @@ import {
 } from "./modules/http-crawl/redirect-canonical-chains.js";
 import { probeRedirectCanonicalChain } from "./modules/http-crawl/redirect-canonical-probe.js";
 import {
+  analyzeSitemapInventory, emptySitemapInventoryReview,
+  MAX_SITEMAP_DOCUMENTS, MAX_SITEMAP_DOCUMENT_BYTES,
+  MAX_SITEMAP_DISCOVERED, MAX_SITEMAP_PAGE_OBSERVATIONS,
+  MAX_SITEMAP_FINDINGS, MAX_SITEMAP_URL_BYTES,
+  SITEMAP_DOCUMENT_KINDS, SITEMAP_FINDING_CODES,
+} from "./modules/http-crawl/sitemap-inventory.js";
+import { probeSitemapInventory } from "./modules/http-crawl/sitemap-inventory-probe.js";
+import {
   auditSeoMetadata,
   auditSeoMetadataDetailed,
   checkBrokenLinks,
@@ -1325,6 +1333,89 @@ const chainReviewOutputShape = {
   error: z.string().optional(),
 };
 
+const sitemapDocInputSchema = z.object({
+  sitemap_url: deliveryInputUrl.describe("Same-origin, query-free sitemap URL; never echoed."),
+  content: z.string().max(MAX_SITEMAP_DOCUMENT_BYTES)
+    .describe("Observed XML or plain-text sitemap document, UTF-8 byte bounded."),
+  content_type: z.enum(["application/xml", "text/xml", "text/plain"]).optional()
+    .describe("Observed document content type; defaults to XML."),
+  status_code: z.number().int().min(100).max(599).optional()
+    .describe("Observed HTTP status for this sitemap, if known."),
+}).strict();
+const sitemapPageEvidenceInputSchema = z.object({
+  url: chainLabelSchema.describe("Independently observed same-origin page URL."),
+  status_code: z.number().int().min(100).max(599).optional()
+    .describe("Observed page HTTP response status."),
+  canonical_url: chainLabelSchema.optional()
+    .describe("Observed page canonical preference, not Google-selected canonical."),
+  noindex: z.boolean().optional()
+    .describe("Observed robots meta or X-Robots-Tag noindex declaration."),
+  robots_allowed: z.boolean().optional()
+    .describe("Independently observed crawler robots permission, not inferred."),
+  modified_at: z.string().max(40).optional()
+    .describe("Independently established significant modification date in W3C format."),
+}).strict();
+const sitemapOutputShape = {
+  scope: z.enum(["caller_supplied_sitemap_evidence", "live_public_sitemap_sample"]),
+  documents_observed: z.number().int().min(0).max(MAX_SITEMAP_DOCUMENTS),
+  documents_complete: z.boolean(),
+  discovered_complete: z.boolean(),
+  inventory_complete: z.boolean(),
+  documents_truncated: z.boolean(),
+  total_entries_seen: z.number().int().nonnegative(),
+  distinct_sitemap_urls: z.number().int().nonnegative(),
+  distinct_page_urls: z.number().int().nonnegative(),
+  distinct_child_sitemaps: z.number().int().nonnegative(),
+  missing_child_documents: z.number().int().nonnegative(),
+  duplicate_url_entries: z.number().int().nonnegative(),
+  invalid_url_entries: z.number().int().nonnegative(),
+  external_url_entries: z.number().int().nonnegative(),
+  lastmod_values_seen: z.number().int().nonnegative(),
+  lastmod_invalid_count: z.number().int().nonnegative(),
+  lastmod_future_count: z.number().int().nonnegative(),
+  lastmod_conflicting_count: z.number().int().nonnegative(),
+  independently_discovered_urls: z.number().int().nonnegative(),
+  discovered_in_sitemaps: z.number().int().nonnegative(),
+  discovered_missing_from_sitemaps: z.number().int().nonnegative(),
+  sitemap_urls_not_in_discovery: z.number().int().nonnegative(),
+  page_observations: z.number().int().nonnegative(),
+  sitemap_urls_with_page_evidence: z.number().int().nonnegative(),
+  status_conflicts: z.number().int().nonnegative(),
+  noindex_conflicts: z.number().int().nonnegative(),
+  robots_conflicts: z.number().int().nonnegative(),
+  canonical_conflicts: z.number().int().nonnegative(),
+  lastmod_observation_conflicts: z.number().int().nonnegative(),
+  known_indexability_conflicts: z.number().int().nonnegative(),
+  unknown_page_indexability: z.number().int().nonnegative(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(260)).max(5),
+  documents: z.array(z.object({
+    document: z.number().int().min(1).max(MAX_SITEMAP_DOCUMENTS),
+    kind: z.enum(SITEMAP_DOCUMENT_KINDS),
+    status_code: z.number().int().min(100).max(599).optional(),
+    entries_seen: z.number().int().nonnegative(),
+    valid_url_entries: z.number().int().nonnegative(),
+    child_sitemaps: z.number().int().nonnegative(),
+    invalid_entries: z.number().int().nonnegative(),
+    external_entries: z.number().int().nonnegative(),
+    duplicate_entries: z.number().int().nonnegative(),
+    lastmod_present: z.number().int().nonnegative(),
+    lastmod_invalid: z.number().int().nonnegative(),
+    lastmod_future: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  })).max(MAX_SITEMAP_DOCUMENTS),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    document: z.number().int().min(0).max(MAX_SITEMAP_DOCUMENTS),
+    entry: z.number().int().positive().optional(),
+    severity: z.enum(["warning", "info"]),
+    code: z.enum(SITEMAP_FINDING_CODES),
+    message: z.string().max(260),
+  })).max(MAX_SITEMAP_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
 const reportSummarySchema = z.object({
   overallScore: z.number().int().min(0).max(100).nullable(),
   htmlScore: z.number().int().min(0).max(100).nullable(),
@@ -2243,6 +2334,77 @@ export function createServer(): McpServer {
         return result({ ...emptyMediaDiagnostics(), error }, failureContent(
           "Static media diagnostics", error,
           "Supply nonempty HTML markup within the declared UTF-8 byte limit.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "site.sitemaps",
+    {
+      title: "Review sitemap inventory, lastmod consistency and indexability conflicts",
+      description:
+        "V05: compare up to eight previously observed XML/text sitemap documents with independent discovered URLs and page response/indexability evidence, or sample one authorized public sitemap plus up to two same-origin children. Finds malformed/duplicate/cross-origin URLs, missing child documents, invalid/future/inconsistent lastmod, independent discovery gaps and sampled redirect/noindex/canonical/robots conflicts. The bounded live sample never fetches listed pages, stores source documents, returns raw URLs, claims full search-engine inventory or guarantees Google indexing.",
+      inputSchema: {
+        url: deliveryInputUrl.optional()
+          .describe("Live mode: one authorized query-free public site URL; sitemap defaults to /sitemap.xml."),
+        sitemap_url: deliveryInputUrl.optional()
+          .describe("Live mode optional same-origin sitemap URL, otherwise uses /sitemap.xml."),
+        site_url: deliveryInputUrl.optional()
+          .describe("Offline mode: public site URL whose sitemap documents were observed."),
+        documents: z.array(sitemapDocInputSchema).min(1).max(MAX_SITEMAP_DOCUMENTS).optional()
+          .describe("Offline: 1–8 previously observed XML or plain-text sitemap bodies."),
+        discovered_urls: z.array(chainLabelSchema).max(MAX_SITEMAP_DISCOVERED).optional()
+          .describe("Optional independently discovered same-origin URLs; no site crawl is performed."),
+        page_observations: z.array(sitemapPageEvidenceInputSchema)
+          .max(MAX_SITEMAP_PAGE_OBSERVATIONS).optional()
+          .describe("Optional independent HTTP/indexability observations for up to 250 pages."),
+        documents_complete: z.boolean().optional()
+          .describe("Caller-verified completeness of all linked sitemap documents."),
+        discovered_complete: z.boolean().optional()
+          .describe("Caller-verified completeness of independent site discovery."),
+        observed_at: z.string().max(40).optional()
+          .describe("Optional W3C date/datetime clock for lastmod verification, defaults to now."),
+      },
+      outputSchema: sitemapOutputShape,
+      annotations: externalReadOnlyAnnotations,
+    },
+    async ({ url, sitemap_url, site_url, documents, discovered_urls, page_observations,
+      documents_complete, discovered_complete, observed_at }) => {
+      try {
+        if (url
+          ? Boolean(site_url || documents || discovered_urls || page_observations
+            || documents_complete !== undefined || discovered_complete !== undefined
+            || observed_at !== undefined)
+          : !(site_url && documents) || sitemap_url !== undefined) {
+          throw new Error("Select one live site URL or complete offline sitemap document evidence.");
+        }
+        const review = url
+          ? await probeSitemapInventory(url, sitemap_url)
+          : analyzeSitemapInventory({
+            site_url: site_url!, documents: documents!,
+            ...(discovered_urls ? { discovered_urls } : {}),
+            ...(page_observations ? { page_observations } : {}),
+            ...(documents_complete === undefined ? {} : { documents_complete }),
+            ...(discovered_complete === undefined ? {} : { discovered_complete }),
+            ...(observed_at ? { observed_at } : {}),
+          });
+        return result(review,
+          "Sitemap inventory: " + review.documents_observed + " document(s), "
+          + review.distinct_page_urls + " distinct URL(s), "
+          + review.missing_child_documents + " unseen child sitemap(s), "
+          + review.duplicate_url_entries + " duplicates, "
+          + review.invalid_url_entries + " invalid entries, "
+          + review.lastmod_invalid_count + " invalid lastmod and "
+          + review.known_indexability_conflicts + " confirmed observed indexability conflicts. "
+          + (review.inventory_complete ? "The supplied sitemap collection is complete by its provided evidence."
+            : "The bounded sitemap collection is incomplete or completeness is unverified.")
+          + " Search-engine crawl and indexing status are not verified.");
+      } catch {
+        const error = "Sitemap inventory evidence could not be inspected within public URL, safe XML, byte and request limits.";
+        return result({ ...emptySitemapInventoryReview(), error }, failureContent(
+          "Sitemap inventory", error,
+          "Supply a safe live sitemap URL or up to eight bounded same-origin XML/text sitemap observations.",
         ), true);
       }
     },

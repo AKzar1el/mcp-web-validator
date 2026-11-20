@@ -57,7 +57,31 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "seo.metadata",
       "site.hreflang",
       "site.links",
+      "site.sitemaps",
     ]);
+
+    const sitemapTool = tools.find((tool) => tool.name === "site.sitemaps");
+    assert.equal(sitemapTool?.annotations?.readOnlyHint, true);
+    assert.equal(sitemapTool?.outputSchema?.properties?.documents_observed?.maximum, 8);
+    const sitemap = await client.callTool({
+      name: "site.sitemaps",
+      arguments: {
+        site_url: "https://example.com/",
+        documents: [{
+          sitemap_url: "https://example.com/sitemap.xml",
+          content: '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            + '<url><loc>https://example.com/private-v05</loc></url></urlset>',
+        }],
+        page_observations: [{
+          url: "https://example.com/private-v05", status_code: 404, noindex: true,
+        }],
+      },
+    });
+    assert.equal(sitemap.isError, undefined);
+    assert.equal(sitemap.structuredContent?.distinct_page_urls, 1);
+    assert.equal(sitemap.structuredContent?.known_indexability_conflicts, 1);
+    assert.equal(sitemap.structuredContent?.noindex_conflicts, 1);
+    assert(!JSON.stringify(sitemap).includes("private-v05"));
 
     const chainTool = tools.find((tool) => tool.name === "http.redirect_chain");
     assert.equal(chainTool?.annotations?.readOnlyHint, true);

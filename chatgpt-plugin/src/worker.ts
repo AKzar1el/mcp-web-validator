@@ -5,6 +5,7 @@ import {
 } from "@modelcontextprotocol/ext-apps/server";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { load as loadCheerio } from "cheerio";
 import { auditSeoMetadata, checkBrokenLinksDetailed, isHttpRedirectStatus, isUnverifiedLinkStatus, validateSchemaMarkup } from "./audits";
 import {
   CSS_MAX_LENGTH,
@@ -27,6 +28,16 @@ import {
 import { validateCss, validateHtmlDetailed } from "./validators";
 import { auditPublicSite } from "./site-audit";
 import { compareSiteAudits } from "./site-comparison";
+import {
+  analyzeHistoricalAudits,
+  emptyHistoricalReview,
+  MAX_HISTORICAL_VERSIONS,
+  MAX_HISTORICAL_FINDINGS,
+  MAX_HISTORICAL_SNAPSHOT_BYTES,
+  MAX_HISTORICAL_TOTAL_BYTES,
+  HISTORICAL_STATUSES,
+  HISTORICAL_FINDING_CODES,
+} from "./modules/change-regression/historical-comparisons";
 import {
   compareProductClaims,
   observeProductClaims,
@@ -83,6 +94,44 @@ import {
   MAX_METADATA_FINDINGS,
 } from "./modules/content-schema/metadata-consistency";
 import { METADATA_FIELDS } from "../../src/modules/content-schema/metadata-consistency";
+import {
+  analyzeHttpDirectives,
+  emptyHttpDirectiveReview,
+  safeHttpResourceUrl,
+  MAX_HTTP_RESOURCES,
+  MAX_HTTP_FINDINGS,
+  MAX_HTTP_HEADER_VALUES,
+  MAX_HTTP_HEADER_BYTES,
+  HTTP_MIME_CATEGORIES,
+  HTTP_CANONICAL_STATES,
+  HTTP_FINDING_CODES,
+} from "./modules/http-crawl/non-html-directives";
+import {
+  analyzeHttpsSecurity,
+  emptyHttpsSecurityReview,
+  MAX_SECURITY_PAGES,
+  MAX_SECURITY_FINDINGS,
+  MAX_SECURITY_HEADER_BYTES,
+  MAX_SECURITY_HEADER_VALUES,
+  MAX_SECURITY_HTML_BYTES,
+  SECURITY_HSTS_STATES,
+  SECURITY_CSP_STATES,
+  SECURITY_FINDING_CODES,
+} from "./modules/http-crawl/https-security";
+import {
+  analyzeUrlVariants,
+  emptyUrlVariantReview,
+  safeVariantLabel,
+  MAX_VARIANT_OBSERVATIONS,
+  MAX_VARIANT_FINDINGS,
+  MAX_VARIANT_URL_BYTES,
+  MAX_VARIANT_CANONICALS,
+  VARIANT_DIMENSIONS,
+  VARIANT_RESPONSE_STATES,
+  VARIANT_TARGET_STATES,
+  VARIANT_CANONICAL_STATES,
+  VARIANT_FINDING_CODES,
+} from "./modules/http-crawl/url-variants";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -522,6 +571,225 @@ const metadataConsistencyOutputSchema = z.object({
   error: z.string().optional(),
 });
 
+const variantFieldInputSchema = z.string().min(1).max(MAX_VARIANT_URL_BYTES)
+  .refine((value) => !/[\r\n\u0000\u007f]/u.test(value)
+    && new TextEncoder().encode(value).byteLength <= MAX_VARIANT_URL_BYTES,
+  "Caller-observed URL/Location/canonical values must fit 1,024 UTF-8 bytes without CR/LF/NUL.");
+const variantObservationInputSchema = z.object({
+  url: z.string().url().max(MAX_VARIANT_URL_BYTES)
+    .refine((value) => Boolean(safeVariantLabel(value)),
+      "Supply an absolute HTTP(S) variant label without credentials, fragment, custom port or unsafe path.")
+    .describe("Exact caller-observed URL including optional query values, which are never fetched or returned."),
+  status_code: z.number().int().min(100).max(599)
+    .describe("Actual caller-observed HTTP response code; tool makes no HTTP requests."),
+  method: z.enum(["GET", "HEAD"]).optional()
+    .describe("Actual observed request method; HEAD cannot provide a body fingerprint."),
+  location: variantFieldInputSchema.optional()
+    .describe("Optional raw one-step HTTP Location redirect target; relative references allowed; no redirects followed."),
+  canonicals: z.array(variantFieldInputSchema).max(MAX_VARIANT_CANONICALS).optional()
+    .describe("Zero to three caller-observed canonical declarations, absolute or relative; not Google's chosen canonical."),
+  content_sha256: z.string().regex(/^[0-9a-f]{64}$/iu).optional()
+    .describe("Optional caller-computed exact HTTP 200 response-body SHA-256 hex; never returned or verified here."),
+});
+const variantOutputSchema = z.object({
+  scope: z.literal("caller_supplied_url_variant_evidence_only"),
+  pages_sampled: z.number().int().nonnegative().max(MAX_VARIANT_OBSERVATIONS),
+  reference_observed: z.boolean(),
+  reference_http_200: z.boolean(),
+  scheme_variants: z.number().int().nonnegative(),
+  www_variants: z.number().int().nonnegative(),
+  slash_variants: z.number().int().nonnegative(),
+  case_variants: z.number().int().nonnegative(),
+  query_variants: z.number().int().nonnegative(),
+  http_200_variants: z.number().int().nonnegative(),
+  redirects_to_reference: z.number().int().nonnegative(),
+  redirects_outside_family: z.number().int().nonnegative(),
+  unresolved_redirects: z.number().int().nonnegative(),
+  canonical_to_reference: z.number().int().nonnegative(),
+  conflicting_canonical_pages: z.number().int().nonnegative(),
+  matching_content_variants: z.number().int().nonnegative(),
+  different_content_variants: z.number().int().nonnegative(),
+  content_not_comparable_variants: z.number().int().nonnegative(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(420)).max(4),
+  pages: z.array(z.object({
+    page: z.number().int().min(1).max(MAX_VARIANT_OBSERVATIONS),
+    is_reference: z.boolean(),
+    dimensions: z.array(z.enum(VARIANT_DIMENSIONS)).max(5),
+    status_code: z.number().int().min(100).max(599),
+    method: z.enum(["GET", "HEAD", "unspecified"]),
+    response_state: z.enum(VARIANT_RESPONSE_STATES),
+    redirect_state: z.enum(VARIANT_TARGET_STATES),
+    redirect_to_https: z.boolean(),
+    canonical_state: z.enum(VARIANT_CANONICAL_STATES),
+    canonical_declarations: z.number().int().nonnegative().max(MAX_VARIANT_CANONICALS),
+    fingerprint_supplied: z.boolean(),
+    content_matches_reference: z.boolean().nullable(),
+    has_query: z.boolean(),
+  })).max(MAX_VARIANT_OBSERVATIONS),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    page: z.number().int().min(1).max(MAX_VARIANT_OBSERVATIONS),
+    severity: z.enum(["warning", "info"]),
+    code: z.enum(VARIANT_FINDING_CODES),
+    message: z.string().max(330),
+  })).max(MAX_VARIANT_FINDINGS),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+});
+
+const securityHeaderInputSchema = z.string().max(MAX_SECURITY_HEADER_BYTES)
+  .refine((value) => !/[\r\n\u0000]/u.test(value)
+    && new TextEncoder().encode(value).byteLength <= MAX_SECURITY_HEADER_BYTES,
+  "Header observations must not contain CR/LF/NUL or exceed 2,048 UTF-8 bytes.");
+const securityPagesInputSchema = z.array(z.object({
+  url: z.string().url().max(512)
+    .refine((value) => Boolean(safeHttpResourceUrl(value)),
+      "Use a query-free HTTP(S) URL label without credentials, fragment or custom port.")
+    .describe("Safe caller-observed HTTP or HTTPS page label, not fetched or returned."),
+  status_code: z.number().int().min(100).max(599)
+    .describe("Observed HTTP response code; no live fetch or redirect following."),
+  location: securityHeaderInputSchema.optional()
+    .describe("Optional actual Location header from HTTP response, not returned."),
+  strict_transport_security: z.array(securityHeaderInputSchema).max(MAX_SECURITY_HEADER_VALUES).optional()
+    .describe("Up to four observed Strict-Transport-Security response header values."),
+  content_security_policy: z.array(securityHeaderInputSchema).max(MAX_SECURITY_HEADER_VALUES).optional()
+    .describe("Up to four enforcing Content-Security-Policy response header values."),
+  content_security_policy_report_only: z.array(securityHeaderInputSchema).max(MAX_SECURITY_HEADER_VALUES).optional()
+    .describe("Up to four Content-Security-Policy-Report-Only headers, not enforced by the browser."),
+  referrer_policy: securityHeaderInputSchema.optional()
+    .describe("Optional observed Referrer-Policy response header."),
+  x_content_type_options: securityHeaderInputSchema.optional()
+    .describe("Optional observed X-Content-Type-Options response header."),
+  x_frame_options: securityHeaderInputSchema.optional()
+    .describe("Optional observed X-Frame-Options response header."),
+  htmlContent: z.string().min(1).max(MAX_SECURITY_HTML_BYTES).optional()
+    .refine((value) => value === undefined || new TextEncoder().encode(value).byteLength <= MAX_SECURITY_HTML_BYTES,
+      "Each supplied HTML document must fit 120,000 UTF-8 bytes.")
+    .describe("Optional supplied static HTML, max 120 KB/page and 300 KB combined; no resources fetched or executed."),
+})).min(1).max(MAX_SECURITY_PAGES);
+const securityOutputSchema = z.object({
+  scope: z.literal("caller_supplied_https_security_evidence_only"),
+  pages_sampled: z.number().int().nonnegative().max(MAX_SECURITY_PAGES),
+  http_observations: z.number().int().nonnegative().max(MAX_SECURITY_PAGES),
+  https_observations: z.number().int().nonnegative().max(MAX_SECURITY_PAGES),
+  https_redirect_declarations: z.number().int().nonnegative(),
+  http_without_secure_redirect: z.number().int().nonnegative(),
+  https_without_hsts_observation: z.number().int().nonnegative(),
+  hsts_disabled_or_invalid: z.number().int().nonnegative(),
+  enforced_csp_observations: z.number().int().nonnegative(),
+  report_only_csp_observations: z.number().int().nonnegative(),
+  mixed_blockable_declarations: z.number().int().nonnegative(),
+  mixed_upgradable_declarations: z.number().int().nonnegative(),
+  insecure_form_actions: z.number().int().nonnegative(),
+  pages_with_truncated_html: z.number().int().nonnegative(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(380)).max(4),
+  pages: z.array(z.object({
+    page: z.number().int().min(1).max(MAX_SECURITY_PAGES),
+    scheme: z.enum(["http", "https"]),
+    status_code: z.number().int().min(100).max(599),
+    https_redirect_declared: z.boolean(),
+    insecure_redirect_declared: z.boolean(),
+    unresolved_redirect: z.boolean(),
+    hsts_state: z.enum(SECURITY_HSTS_STATES),
+    hsts_include_subdomains: z.boolean(),
+    hsts_preload_declared: z.boolean(),
+    csp_state: z.enum(SECURITY_CSP_STATES),
+    csp_upgrade_insecure_requests: z.boolean(),
+    referrer_policy_observed: z.boolean(),
+    weak_referrer_policy: z.boolean(),
+    nosniff_observed: z.boolean(),
+    frame_protection_observed: z.boolean(),
+    html_supplied: z.boolean(),
+    mixed_blockable_declarations: z.number().int().nonnegative(),
+    mixed_upgradable_declarations: z.number().int().nonnegative(),
+    insecure_form_actions: z.number().int().nonnegative(),
+    mixed_ip_host_declarations: z.number().int().nonnegative(),
+    insecure_base_href: z.boolean(),
+    declarations_truncated: z.boolean(),
+  })).max(MAX_SECURITY_PAGES),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    page: z.number().int().min(1).max(MAX_SECURITY_PAGES),
+    code: z.enum(SECURITY_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(320),
+  })).max(MAX_SECURITY_FINDINGS),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+});
+
+const httpHeaderInputSchema = z.string().max(MAX_HTTP_HEADER_BYTES)
+  .refine((value) => !/[\r\n\u0000]/u.test(value)
+    && new TextEncoder().encode(value).byteLength <= MAX_HTTP_HEADER_BYTES,
+  "Observed header values must not contain CR/LF/NUL and must be at most 2,048 UTF-8 bytes.");
+const httpObservationInputSchema = z.object({
+  url: z.string().url().max(512)
+    .refine((value) => Boolean(safeHttpResourceUrl(value)),
+      "Use a query-free HTTP(S) resource label without credentials, fragment or custom port.")
+    .describe("Safe HTTP(S) URL label for this response, not fetched or echoed."),
+  status_code: z.number().int().min(100).max(599)
+    .describe("HTTP status observed by the caller, not a crawler/indexing verdict."),
+  method: z.enum(["HEAD", "GET"]).optional()
+    .describe("Actual method used for the supplied header observation when known."),
+  content_type: httpHeaderInputSchema.optional()
+    .describe("Optional raw Content-Type response header value."),
+  content_disposition: httpHeaderInputSchema.optional()
+    .describe("Optional raw Content-Disposition header; filenames will not be returned."),
+  x_robots_tag: z.array(httpHeaderInputSchema).max(MAX_HTTP_HEADER_VALUES).optional()
+    .describe("Up to eight X-Robots-Tag HTTP header values, supplied in order."),
+  link: z.array(httpHeaderInputSchema).max(MAX_HTTP_HEADER_VALUES).optional()
+    .describe("Up to eight Link HTTP header values, including rel=canonical declarations."),
+});
+const httpDirectivesOutputSchema = z.object({
+  scope: z.literal("caller_supplied_http_headers_only"),
+  resources_sampled: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  non_html_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  html_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  unknown_mime_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  non_success_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  explicit_noindex_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  googlebot_noindex_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  googlebot_noimageindex_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  conflicting_robots_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  canonical_header_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  conflicting_canonical_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  unresolved_canonical_references: z.number().int().nonnegative(),
+  attachment_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(340)).max(4),
+  resources: z.array(z.object({
+    resource: z.number().int().min(1).max(MAX_HTTP_RESOURCES),
+    status_code: z.number().int().min(100).max(599),
+    method: z.enum(["HEAD", "GET", "unspecified"]),
+    mime_category: z.enum(HTTP_MIME_CATEGORIES),
+    non_html: z.boolean(),
+    x_robots_observed: z.boolean(),
+    explicit_noindex: z.boolean(),
+    googlebot_noindex: z.boolean(),
+    googlebot_noimageindex: z.boolean(),
+    conflicting_robots: z.boolean(),
+    canonical_declarations: z.number().int().nonnegative(),
+    canonical_valid_targets: z.number().int().nonnegative(),
+    canonical_state: z.enum(HTTP_CANONICAL_STATES),
+    attachment_declared: z.boolean(),
+    header_coverage_limited: z.boolean(),
+  })).max(MAX_HTTP_RESOURCES),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(HTTP_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    resource: z.number().int().min(1).max(MAX_HTTP_RESOURCES),
+    message: z.string().max(300),
+  })).max(MAX_HTTP_FINDINGS),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+});
+
 const multilingualClusterSchema = z.object({
   scope: z.literal("sampled_pages_only"),
   sampled_pages: z.number().int().nonnegative().max(16),
@@ -577,6 +845,89 @@ const siteAuditSnapshotSchema = z.object({
   pages: z.array(sitePageSchema).max(SITE_AUDIT_MAX_PAGES),
   issue_groups: z.array(siteIssueGroupSchema).max(50),
   overview: overviewSchema.optional(),
+  error: z.string().optional(),
+});
+
+const historicalVersionsInputSchema = z.array(z.object({
+  saved_at: z.string().datetime({ offset: true }).max(40)
+    .describe("Actual snapshot timestamp with explicit UTC offset; versions must be ordered oldest first."),
+  snapshot: siteAuditSnapshotSchema
+    .describe("Complete previously observed audit_public_site snapshot (compact site-audit fields), not a URL to fetch."),
+})).min(2).max(MAX_HISTORICAL_VERSIONS)
+  .refine((versions) => {
+    try {
+      let total = 0;
+      const encoder = new TextEncoder();
+      for (const version of versions) {
+        const size = encoder.encode(JSON.stringify(version.snapshot)).byteLength;
+        if (size > MAX_HISTORICAL_SNAPSHOT_BYTES) return false;
+        total += size;
+        if (total > MAX_HISTORICAL_TOTAL_BYTES) return false;
+      }
+      return true;
+    } catch { return false; }
+  }, "Each supplied historical version must fit 60 KB and the aggregate 610 KB limit.");
+const historicalStepSchema = z.object({
+  baseline_version: z.number().int().min(1).max(MAX_HISTORICAL_VERSIONS),
+  current_version: z.number().int().min(1).max(MAX_HISTORICAL_VERSIONS),
+  status: z.enum(HISTORICAL_STATUSES),
+  shared_pages: z.number().int().nonnegative().max(8),
+  completely_checked_pairs: z.number().int().nonnegative().max(8),
+  regressed_pages: z.number().int().nonnegative().max(8),
+  improved_pages: z.number().int().nonnegative().max(8),
+  mixed_pages: z.number().int().nonnegative().max(8),
+  unchanged_pages: z.number().int().nonnegative().max(8),
+  coverage_lost_pages: z.number().int().nonnegative().max(8),
+  coverage_recovered_pages: z.number().int().nonnegative().max(8),
+  unverified_pages: z.number().int().nonnegative().max(8),
+  errors_delta_checked: z.number().int(),
+  warnings_delta_checked: z.number().int(),
+  changed_sample: z.boolean(), sitemap_changed: z.boolean(),
+  issue_group_comparison_available: z.boolean(),
+  newly_observed_groups: z.number().int().nonnegative().nullable(),
+  no_longer_observed_groups: z.number().int().nonnegative().nullable(),
+  expanding_groups: z.number().int().nonnegative().nullable(),
+  shrinking_groups: z.number().int().nonnegative().nullable(),
+});
+const historicalOutputSchema = z.object({
+  scope: z.literal("historical_compact_audit_versions_only"),
+  source: z.enum(["local_saved_ids", "caller_supplied_snapshots"]),
+  status: z.enum(HISTORICAL_STATUSES),
+  versions_compared: z.number().int().nonnegative().max(MAX_HISTORICAL_VERSIONS),
+  comparisons_made: z.number().int().nonnegative().max(MAX_HISTORICAL_VERSIONS - 1),
+  comparable_transitions: z.number().int().nonnegative(),
+  partial_transitions: z.number().int().nonnegative(),
+  not_comparable_transitions: z.number().int().nonnegative(),
+  stable_cohort_pages: z.number().int().nonnegative().max(8),
+  complete_stable_cohort_pages: z.number().int().nonnegative().max(8),
+  cohort_metrics_available: z.boolean(),
+  time_order_ambiguous: z.boolean(),
+  total_regressed_page_transitions: z.number().int().nonnegative(),
+  total_improved_page_transitions: z.number().int().nonnegative(),
+  total_coverage_lost_transitions: z.number().int().nonnegative(),
+  historical_points: z.array(z.object({
+    version: z.number().int().min(1).max(MAX_HISTORICAL_VERSIONS),
+    sampled_pages: z.number().int().nonnegative().max(8),
+    completed_pages: z.number().int().nonnegative().max(8),
+    sample_limited: z.boolean(),
+    cohort_completed_pages: z.number().int().nonnegative().max(8),
+    cohort_errors: z.number().int().nonnegative().nullable(),
+    cohort_warnings: z.number().int().nonnegative().nullable(),
+    cohort_mean_health_score: z.number().min(0).max(100).nullable(),
+  })).max(MAX_HISTORICAL_VERSIONS),
+  consecutive_changes: z.array(historicalStepSchema).max(MAX_HISTORICAL_VERSIONS - 1),
+  first_last_change: historicalStepSchema.nullable(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(360)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    version: z.number().int().min(1).max(MAX_HISTORICAL_VERSIONS),
+    code: z.enum(HISTORICAL_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(330),
+  })).max(MAX_HISTORICAL_FINDINGS),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
   error: z.string().optional(),
 });
 
@@ -2005,6 +2356,76 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
 
   registerAppTool(
     server,
+    "compare_historical_audits",
+    {
+      title: "Compare two to ten supplied site audit versions",
+      description:
+        "Pure, offline historical trends for 2–10 supplied timestamped compact audit_public_site results in oldest-first order. Compares adjacent and first/last observations and error/warning trends for the exact page cohort fully checked in every version. Distinguishes coverage loss from improvements and gates disappearing issue groups on fully checked identical sitemap samples. No hosted storage, saved IDs, scheduled monitoring, network requests, raw site URLs/messages, or ranking/indexing assertions.",
+      inputSchema: {
+        versions: historicalVersionsInputSchema.describe(
+          "Two to ten caller-supplied timestamped compact site-audit results, oldest first; <=60 KB each and 610 KB combined. Hosted service never reads a local archive or stores versions.",
+        ),
+      },
+      outputSchema: historicalOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Comparing historical audit snapshots...",
+        invoked: "Historical comparison complete.",
+      }),
+    },
+    async ({ versions }) => {
+      try {
+        const review = analyzeHistoricalAudits(versions, "caller_supplied_snapshots");
+        const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
+        const overview: ResultOverview = {
+          kind: "site",
+          status: warnings ? "needs_attention" : "partial",
+          title: "Historical site-audit trends",
+          headline: review.versions_compared + " supplied versions and " +
+            review.comparisons_made + " consecutive comparisons: " +
+            review.comparable_transitions + " comparable, " +
+            review.partial_transitions + " partial and " +
+            review.not_comparable_transitions + " nonoverlapping transitions.",
+          detail: review.total_regressed_page_transitions + " regressed and " +
+            review.total_improved_page_transitions + " improved fully checked page transitions; " +
+            review.total_coverage_lost_transitions + " observed coverage losses. " +
+            review.complete_stable_cohort_pages +
+            " pages have full checks in every version. Not a website-wide or Google canonical/ranking conclusion.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("versions", "Supplied versions", review.versions_compared, "info"),
+            metric("stable_cohort", "Consistently completed pages", review.complete_stable_cohort_pages, "info"),
+            metric("regressions", "Sampled page regressions", review.total_regressed_page_transitions, "warning"),
+            metric("improvements", "Sampled page improvements", review.total_improved_page_transitions, "info"),
+            metric("coverage_lost", "Lost checks", review.total_coverage_lost_transitions, "warning"),
+          ],
+          next_action: "Review comparable page-cohort evidence and re-audit missing checks. Only fully observed matched pages support changes; disappearance of a finding under partial coverage is not proof of repair.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview, review.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code + " (version " + finding.version + ")",
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "Historical snapshots cannot be safely compared within origin, chronology, page-coverage or evidence size limits.";
+        const overview = failedOverview("site", "Historical site-audit trends",
+          "The supplied historical evidence could not be compared.", error);
+        return {
+          structuredContent: { ...emptyHistoricalReview("caller_supplied_snapshots"), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
     "compare_site_audits",
     {
       title: "Compare site audit snapshots",
@@ -2507,6 +2928,209 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           "The supplied metadata sample could not be compared.", error);
         return {
           structuredContent: { ...emptyMetadataReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "review_url_variants",
+    {
+      title: "Review observed URL variants and canonical/redirect evidence",
+      description:
+        "Fully offline comparison of one explicit query-free reference and 1–12 caller-observed same-path HTTP(S), apex/www, slash, ASCII case and query URL variants. Uses supplied response status, one-step Location, up to three canonical declarations and optional caller-computed 200-body SHA-256 fingerprints. No website fetch, redirect following, content/Google canonical equivalence assumptions, stored history or URL/query/secret leakage.",
+      inputSchema: {
+        reference_url: z.string().url().max(MAX_VARIANT_URL_BYTES)
+          .refine((value) => Boolean(safeVariantLabel(value)) && !value.includes("?"),
+            "Reference must be a safe query-free HTTP(S) URL without credentials or fragments.")
+          .describe("Explicit query-free HTTP(S) preferred reference URL, also required among supplied observations."),
+        observations: z.array(variantObservationInputSchema).min(1).max(MAX_VARIANT_OBSERVATIONS)
+          .describe("One to twelve actual same-family response observations; no network or browser requests are made."),
+      },
+      outputSchema: variantOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthWidget({
+        invoking: "Comparing supplied URL variant observations...",
+        invoked: "URL variant evidence review complete.",
+      }),
+    },
+    async ({ reference_url, observations }) => {
+      try {
+        const review = analyzeUrlVariants(reference_url, observations);
+        const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
+        const overview: ResultOverview = {
+          kind: "report",
+          status: warnings ? "needs_attention" : "partial",
+          title: "Sampled URL variant comparison",
+          headline: review.pages_sampled + " supplied same-path HTTP response observations compared " +
+            "with one explicit reference URL.",
+          detail: review.scheme_variants + " scheme, " + review.www_variants + " apex/www, " +
+            review.slash_variants + " trailing slash, " + review.case_variants + " path-case and " +
+            review.query_variants + " query variations. " +
+            review.redirects_to_reference + " direct redirect declarations and " +
+            review.matching_content_variants + " caller-hash-identical HTTP 200 variants. " +
+            "No URL requests, redirect following or Google-selected canonical conclusions.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("scheme_variants", "Scheme variants", review.scheme_variants, "info"),
+            metric("www_variants", "Apex/www variants", review.www_variants, "info"),
+            metric("query_variants", "Query variations", review.query_variants, "info"),
+            metric("redirects_to_reference", "Declared redirects to reference", review.redirects_to_reference, "info"),
+            metric("matching_bodies", "Hash-matching HTTP 200 variants", review.matching_content_variants, "warning"),
+          ],
+          next_action: "Verify intended query and path-case semantics, redirect chains and canonical hints with authorized live responses and Google Search Console. SHA-256 matches alone do not establish indexing or canonical selection.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview, review.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code + " (observation " + finding.page + ")",
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "Supplied URL variant evidence could not be compared within reference, host, path, query, status or input-size limits.";
+        const overview = failedOverview("report", "Sampled URL variants",
+          "The caller-observed URL variant responses could not be reviewed.", error);
+        return {
+          structuredContent: { ...emptyUrlVariantReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "review_https_security",
+    {
+      title: "Review supplied HTTPS, mixed-content and HTTP security evidence",
+      description:
+        "Offline bounded security-header and static HTML review across 1–8 same-host HTTP/HTTPS caller observations. HTTP→HTTPS Location declarations, HSTS status, enforcing versus report-only CSP, referrer/nosniff/frame protections and potential mixed-content/script/style/media/form declarations. No site fetch, TLS/certificate verification, browser execution, resource requests or leakage of raw URLs/headers/HTML. Not a production security verdict.",
+      inputSchema: {
+        pages: securityPagesInputSchema
+          .describe("One to eight same-host HTTP/HTTPS supplied observations with response codes, optional headers and HTML; max 24 KB header and 300 KB HTML budgets."),
+      },
+      outputSchema: securityOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthWidget({
+        invoking: "Reviewing observed HTTPS and security signals...",
+        invoked: "Security evidence review complete.",
+      }),
+    },
+    async ({ pages }) => {
+      try {
+        const review = analyzeHttpsSecurity(pages, loadCheerio);
+        const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
+        const overview: ResultOverview = {
+          kind: "report",
+          status: warnings ? "needs_attention" : "partial",
+          title: "Sampled HTTPS and HTTP security signals",
+          headline: review.pages_sampled + " supplied same-host response observations; " +
+            review.https_observations + " HTTPS and " + review.http_observations + " HTTP.",
+          detail: review.https_redirect_declarations + " declared HTTPS redirects; " +
+            review.https_without_hsts_observation + " HTTPS responses without supplied HSTS; " +
+            review.mixed_blockable_declarations + " potentially blockable mixed resource declarations, " +
+            review.mixed_upgradable_declarations + " upgradable candidates and " +
+            review.insecure_form_actions + " insecure form action declarations. No network or TLS verification.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("https", "HTTPS observations", review.https_observations, "info"),
+            metric("https_redirects", "Declared HTTPS redirects", review.https_redirect_declarations, "info"),
+            metric("missing_hsts", "HTTPS missing supplied HSTS", review.https_without_hsts_observation, "info"),
+            metric("mixed_blockable", "Potentially blockable HTTP resources", review.mixed_blockable_declarations, "warning"),
+            metric("insecure_forms", "HTTP form action declarations", review.insecure_form_actions, "warning"),
+          ],
+          next_action: "Verify against authorized live HTTP/HTTPS requests, TLS certificates and browser DevTools. Static header/HTML samples do not prove security policy enforcement or actual mixed-content loading.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview, review.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code + " (page " + finding.page + ")",
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "The supplied HTTPS security observations exceeded URL, same-host, header or HTML evidence limits.";
+        const overview = failedOverview("report", "HTTPS and HTTP security signals",
+          "The supplied response/HTML evidence could not be reviewed.", error);
+        return {
+          structuredContent: { ...emptyHttpsSecurityReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "review_http_directives",
+    {
+      title: "Review observed non-HTML HTTP indexing directives",
+      description:
+        "Offline, bounded analysis of one to eight caller-supplied same-origin HTTP response header observations for PDFs and media: MIME, X-Robots-Tag scopes and conflicts, HTTP Link rel=canonical, attachment disposition and response status. No binary fetch, robots.txt request, storage, Google indexing assertion or raw URL/header leakage.",
+      inputSchema: {
+        resources: z.array(httpObservationInputSchema).min(1).max(MAX_HTTP_RESOURCES)
+          .describe("One to eight authorized same-origin supplied HTTP response observations, up to 30 KB combined header values; no network requests are made."),
+      },
+      outputSchema: httpDirectivesOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthWidget({
+        invoking: "Reviewing non-HTML HTTP directives...",
+        invoked: "HTTP directive review complete.",
+      }),
+    },
+    async ({ resources }) => {
+      try {
+        const review = analyzeHttpDirectives(resources);
+        const contradictory = review.conflicting_robots_resources + review.conflicting_canonical_resources;
+        const overview: ResultOverview = {
+          kind: "report",
+          status: contradictory ? "needs_attention" : "partial",
+          title: "Sampled non-HTML HTTP directive review",
+          headline: review.non_html_resources + " non-HTML response observations in " +
+            review.resources_sampled + " supplied HTTP metadata records.",
+          detail: review.googlebot_noindex_resources + " Googlebot-applicable noindex declarations, " +
+            review.canonical_header_resources + " HTTP canonical header records, " +
+            review.googlebot_noimageindex_resources + " image-specific noindex declarations and " +
+            contradictory + " contradictory directive groups. No resource fetched or indexing inferred.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("non_html", "Non-HTML resources", review.non_html_resources, "info"),
+            metric("googlebot_noindex", "Declared Googlebot noindex", review.googlebot_noindex_resources, "warning"),
+            metric("googlebot_noimageindex", "Declared image noindex", review.googlebot_noimageindex_resources, "info"),
+            metric("canonical_headers", "Canonical header records", review.canonical_header_resources, "info"),
+            metric("directive_conflicts", "Contradictory declarations", contradictory, "warning"),
+          ],
+          next_action: "Compare supplied HEAD/GET headers against authorized live responses, robots.txt and Search Console. Absent noindex is not proof of indexing; Link canonicals are not Google selections.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview,
+            review.findings.map((finding) => ({
+              severity: finding.severity,
+              label: finding.code + " (resource " + finding.resource + ")",
+              message: finding.message,
+            }))),
+        };
+      } catch {
+        const error = "HTTP response metadata could not be reviewed within the supplied URL, origin, status or header limits.";
+        const overview = failedOverview("report", "Non-HTML HTTP directives",
+          "The supplied HTTP response observations could not be compared.", error);
+        return {
+          structuredContent: { ...emptyHttpDirectiveReview(), overview, error },
           content: contentForOverview(overview),
           isError: true,
         };

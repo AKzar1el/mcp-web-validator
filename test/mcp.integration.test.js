@@ -28,6 +28,8 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     const names = tools.map((tool) => tool.name).sort();
     assert.deepEqual(names, [
       "audit.history",
+      "audit.trends",
+      "browser.wcag",
       "content.competitors",
       "content.duplicates",
       "content.metadata",
@@ -36,7 +38,11 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "css.local",
       "html.local",
       "html.url",
+      "http.directives",
+      "http.security",
+      "http.variants",
       "links.broken",
+      "media.diagnostics",
       "product.claims",
       "report.validation",
       "schema.markup",
@@ -94,6 +100,151 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "SEO narration must show at most three prioritized findings",
     );
     assert.doesNotMatch(seoText, /"(?:issues|totalIssues|truncated)"\s*:/);
+
+    const media = await client.callTool({
+      name: "media.diagnostics",
+      arguments: { htmlContent: '<html><body><main><img src="/img.jpg" loading="lazy">' +
+        '<video src="/video.mp4"><track kind="captions" src="/captions.vtt"></video>' +
+        '</main></body></html>' },
+    });
+    assert.equal(media.isError, undefined);
+    assert.equal(media.structuredContent?.images_observed, 1);
+    assert.equal(media.structuredContent?.videos_observed, 1);
+    assert.equal(media.structuredContent?.images_without_explicit_alt, 1);
+    assert.equal(media.structuredContent?.videos_without_caption_track, 0);
+    assert.equal(media.structuredContent?.coverage_limited, true);
+    assert.match(textContent(media), /Static media markup diagnostics/);
+    assert(!JSON.stringify(media).includes("/video.mp4"));
+    const mediaTool = tools.find((tool) => tool.name === "media.diagnostics");
+    assert.equal(mediaTool?.annotations?.readOnlyHint, true);
+    assert.equal(mediaTool?.annotations?.openWorldHint, false);
+    const invalidMedia = await client.callTool({
+      name: "media.diagnostics",
+      arguments: { htmlContent: "é".repeat(90_001) },
+    });
+    assert.equal(invalidMedia.isError, true);
+
+    const wcagTool = tools.find((tool) => tool.name === "browser.wcag");
+    assert.ok(wcagTool, "browser keyboard/WCAG evidence must be discoverable");
+    assert.equal(wcagTool?.annotations?.readOnlyHint, true);
+    assert.equal(wcagTool?.annotations?.openWorldHint, false);
+    assert.ok(JSON.stringify(wcagTool.inputSchema).includes("maxTabSteps"));
+    // Fail before launching Chromium, so this contract also works on hosts
+    // where the headless-shell executable cannot start.
+    const invalidWcag = await client.callTool({
+      name: "browser.wcag",
+      arguments: { htmlContent: "é".repeat(90_001) },
+    });
+    assert.equal(invalidWcag.isError, true);
+
+    const httpEvidence = await client.callTool({
+      name: "http.directives",
+      arguments: { resources: [{
+        url: "https://example.test/files/report.pdf",
+        status_code: 200, method: "HEAD",
+        content_type: "application/pdf",
+        x_robots_tag: ["googlebot: noindex"],
+        link: ['<https://example.test/reports>; rel="canonical"'],
+      }] },
+    });
+    assert.equal(httpEvidence.isError, undefined);
+    assert.equal(httpEvidence.structuredContent?.scope, "caller_supplied_http_headers_only");
+    assert.equal(httpEvidence.structuredContent?.non_html_resources, 1);
+    assert.equal(httpEvidence.structuredContent?.googlebot_noindex_resources, 1);
+    assert.equal(httpEvidence.structuredContent?.explicit_noindex_resources, 0);
+    assert.equal(httpEvidence.structuredContent?.canonical_header_resources, 1);
+    assert.equal(httpEvidence.structuredContent?.resources?.[0]?.canonical_state, "one");
+    assert.equal(httpEvidence.structuredContent?.coverage_limited, true);
+    assert.match(textContent(httpEvidence), /Sampled non-HTML HTTP directive review/);
+    assert(!JSON.stringify(httpEvidence).includes("/files/report.pdf"));
+    const securityEvidence = await client.callTool({
+      name: "http.security",
+      arguments: { pages: [{
+        url: "https://example.test/private/security",
+        status_code: 200,
+        strict_transport_security: ["max-age=31536000; includeSubDomains"],
+        content_security_policy: ["default-src 'self'; frame-ancestors 'none'"],
+        referrer_policy: "strict-origin-when-cross-origin",
+        x_content_type_options: "nosniff",
+        htmlContent: '<html><body><script src="http://cdn.test/app.js"></script>' +
+          '<img src="http://cdn.test/photo.jpg">' +
+          '<form action="http://example.test/submit"></form></body></html>',
+      }] },
+    });
+    assert.equal(securityEvidence.isError, undefined);
+    assert.equal(securityEvidence.structuredContent?.scope, "caller_supplied_https_security_evidence_only");
+    assert.equal(securityEvidence.structuredContent?.pages_sampled, 1);
+    assert.equal(securityEvidence.structuredContent?.mixed_blockable_declarations, 1);
+    assert.equal(securityEvidence.structuredContent?.mixed_upgradable_declarations, 1);
+    assert.equal(securityEvidence.structuredContent?.insecure_form_actions, 1);
+    assert.equal(securityEvidence.structuredContent?.pages?.[0]?.hsts_state, "enabled");
+    assert.equal(securityEvidence.structuredContent?.coverage_limited, true);
+    assert.match(textContent(securityEvidence), /Sampled HTTPS and HTTP security signals/);
+    assert(!JSON.stringify(securityEvidence).includes("/private/security"));
+    assert(!JSON.stringify(securityEvidence).includes("/submit"));
+    const securityTool = tools.find((tool) => tool.name === "http.security");
+    assert.equal(securityTool?.annotations?.readOnlyHint, true);
+    assert.equal(securityTool?.annotations?.openWorldHint, false);
+    const unsafeSecurity = await client.callTool({
+      name: "http.security",
+      arguments: { pages: [{ url: "https://example.test/?token=FAKE_SECRET", status_code: 200 }] },
+    });
+    assert.equal(unsafeSecurity.isError, true);
+    assert(!JSON.stringify(unsafeSecurity).includes("FAKE_SECRET"));
+    const variantTool = tools.find((tool) => tool.name === "http.variants");
+    assert.ok(variantTool, "P1-14 local URL variant tool must be discoverable");
+    assert.equal(variantTool?.annotations?.readOnlyHint, true);
+    assert.equal(variantTool?.annotations?.openWorldHint, false);
+    const variantReference = "https://example.test/Products/Widget";
+    const variants = await client.callTool({
+      name: "http.variants",
+      arguments: {
+        reference_url: variantReference,
+        observations: [
+          { url: variantReference, status_code: 200, method: "GET",
+            content_sha256: "a".repeat(64), canonicals: [variantReference] },
+          { url: "http://example.test/Products/Widget", status_code: 301,
+            location: variantReference },
+          { url: variantReference + "?session=FAKE_QUERY_SECRET", status_code: 200,
+            method: "GET", content_sha256: "a".repeat(64),
+            canonicals: [variantReference] },
+        ],
+      },
+    });
+    assert.equal(variants.isError, undefined);
+    assert.equal(variants.structuredContent?.scope, "caller_supplied_url_variant_evidence_only");
+    assert.equal(variants.structuredContent?.pages_sampled, 3);
+    assert.equal(variants.structuredContent?.scheme_variants, 1);
+    assert.equal(variants.structuredContent?.query_variants, 1);
+    assert.equal(variants.structuredContent?.redirects_to_reference, 1);
+    assert.equal(variants.structuredContent?.matching_content_variants, 1);
+    assert.equal(variants.structuredContent?.coverage_limited, true);
+    assert.match(textContent(variants), /Supplied URL variant comparison/);
+    assert(!JSON.stringify(variants).includes("FAKE_QUERY_SECRET"));
+    assert(!JSON.stringify(variants).includes("/Products/Widget"));
+    const rejectedVariant = await client.callTool({
+      name: "http.variants",
+      arguments: {
+        reference_url: variantReference,
+        observations: [{
+          url: variantReference + "#FAKE_FRAGMENT_SECRET", status_code: 200,
+        }],
+      },
+    });
+    assert.equal(rejectedVariant.isError, true);
+    assert(!JSON.stringify(rejectedVariant).includes("FAKE_FRAGMENT_SECRET"));
+    const httpTool = tools.find((tool) => tool.name === "http.directives");
+    assert.equal(httpTool?.annotations?.readOnlyHint, true);
+    assert.equal(httpTool?.annotations?.openWorldHint, false);
+    const unsafeHttp = await client.callTool({
+      name: "http.directives",
+      arguments: { resources: [{
+        url: "https://example.test/report.pdf?token=FAKE_SECRET",
+        status_code: 200, content_type: "application/pdf",
+      }] },
+    });
+    assert.equal(unsafeHttp.isError, true);
+    assert(!JSON.stringify(unsafeHttp).includes("FAKE_SECRET"));
 
     const duplicateWords = Array.from({ length: 130 }, (_, i) => `safetopic${i}`).join(" ");
     const duplicatePages = ["a", "b"].map((name) => ({

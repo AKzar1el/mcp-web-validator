@@ -7,4 +7,12 @@
 - **Reuse:** `src/audit-history.ts` stores at most 10 compact local snapshots; hosted comparison is `chatgpt-plugin/src/site-comparison.ts`.
 - **Guardrail:** No new storage, scheduler or alerts without authorization; retain only redacted bounded observations. HTTP observations remain M01.
 
-This directory is documentation-only; do not count it as a working SEO check or add MCP wiring without a separate request.
+P2-01 implements the **shared pure** `historical-comparisons.ts` analyzer,
+exposed through local read-only `audit.trends` (2–10 exact existing saved IDs,
+oldest first). The local `audit-history.ts` batch read preserves the existing
+single guarded 10-snapshot archive, evictions and symlink protections. There
+are no history writes, new captures, scheduled checks, remote requests or
+site-wide conclusions. See `docs/p2-01-historical-comparisons.md`.
+
+P2-02 remains planned: configurable regression monitoring/alerts are **not**
+implemented as part of P2-01.

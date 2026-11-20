@@ -73,8 +73,32 @@
       "description": "Combines W3C HTML/CSS validation, local SEO/accessibility checks, JSON-LD syntax checks, and a bounded public-link check into a Markdown and structured report."
     },
     {
+      "name": "audit.trends",
+      "description": "Read-only, offline longitudinal comparison of 2–10 previously saved local audit.history version IDs (oldest first). Uses only the existing compact audit archive, compares adjacent and first/last snapshots plus an exact fully-checked all-version cohort, separates coverage loss from real changes and gates issue-group disappearance on identical complete selected samples. No new site requests, archive mutations, scheduled checks or Google-indexing claims. Returns only redacted numeric evidence, never page URLs, issue messages or stored snapshots."
+    },
+    {
       "name": "audit.history",
       "description": "Opt-in local-only site-audit snapshot history. Save a previous hosted audit_public_site structured result as JSON, list saved IDs, or retrieve an exact version. A single compact local JSON file retains at most 10 versions; saving the 11th removes the oldest. No database, background task, or network request."
+    },
+    {
+      "name": "browser.wcag",
+      "description": "Local-only inert Chromium analysis of supplied HTML: sandboxed pinned headless browser, no external resource requests, scripts disabled and stripped, DOM accessible-name heuristics, aria-hidden focus, positive tabindex, custom role focusability, up to 24 real keyboard Tab focus samples, computed focus indicator review and native summary Enter toggle. Never navigates URLs, clicks links/buttons, submits forms, stores screenshots or certifies WCAG; may provision pinned browser on first use."
+    },
+    {
+      "name": "media.diagnostics",
+      "description": "Local-only, offline review of caller-supplied HTML image alt/name evidence, responsive picture fallbacks, intrinsic dimensions, lazy loading/decoding/fetchpriority hints, video sources and caption tracks. Bounded and redacted; never fetches or renders media, executes scripts, measures layout, validates caption contents or certifies accessibility/performance."
+    },
+    {
+      "name": "http.variants",
+      "description": "Offline, bounded comparison of one explicit query-free reference URL and 1–12 caller-observed same-path candidate responses across HTTP/HTTPS, apex/www, trailing slash, ASCII path case and query parameters. Reviews one-step Location, up to three canonical declarations and optional caller-computed 200-response SHA-256 fingerprints. No URL fetch, redirect following, Google canonical selection, query-value leakage or content equivalence assumptions."
+    },
+    {
+      "name": "http.security",
+      "description": "Offline, bounded security-header/static-HTML observation review across 1–8 same-host HTTP/HTTPS pages. Distinguishes declared HTTP→HTTPS redirects, HSTS status, enforced vs report-only CSP, safe/weak referrer and framing policies, nosniff and static mixed-content/form/CSS declarations. No traffic, TLS certificate verification, browser execution, security certification or sensitive raw URL/header/HTML output."
+    },
+    {
+      "name": "http.directives",
+      "description": "Offline, bounded analysis of one to eight caller-supplied same-origin HTTP response header observations, including PDF/media MIME types, X-Robots-Tag (scoped Googlebot directives and contradictions), Link rel=canonical declarations, Content-Disposition and response status. No URL fetch, binary download, robots.txt inspection, Google indexing assertion, or storage. Sensitive raw URLs, headers, filenames and query tokens are not returned."
     },
     {
       "name": "screenshot.capture",

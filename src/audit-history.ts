@@ -226,6 +226,36 @@ export async function getAuditHistorySnapshot(
   return { ...summary(items), snapshot_json: JSON.stringify(found.snapshot) };
 }
 
+/**
+ * P2-01: read selected immutable saved versions in *stored* chronological
+ * order. A single guarded history read; no writes, ID discovery or archive
+ * mutation. Reject evicted versions rather than silently substituting them.
+ */
+export async function getAuditHistoryVersions(
+  ids: string[],
+  rootDirectory = basePath(),
+): Promise<Array<{ saved_at: string; snapshot: CompactAuditSnapshot }>> {
+  if (!Array.isArray(ids) || ids.length < 2 || ids.length > MAX_AUDIT_HISTORY
+    || new Set(ids).size !== ids.length
+    || ids.some((id) => !z.string().uuid().safeParse(id).success)) {
+    throw new Error("Supply two to ten distinct saved audit version IDs, oldest first.");
+  }
+  const history = await readHistory(rootDirectory);
+  const byId = new Map(history.map((item, index) => [item.id, { item, index }]));
+  let previousIndex = -1;
+  const result: Array<{ saved_at: string; snapshot: CompactAuditSnapshot }> = [];
+  for (const id of ids) {
+    const entry = byId.get(id);
+    if (!entry) throw new Error("A requested saved audit history version was not found or was evicted.");
+    if (entry.index <= previousIndex) {
+      throw new Error("Saved audit version IDs must be ordered oldest to newest.");
+    }
+    previousIndex = entry.index;
+    result.push({ saved_at: entry.item.saved_at, snapshot: entry.item.snapshot });
+  }
+  return result;
+}
+
 export function saveAuditHistorySnapshot(
   snapshotJson: string,
   rootDirectory = basePath(),

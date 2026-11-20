@@ -182,3 +182,61 @@ test("different MCP workspace roots isolate history and cannot retrieve each oth
   assert.equal(storedB.items[0].site_url, "https://beta.example/");
   assert.notEqual(storedA.items[0].id, storedB.items[0].id);
 });
+
+test("P2-01: real local MCP compares saved history IDs with no writes, leaks, or fabricated missing versions", {
+  timeout: 90_000,
+}, async (t) => {
+  const root = await temporaryRoot(t);
+  const client = await connect(root, "history-trend-readonly");
+  try {
+    const list = await client.listTools();
+    const trendTool = list.tools.find((tool) => tool.name === "audit.trends");
+    assert.ok(trendTool);
+    assert.equal(trendTool.annotations?.readOnlyHint, true);
+    assert.equal(trendTool.annotations?.destructiveHint, false);
+    assert.equal(trendTool.annotations?.openWorldHint, false);
+    const ids = [];
+    for (let i = 0; i < 3; i++) {
+      const s = JSON.parse(snapshot(i));
+      s.pages[0].seo_errors = i;
+      s.pages[0].health_score = 98 - i * 8;
+      const saved = await history(client, "save", { snapshotJson: JSON.stringify(s) });
+      assert.notEqual(saved.isError, true);
+      ids.push(saved.structuredContent.items[0].id);
+    }
+    const pathToHistory = path.join(root, ".mcp-validator", "audit-history.json");
+    const before = await fs.readFile(pathToHistory);
+    const result = await client.callTool({
+      name: "audit.trends",
+      arguments: { ids },
+    });
+    assert.equal(result.isError, undefined);
+    assert.equal(result.structuredContent?.scope, "historical_compact_audit_versions_only");
+    assert.equal(result.structuredContent?.source, "local_saved_ids");
+    assert.equal(result.structuredContent?.versions_compared, 3);
+    assert.equal(result.structuredContent?.comparable_transitions, 2);
+    assert.equal(result.structuredContent?.total_regressed_page_transitions, 2);
+    assert.equal(result.structuredContent?.complete_stable_cohort_pages, 1);
+    assert.deepEqual(result.structuredContent?.historical_points.map((point) =>
+      point.cohort_errors), [0, 1, 2]);
+    assert.equal(result.structuredContent?.coverage_limited, true);
+    assert(!JSON.stringify(result).includes("https://example.com/"));
+    assert(!JSON.stringify(result).includes(ids[0]));
+    assert.deepEqual(await fs.readFile(pathToHistory), before);
+
+    const reversed = await client.callTool({
+      name: "audit.trends",
+      arguments: { ids: [...ids].reverse() },
+    });
+    assert.equal(reversed.isError, true);
+    assert(!JSON.stringify(reversed).includes(ids[0]));
+    const missing = await client.callTool({
+      name: "audit.trends",
+      arguments: { ids: [ids[0], "00000000-0000-4000-8000-000000000000"] },
+    });
+    assert.equal(missing.isError, true);
+    assert.deepEqual(await fs.readFile(pathToHistory), before);
+  } finally {
+    await client.close();
+  }
+});

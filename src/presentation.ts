@@ -8,6 +8,12 @@ import type { IntentComparison } from "./modules/content-schema/competitor-inten
 import type { SupportedSchemaReview } from "./modules/content-schema/structured-data-validation.js";
 import type { InternalLinkReview } from "./modules/site-architecture/internal-link-quality.js";
 import type { MetadataReview } from "./modules/content-schema/metadata-consistency.js";
+import type { MediaDiagnostics } from "./modules/browser-ux/media-diagnostics.js";
+import type { WcagInteractionReview } from "./modules/browser-ux/wcag-interactions.js";
+import type { HttpDirectiveReview } from "./modules/http-crawl/non-html-directives.js";
+import type { HttpsSecurityReview } from "./modules/http-crawl/https-security.js";
+import type { UrlVariantReview } from "./modules/http-crawl/url-variants.js";
+import type { HistoricalReview } from "./modules/change-regression/historical-comparisons.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
@@ -529,6 +535,122 @@ export function metadataConsistencyContent(analysis: MetadataReview): string {
       message: `${finding.code}: ${finding.message}`,
     })),
     nextStep: "Review on-page declarations in context. Identical titles and social-metadata variations may be intentional; use authorized crawling and Search Console evidence before attributing search performance.",
+  });
+}
+
+export function wcagInteractionsContent(review: WcagInteractionReview): string {
+  const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
+  return toolContent({
+    title: "Browser keyboard and WCAG evidence",
+    status: warnings ? "attention needed" : "partial",
+    outcome: `In script-disabled, offline Chromium, ${review.controls_inspected} of ${review.controls_seen} ` +
+      `controls were sampled at ${review.viewport_width} × ${review.viewport_height}; ` +
+      `${review.tab_steps} Tab key steps covered ${review.unique_tab_targets} distinct targets. ` +
+      `${review.visible_controls_without_name} accessible-name review leads, ` +
+      `${review.focus_indicator_review_leads} possible focus-indicator gaps, ` +
+      `${review.native_summaries_toggled}/${review.native_summaries_tested} native summaries toggled with Enter.`,
+    actions: review.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: `Rendered control ${finding.control} · ${finding.evidence}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Recheck the flagged focus/name signals in a fully styled, authorized website with JavaScript enabled and a screen reader. This inert sample is not an accessibility audit or WCAG 2.2 compliance determination.",
+  });
+}
+
+export function mediaDiagnosticsContent(review: MediaDiagnostics): string {
+  const warningCount = review.findings.filter((finding) => finding.severity === "warning").length;
+  return toolContent({
+    title: "Static media markup diagnostics",
+    status: warningCount ? "attention needed" : "partial",
+    outcome: `${review.media_elements_checked} of ${review.images_observed + review.pictures_observed +
+      review.videos_observed} sampled media elements reviewed: ${review.images_observed} images, ` +
+      `${review.videos_observed} videos and ${review.pictures_observed} pictures. ` +
+      `${review.total_findings} review findings; media loading and playback not checked.`,
+    actions: review.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: `Static ${finding.media_type} element ${finding.element}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Inspect the flagged elements and verify their rendered behavior separately. Static metadata cannot prove actual resource availability, accessibility compliance, loading speed or video caption accuracy.",
+  });
+}
+
+export function historicalComparisonContent(review: HistoricalReview): string {
+  const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
+  return toolContent({
+    title: "Saved site-audit history trends",
+    status: warnings ? "attention needed" : "partial",
+    outcome: `${review.versions_compared} versions, ${review.comparisons_made} adjacent comparisons; ` +
+      `${review.comparable_transitions} comparable samples, ${review.partial_transitions} limited and ` +
+      `${review.not_comparable_transitions} nonoverlapping transitions. Across their matching checked pages, ` +
+      `${review.total_regressed_page_transitions} page regressions and ` +
+      `${review.total_improved_page_transitions} improvements were observed. ` +
+      `${review.complete_stable_cohort_pages} pages have fully checked evidence across all versions.`,
+    actions: review.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: `Saved version ${finding.version}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Review the per-version complete-cohort error/warning totals and changes, then collect comparable authorized audits where coverage is missing. Unobserved pages and unavailable validators cannot establish fixes, website-wide improvement, ranking changes or causality.",
+  });
+}
+
+export function urlVariantsContent(review: UrlVariantReview): string {
+  const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
+  return toolContent({
+    title: "Supplied URL variant comparison",
+    status: warnings ? "attention needed" : "partial",
+    outcome: `${review.pages_sampled} supplied same-path URL observations: ` +
+      `${review.scheme_variants} scheme, ${review.www_variants} apex/www, ` +
+      `${review.slash_variants} trailing-slash, ${review.case_variants} path-case and ` +
+      `${review.query_variants} query dimensions; ${review.redirects_to_reference} redirect ` +
+      `declarations point to the supplied reference, ${review.matching_content_variants} ` +
+      `HTTP 200 variants carry matching caller SHA-256 body fingerprints.`,
+    actions: review.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: `Supplied URL observation ${finding.page}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Verify HTTP redirects to completion, intended query behavior, observed page bodies and canonical declarations with authorized live requests and Search Console. Path case and query parameters can represent different content; neither byte equality nor a declared canonical proves Google's selected canonical.",
+  });
+}
+
+export function httpsSecurityContent(review: HttpsSecurityReview): string {
+  const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
+  return toolContent({
+    title: "Sampled HTTPS and HTTP security signals",
+    status: warnings ? "attention needed" : "partial",
+    outcome: `${review.pages_sampled} supplied same-host observations: ${review.http_observations} HTTP, ` +
+      `${review.https_observations} HTTPS; ${review.https_redirect_declarations} declared HTTPS redirects, ` +
+      `${review.https_without_hsts_observation} without supplied HTTPS HSTS, ` +
+      `${review.mixed_blockable_declarations} potentially blockable mixed resources, ` +
+      `${review.mixed_upgradable_declarations} upgrade candidates, ` +
+      `${review.insecure_form_actions} HTTP form-action declarations.`,
+    actions: review.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: `Supplied page ${finding.page}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Verify observations against authorized live HTTPS/HTTP GET responses, redirect chains, browser DevTools, CSP enforcement and TLS certificates. Supplied headers or static markup do not establish production security, certificate validity or actual browser mixed-content blocking.",
+  });
+}
+
+export function httpDirectivesContent(review: HttpDirectiveReview): string {
+  return toolContent({
+    title: "Sampled non-HTML HTTP directive review",
+    status: review.conflicting_robots_resources + review.conflicting_canonical_resources > 0
+      ? "attention needed" : "partial",
+    outcome: `${review.non_html_resources} non-HTML declarations in ${review.resources_sampled} supplied HTTP observations: ` +
+      `${review.googlebot_noindex_resources} with a Googlebot-applicable noindex declaration, ` +
+      `${review.canonical_header_resources} with HTTP canonical declarations, ` +
+      `${review.conflicting_robots_resources + review.conflicting_canonical_resources} conflicting groups.`,
+    actions: review.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: `Supplied response ${finding.resource}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Compare these supplied headers against live authorized GET/HEAD observations, robots.txt and Search Console. No resource was fetched; missing X-Robots-Tag does not prove indexability, and Link canonicals are not Google selections.",
   });
 }
 

@@ -42,6 +42,8 @@ export interface FetchPublicHtmlOptions {
   allowedOrigin?: string;
   /** Reject an HTML redirect target before its next network request. */
   allowRedirect?: (target: URL) => boolean | Promise<boolean>;
+  /** Optional per-HTTP-attempt budget callback. */
+  beforeRequest?: () => Promise<void>;
 }
 
 export interface FetchPublicTextOptions {
@@ -55,6 +57,8 @@ export interface FetchPublicTextOptions {
   allowCrossOriginRedirects?: boolean;
   /** Opt in only for gzip sitemap URLs; never decompress arbitrary HTML/robots bodies. */
   allowGzipSitemap?: boolean;
+  /** Optional per-HTTP-attempt budget callback. */
+  beforeRequest?: () => Promise<void>;
 }
 
 export type PublicHtmlFetchErrorCode =
@@ -418,6 +422,7 @@ export async function fetchPublicHtml(
       }
       visited.add(currentUrl.href);
 
+      await options.beforeRequest?.();
       const response = await fetch(currentUrl, {
         method: "GET",
         redirect: "manual",
@@ -529,6 +534,7 @@ export async function fetchPublicHtml(
       };
     }
   } catch (cause) {
+    if (cause instanceof PublicHttpProbeBudgetError) throw cause;
     if (cause instanceof PublicHtmlFetchError) throw cause;
     if (controller.signal.aborted) {
       throw new PublicHtmlFetchError("timeout", "The page fetch timed out after 12 seconds.");
@@ -544,7 +550,15 @@ export async function fetchPublicHtml(
  * Only safe query-free redirect targets are followed; the last 3xx still
  * supplies evidence when its target is blocked or outside the crawl scope.
  */
-export async function probePublicHttp(value: string): Promise<DeliveryInputHop[]> {
+/** A live request-budget denial must not be recorded as a website outage. */
+export class PublicHttpProbeBudgetError extends Error {
+  override readonly name = "PublicHttpProbeBudgetError";
+}
+
+export async function probePublicHttp(
+  value: string,
+  beforeRequest?: () => Promise<void>,
+): Promise<DeliveryInputHop[]> {
   const initial = requirePublicPageUrl(value);
   if (initial.search || initial.hash) {
     throw new PublicHtmlFetchError("invalid_url", "HTTP delivery probes require a query-free URL.");
@@ -559,6 +573,7 @@ export async function probePublicHttp(value: string): Promise<DeliveryInputHop[]
       requireAllowedOrigin(current, initial.origin);
       if (visited.has(current.href)) break;
       visited.add(current.href);
+      await beforeRequest?.();
       const response = await fetch(current, {
         method: "GET",
         redirect: "manual",
@@ -590,6 +605,7 @@ export async function probePublicHttp(value: string): Promise<DeliveryInputHop[]
     }
     return observations;
   } catch (cause) {
+    if (cause instanceof PublicHttpProbeBudgetError) throw cause;
     if (cause instanceof PublicHtmlFetchError) throw cause;
     if (controller.signal.aborted) {
       throw new PublicHtmlFetchError("timeout", "HTTP delivery probe timed out.");
@@ -627,6 +643,7 @@ export async function fetchPublicText(
       }
       visited.add(currentUrl.href);
 
+      await options.beforeRequest?.();
       const response = await fetch(currentUrl, {
         method: "GET",
         redirect: "manual",
@@ -707,6 +724,7 @@ export async function fetchPublicText(
       };
     }
   } catch (cause) {
+    if (cause instanceof PublicHttpProbeBudgetError) throw cause;
     if (cause instanceof PublicHtmlFetchError) throw cause;
     if (controller.signal.aborted) {
       throw new PublicHtmlFetchError("timeout", "The resource fetch timed out after 12 seconds.");

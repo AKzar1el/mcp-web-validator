@@ -16,7 +16,7 @@ import {
   SITE_AUDIT_MAX_PAGES,
   SITE_AUDIT_MAX_SITEMAP_URLS,
 } from "./constants";
-import { fetchPublicHtml, probePublicHttp, PublicHtmlFetchError, type HtmlMediaType } from "./network";
+import { fetchPublicHtml, probePublicHttp, PublicHtmlFetchError, PublicHttpProbeBudgetError, type HtmlMediaType } from "./network";
 import {
   contentForOverview,
   overviewSchema,
@@ -149,6 +149,43 @@ import {
   DELIVERY_HEADER_NAMES,
   DELIVERY_FINDING_CODES,
 } from "./modules/http-crawl/http-delivery";
+import {
+  analyzeAvailabilityHistory,
+  emptyAvailabilityReview,
+  MAX_AVAILABILITY_OBSERVATIONS,
+  MAX_AVAILABILITY_FINDINGS,
+  AVAILABILITY_FAILURE_CODES,
+  AVAILABILITY_STATES,
+  AVAILABILITY_FINDING_CODES,
+} from "./modules/http-crawl/availability-observations";
+import { collectPublicAvailability } from "./modules/http-crawl/availability-probe";
+import {
+  analyzeCrawlerAccess, emptyCrawlerAccessReview, CRAWLER_PROFILES,
+  CRAWLER_ACCESS_STATES, CRAWLER_INDEXING_STATES, CRAWLER_FINDING_CODES,
+  MAX_CRAWLER_PAGES, MAX_CRAWLER_FINDINGS, MAX_CRAWLER_ROBOTS_BYTES,
+  MAX_CRAWLER_HTML_BYTES,
+} from "./modules/http-crawl/crawler-access";
+import { probeCrawlerAccess } from "./modules/http-crawl/crawler-access-probe";
+import {
+  analyzeRedirectCanonicalChains, emptyRedirectCanonicalReview,
+  MAX_CHAIN_HOPS, MAX_CHAIN_CANONICALS, MAX_CHAIN_HTML_BYTES,
+  MAX_CHAIN_FINDINGS, CHAIN_REDIRECT_STATES, CHAIN_TARGET_STATES,
+  CHAIN_CANONICAL_STATES, CHAIN_INDEXING_STATES, CHAIN_FINDING_CODES,
+} from "./modules/http-crawl/redirect-canonical-chains";
+import { probeRedirectCanonicalChain } from "./modules/http-crawl/redirect-canonical-probe";
+import {
+  analyzeSitemapInventory, emptySitemapInventoryReview,
+  MAX_SITEMAP_DOCUMENTS, MAX_SITEMAP_DOCUMENT_BYTES,
+  MAX_SITEMAP_DISCOVERED, MAX_SITEMAP_PAGE_OBSERVATIONS,
+  MAX_SITEMAP_FINDINGS, SITEMAP_DOCUMENT_KINDS, SITEMAP_FINDING_CODES,
+} from "./modules/http-crawl/sitemap-inventory";
+import { probeSitemapInventory } from "./modules/http-crawl/sitemap-inventory-probe";
+import {
+  analyzeInternalLinkGraph, emptyInternalLinkGraphReview,
+  MAX_GRAPH_PAGES, MAX_GRAPH_HTML_BYTES, MAX_GRAPH_CATALOG_URLS,
+  MAX_GRAPH_FINDINGS, GRAPH_FINDING_CODES,
+} from "./modules/site-architecture/internal-link-graph";
+import { probeInternalLinkGraph } from "./modules/site-architecture/internal-link-graph-probe";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -225,6 +262,241 @@ const deliveryOutputSchema = z.object({
     severity: z.enum(["warning", "info"]),
     message: z.string().max(260),
   })).max(MAX_DELIVERY_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+  overview: overviewSchema,
+});
+
+const availabilityObservationSchema = z.object({
+  observed_at: z.string().datetime({ offset: true }).max(40),
+  status_code: z.number().int().min(100).max(599).optional(),
+  failure: z.enum(AVAILABILITY_FAILURE_CODES).optional(),
+  cf_challenge: z.boolean().optional(),
+  elapsed_ms: z.number().int().min(0).max(120_000).optional(),
+}).strict();
+const availabilityOutputSchema = z.object({
+  scope: z.enum(["caller_supplied_history", "live_bounded_burst", "local_saved_history"]),
+  observations_count: z.number().int().min(0).max(MAX_AVAILABILITY_OBSERVATIONS),
+  first_observed_at: z.string().datetime({ offset: true }).optional(),
+  last_observed_at: z.string().datetime({ offset: true }).optional(),
+  sampled_window_minutes: z.number().nonnegative(),
+  max_observation_gap_minutes: z.number().nonnegative(),
+  observed_successes: z.number().int().nonnegative(),
+  observed_redirects: z.number().int().nonnegative(),
+  observed_http_4xx: z.number().int().nonnegative(),
+  observed_http_5xx: z.number().int().nonnegative(),
+  observed_timeouts: z.number().int().nonnegative(),
+  observed_transport_failures: z.number().int().nonnegative(),
+  observed_rate_limits: z.number().int().nonnegative(),
+  observed_challenges: z.number().int().nonnegative(),
+  observed_success_percent: z.number().int().min(0).max(100),
+  http_status_changes: z.number().int().nonnegative(),
+  outcome_changes: z.number().int().nonnegative(),
+  intermittent_non_success: z.boolean(),
+  longest_non_success_streak: z.number().int().nonnegative(),
+  current_non_success_streak: z.number().int().nonnegative(),
+  latest_observed_state: z.enum(AVAILABILITY_STATES).optional(),
+  latest_http_status: z.number().int().min(100).max(599).optional(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(260)).max(4),
+  samples: z.array(z.object({
+    observation: z.number().int().min(1).max(MAX_AVAILABILITY_OBSERVATIONS),
+    observed_at: z.string().datetime({ offset: true }),
+    status_code: z.number().int().min(100).max(599).optional(),
+    state: z.enum(AVAILABILITY_STATES),
+    cf_challenge: z.boolean(),
+    elapsed_ms: z.number().int().min(0).max(120_000).optional(),
+  })).max(MAX_AVAILABILITY_OBSERVATIONS),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(AVAILABILITY_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(260),
+  })).max(MAX_AVAILABILITY_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+  overview: overviewSchema,
+});
+
+const crawlerPageInputSchema = z.object({
+  url: deliveryInputUrl,
+  status_code: z.number().int().min(100).max(599).optional(),
+  html: z.string().max(MAX_CRAWLER_HTML_BYTES).optional(),
+  x_robots_tag: z.array(z.string().max(512)).max(8).optional(),
+}).strict();
+const crawlerProfileInput = z.array(z.enum(CRAWLER_PROFILES))
+  .min(1).max(CRAWLER_PROFILES.length).optional();
+const crawlerOutputSchema = z.object({
+  scope: z.enum(["caller_supplied_crawler_evidence", "live_public_crawler_probe"]),
+  pages_observed: z.number().int().min(0).max(MAX_CRAWLER_PAGES),
+  profiles_checked: z.number().int().nonnegative().max(CRAWLER_PROFILES.length),
+  rows_checked: z.number().int().nonnegative().max(MAX_CRAWLER_PAGES * CRAWLER_PROFILES.length),
+  robots_status_code: z.number().int().min(100).max(599).optional(),
+  robots_rules_used: z.number().int().nonnegative(),
+  robots_rules_truncated: z.boolean(),
+  robots_unavailable: z.boolean(),
+  crawler_disallowed_rows: z.number().int().nonnegative(),
+  noindex_declared_rows: z.number().int().nonnegative(),
+  unknown_access_rows: z.number().int().nonnegative(),
+  unknown_indexing_rows: z.number().int().nonnegative(),
+  scope_ambiguous_rows: z.number().int().nonnegative(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(260)).max(5),
+  rows: z.array(z.object({
+    page: z.number().int().min(1).max(MAX_CRAWLER_PAGES),
+    profile: z.enum(CRAWLER_PROFILES),
+    robots_access: z.enum(CRAWLER_ACCESS_STATES),
+    robots_rule: z.enum(["allow", "disallow", "none", "unknown"]),
+    robots_group_matched: z.boolean(),
+    indexing_state: z.enum(CRAWLER_INDEXING_STATES),
+    indexing_source: z.enum(["meta", "header", "both", "none"]),
+    explicit_index_directive: z.boolean(),
+    conflicting_index_directives: z.boolean(),
+    x_robots_scope_ambiguous: z.boolean(),
+    page_http_status: z.number().int().min(100).max(599).optional(),
+    static_html_examined: z.boolean(),
+    effective_access: z.enum(["crawl_disallowed", "crawl_allowed_noindex_declared",
+      "crawl_allowed_no_noindex_observed", "unverified"]),
+  })).max(MAX_CRAWLER_PAGES * CRAWLER_PROFILES.length),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(CRAWLER_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    page: z.number().int().min(1).max(MAX_CRAWLER_PAGES),
+    profile: z.enum(CRAWLER_PROFILES),
+    message: z.string().max(260),
+  })).max(MAX_CRAWLER_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+  overview: overviewSchema,
+});
+
+const chainLabelSchema = z.string().url().max(1024)
+  .refine((value) => Boolean(safeVariantLabel(value)),
+    "Use an HTTP(S) URL without credentials, fragments, custom ports or unsafe paths.");
+const chainObservationSchema = z.object({
+  url: chainLabelSchema,
+  status_code: z.number().int().min(100).max(599),
+  location: z.string().max(1024).optional(),
+  canonicals: z.array(z.string().max(1024)).max(MAX_CHAIN_CANONICALS).optional(),
+  html: z.string().max(MAX_CHAIN_HTML_BYTES).optional(),
+  x_robots_tag: z.array(z.string().max(512)).max(8).optional(),
+  robots_allowed: z.boolean().optional(),
+}).strict();
+const chainOutputSchema = z.object({
+  scope: z.enum(["caller_supplied_redirect_evidence", "live_public_redirect_probe"]),
+  hops_observed: z.number().int().min(0).max(MAX_CHAIN_HOPS),
+  redirects_observed: z.number().int().min(0).max(MAX_CHAIN_HOPS),
+  permanent_redirects: z.number().int().nonnegative(),
+  temporary_redirects: z.number().int().nonnegative(),
+  chain_complete: z.boolean(),
+  loop_detected: z.boolean(),
+  final_status_code: z.number().int().min(100).max(599).optional(),
+  expected_destination_match: z.boolean().optional(),
+  conflicting_canonical_hops: z.number().int().nonnegative(),
+  canonical_cycles: z.number().int().nonnegative(),
+  canonical_chain_edges: z.number().int().nonnegative(),
+  nonindexable_destination: z.boolean(),
+  destination_indexing_state: z.enum(CHAIN_INDEXING_STATES),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(260)).max(4),
+  hops: z.array(z.object({
+    hop: z.number().int().min(1).max(MAX_CHAIN_HOPS),
+    status_code: z.number().int().min(100).max(599),
+    redirect_state: z.enum(CHAIN_REDIRECT_STATES),
+    redirect_target: z.enum(CHAIN_TARGET_STATES),
+    next_hop_observed: z.boolean(),
+    canonical_state: z.enum(CHAIN_CANONICAL_STATES),
+    canonical_declarations: z.number().int().nonnegative(),
+    canonical_target_sampled: z.boolean(),
+    googlebot_indexing_state: z.enum(CHAIN_INDEXING_STATES),
+    robots_allowed: z.enum(["allowed", "disallowed", "unknown"]),
+    static_html_examined: z.boolean(),
+    x_robots_header_examined: z.boolean(),
+  })).max(MAX_CHAIN_HOPS),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    hop: z.number().int().min(1).max(MAX_CHAIN_HOPS),
+    code: z.enum(CHAIN_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(260),
+  })).max(MAX_CHAIN_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+  overview: overviewSchema,
+});
+
+const sitemapDocInputSchema = z.object({
+  sitemap_url: deliveryInputUrl,
+  content: z.string().max(MAX_SITEMAP_DOCUMENT_BYTES),
+  content_type: z.enum(["application/xml", "text/xml", "text/plain"]).optional(),
+  status_code: z.number().int().min(100).max(599).optional(),
+}).strict();
+const sitemapPageInputSchema = z.object({
+  url: chainLabelSchema,
+  status_code: z.number().int().min(100).max(599).optional(),
+  canonical_url: chainLabelSchema.optional(),
+  noindex: z.boolean().optional(),
+  robots_allowed: z.boolean().optional(),
+  modified_at: z.string().max(40).optional(),
+}).strict();
+const sitemapOutputSchema = z.object({
+  scope: z.enum(["caller_supplied_sitemap_evidence", "live_public_sitemap_sample"]),
+  documents_observed: z.number().int().min(0).max(MAX_SITEMAP_DOCUMENTS),
+  documents_complete: z.boolean(),
+  discovered_complete: z.boolean(),
+  inventory_complete: z.boolean(),
+  documents_truncated: z.boolean(),
+  total_entries_seen: z.number().int().nonnegative(),
+  distinct_sitemap_urls: z.number().int().nonnegative(),
+  distinct_page_urls: z.number().int().nonnegative(),
+  distinct_child_sitemaps: z.number().int().nonnegative(),
+  missing_child_documents: z.number().int().nonnegative(),
+  duplicate_url_entries: z.number().int().nonnegative(),
+  invalid_url_entries: z.number().int().nonnegative(),
+  external_url_entries: z.number().int().nonnegative(),
+  lastmod_values_seen: z.number().int().nonnegative(),
+  lastmod_invalid_count: z.number().int().nonnegative(),
+  lastmod_future_count: z.number().int().nonnegative(),
+  lastmod_conflicting_count: z.number().int().nonnegative(),
+  independently_discovered_urls: z.number().int().nonnegative(),
+  discovered_in_sitemaps: z.number().int().nonnegative(),
+  discovered_missing_from_sitemaps: z.number().int().nonnegative(),
+  sitemap_urls_not_in_discovery: z.number().int().nonnegative(),
+  page_observations: z.number().int().nonnegative(),
+  sitemap_urls_with_page_evidence: z.number().int().nonnegative(),
+  status_conflicts: z.number().int().nonnegative(),
+  noindex_conflicts: z.number().int().nonnegative(),
+  robots_conflicts: z.number().int().nonnegative(),
+  canonical_conflicts: z.number().int().nonnegative(),
+  lastmod_observation_conflicts: z.number().int().nonnegative(),
+  known_indexability_conflicts: z.number().int().nonnegative(),
+  unknown_page_indexability: z.number().int().nonnegative(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(260)).max(5),
+  documents: z.array(z.object({
+    document: z.number().int().min(1).max(MAX_SITEMAP_DOCUMENTS),
+    kind: z.enum(SITEMAP_DOCUMENT_KINDS),
+    status_code: z.number().int().min(100).max(599).optional(),
+    entries_seen: z.number().int().nonnegative(),
+    valid_url_entries: z.number().int().nonnegative(),
+    child_sitemaps: z.number().int().nonnegative(),
+    invalid_entries: z.number().int().nonnegative(),
+    external_entries: z.number().int().nonnegative(),
+    duplicate_entries: z.number().int().nonnegative(),
+    lastmod_present: z.number().int().nonnegative(),
+    lastmod_invalid: z.number().int().nonnegative(),
+    lastmod_future: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  })).max(MAX_SITEMAP_DOCUMENTS),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    document: z.number().int().min(0).max(MAX_SITEMAP_DOCUMENTS),
+    entry: z.number().int().positive().optional(),
+    severity: z.enum(["warning", "info"]),
+    code: z.enum(SITEMAP_FINDING_CODES),
+    message: z.string().max(260),
+  })).max(MAX_SITEMAP_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
   overview: overviewSchema,
@@ -534,6 +806,84 @@ const supportedSchemaOutputSchema = z.object({
   findings_truncated: z.boolean(),
   overview: overviewSchema,
   error: z.string().optional(),
+});
+
+const graphLabelSchema = z.string().url().max(512)
+  .refine((value) => Boolean(safeLinkPageUrl(value)),
+    "Use a safe query-free HTTP(S) URL without credentials, fragment or port.");
+const graphPageInputSchema = z.object({
+  url: graphLabelSchema,
+  html: z.string().max(MAX_GRAPH_HTML_BYTES)
+    .refine((value) => new TextEncoder().encode(value).byteLength <= MAX_GRAPH_HTML_BYTES,
+      "Static HTML must fit the 1 MiB UTF-8 cap.").optional(),
+  status_code: z.number().int().min(100).max(599).optional(),
+  robots_allowed: z.boolean().optional(),
+  noindex: z.boolean().optional(),
+  canonical_url: graphLabelSchema.optional(),
+}).strict();
+const graphOutputSchema = z.object({
+  scope: z.enum(["caller_supplied_link_graph", "live_bounded_public_link_graph"]),
+  pages_observed: z.number().int().min(0).max(MAX_GRAPH_PAGES),
+  html_pages_examined: z.number().int().nonnegative(),
+  entry_pages_observed: z.number().int().nonnegative(),
+  entry_pages_missing: z.number().int().nonnegative(),
+  pages_reachable_within_sample: z.number().int().nonnegative(),
+  pages_unreachable_within_sample: z.number().int().nonnegative(),
+  deepest_observed_sample_depth: z.number().int().min(0).max(MAX_GRAPH_PAGES).nullable(),
+  deep_pages_at_three_or_more: z.number().int().nonnegative(),
+  potential_orphans_within_sample: z.number().int().nonnegative(),
+  unique_observed_sample_edges: z.number().int().nonnegative(),
+  internal_links_observed: z.number().int().nonnegative(),
+  external_links_observed: z.number().int().nonnegative(),
+  nofollow_internal_links: z.number().int().nonnegative(),
+  distinct_unsampled_link_targets: z.number().int().nonnegative(),
+  unsafe_or_query_links_excluded: z.number().int().nonnegative(),
+  pages_with_truncated_links: z.number().int().nonnegative(),
+  linked_http_error_pages: z.number().int().nonnegative(),
+  linked_robots_blocked_pages: z.number().int().nonnegative(),
+  linked_declared_noindex_pages: z.number().int().nonnegative(),
+  linked_noncanonical_pages: z.number().int().nonnegative(),
+  sitemap_urls_provided: z.number().int().nonnegative(),
+  sitemap_urls_without_page_sample: z.number().int().nonnegative(),
+  sampled_pages_not_in_sitemap: z.number().int().nonnegative(),
+  robots_unknown_pages: z.number().int().nonnegative(),
+  status_unknown_pages: z.number().int().nonnegative(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(350)).max(4),
+  pages: z.array(z.object({
+    page: z.number().int().min(1).max(MAX_GRAPH_PAGES),
+    html_examined: z.boolean(),
+    status_code: z.number().int().min(100).max(599).optional(),
+    robots_access: z.enum(["allowed", "disallowed", "unknown"]),
+    noindex_state: z.enum(["declared", "not_observed", "unknown"]),
+    canonical_state: z.enum(["self", "different", "ambiguous", "unknown"]),
+    links_observed: z.number().int().nonnegative(),
+    internal_links: z.number().int().nonnegative(),
+    external_links: z.number().int().nonnegative(),
+    fragment_links: z.number().int().nonnegative(),
+    query_links_excluded: z.number().int().nonnegative(),
+    unsafe_links_excluded: z.number().int().nonnegative(),
+    self_links: z.number().int().nonnegative(),
+    nofollow_internal: z.number().int().nonnegative(),
+    sampled_targets: z.number().int().nonnegative(),
+    unobserved_internal_targets: z.number().int().nonnegative(),
+    incoming_sampled_sources: z.number().int().nonnegative(),
+    depth_from_entry: z.number().int().min(0).max(MAX_GRAPH_PAGES).nullable(),
+    potential_orphan_in_sample: z.boolean(),
+    extraction_limited: z.boolean(),
+  })).max(MAX_GRAPH_PAGES),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(GRAPH_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    page: z.number().int().min(0).max(MAX_GRAPH_PAGES),
+    target_page: z.number().int().min(1).max(MAX_GRAPH_PAGES).optional(),
+    count: z.number().int().nonnegative(),
+    message: z.string().max(360),
+  })).max(MAX_GRAPH_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+  overview: overviewSchema,
 });
 
 const internalLinkPageInputSchema = z.object({
@@ -2994,6 +3344,94 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
 
   registerAppTool(
     server,
+    "review_internal_link_graph",
+    {
+      title: "Review sampled link graph, crawl depth and possible orphans",
+      description:
+        "V06: compare up to eight caller-supplied same-origin static page observations (including navigation anchors), optional entry roots and up to 256 previously observed sitemap labels; or sample robots.txt and up to three guarded same-origin HTML pages. Reports sample-only shortest depths, missing inbound links, potential orphan leads, nofollow-only paths, and independently observed blocked/HTTP-error/noindex/noncanonical targets. Never assumes unsampled pages are orphans or verifies Google indexing. No raw URLs/HTML, JavaScript, GSC, storage, crawler impersonation or full-site crawl.",
+      inputSchema: {
+        url: deliveryInputUrl.optional()
+          .describe("Live: one authorized public query-free entry URL; bounded robots.txt and up to three HTML page fetches."),
+        site_url: graphLabelSchema.optional()
+          .describe("Offline: exact-origin site URL; no network requests."),
+        pages: z.array(graphPageInputSchema).min(1).max(MAX_GRAPH_PAGES).optional()
+          .describe("Offline: one to eight previously observed HTML/status/robots/canonical page records."),
+        entry_urls: z.array(graphLabelSchema).max(MAX_GRAPH_PAGES).optional()
+          .describe("Optional entry roots; by default only an included site homepage is used."),
+        sitemap_urls: z.array(graphLabelSchema).max(MAX_GRAPH_CATALOG_URLS).optional()
+          .describe("Optional independent sitemap URL observations, never fetched or called confirmed orphans."),
+      },
+      outputSchema: graphOutputSchema.shape,
+      annotations: externalReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Comparing sampled navigation paths and internal-link evidence...",
+        invoked: "Sampled internal-link graph review complete.",
+      }),
+    },
+    async ({ url, site_url, pages, entry_urls, sitemap_urls }) => {
+      try {
+        if (url
+          ? Boolean(site_url || pages || entry_urls || sitemap_urls)
+          : !(site_url && pages)) {
+          throw new Error("Choose guarded live sampling or complete offline graph input.");
+        }
+        const review = url
+          ? await probeInternalLinkGraph(url, async () => {
+            const allowed = await env.SITE_AUDIT_RATE_LIMITER.limit({ key: siteAuditRateLimitKey });
+            if (!allowed.success) throw new PublicHttpProbeBudgetError("Public site request budget exceeded.");
+          })
+          : analyzeInternalLinkGraph({
+            site_url: site_url!, pages: pages!,
+            ...(entry_urls ? { entry_urls } : {}),
+            ...(sitemap_urls ? { sitemap_urls } : {}),
+          });
+        const warnings = review.findings.filter((f) => f.severity === "warning");
+        const overview: ResultOverview = {
+          kind: "report",
+          status: warnings.length ? "needs_attention" : "partial",
+          title: "Internal-link graph (V06)",
+          headline: review.pages_observed + " sampled pages, "
+            + review.unique_observed_sample_edges + " observed page-to-page edges, "
+            + review.pages_reachable_within_sample + " reachable from sampled entry roots.",
+          detail: review.pages_unreachable_within_sample + " pages have no sampled entry path; "
+            + review.potential_orphans_within_sample + " have no incoming sampled links, "
+            + review.distinct_unsampled_link_targets + " targets are unobserved. "
+            + "These are review leads, not proven whole-site orphans, Googlebot crawl or indexing outcomes.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("sampled_depth", "Deepest observed path", review.deepest_observed_sample_depth ?? 0, "info"),
+            metric("possible_orphans", "Possible orphan leads", review.potential_orphans_within_sample, "info"),
+            metric("unseen_targets", "Unobserved targets", review.distinct_unsampled_link_targets, "info"),
+            metric("linked_http_errors", "Linked HTTP errors", review.linked_http_error_pages, "warning"),
+            metric("robots_blocked", "Linked robots blocks", review.linked_robots_blocked_pages, "warning"),
+          ],
+          next_action: "Provide more representative pages and independently observed sitemap URLs; verify possible orphans and target statuses before changing navigation.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview, review.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code + " (page " + finding.page + ")",
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "Internal-link graph could not be reviewed within safe HTML, URL, robots and network budgets.";
+        const overview = failedOverview("report", "Internal-link graph (V06)",
+          "Sampled navigation evidence could not be assessed.", error);
+        return {
+          structuredContent: { ...emptyInternalLinkGraphReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
     "review_internal_links",
     {
       title: "Review sampled internal links and accessible anchor labels",
@@ -3123,6 +3561,365 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           "The supplied metadata sample could not be compared.", error);
         return {
           structuredContent: { ...emptyMetadataReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "review_sitemap_inventory",
+    {
+      title: "Review sitemap inventory, coverage and indexability conflicts",
+      description:
+        "V05: compare up to eight caller-supplied XML/text sitemap documents, independently discovered URLs and page status/robots/noindex/canonical evidence; or fetch one safe public sitemap and up to two same-origin child sitemaps. Reports malformed, duplicated, missing or external entries, lastmod anomalies and observed indexability conflicts without pretending sampled URLs prove full coverage or Google indexing. No raw URLs, XML source, external storage, crawler impersonation, page crawling or production writes.",
+      inputSchema: {
+        url: deliveryInputUrl.optional()
+          .describe("Live: one authorized query-free public site URL; sitemap defaults to /sitemap.xml."),
+        sitemap_url: deliveryInputUrl.optional()
+          .describe("Live: optional same-origin query-free sitemap URL."),
+        site_url: deliveryInputUrl.optional()
+          .describe("Offline: public site whose sitemaps are provided."),
+        documents: z.array(sitemapDocInputSchema).min(1).max(MAX_SITEMAP_DOCUMENTS).optional()
+          .describe("Offline: 1–8 previously acquired XML or plain-text sitemap contents."),
+        discovered_urls: z.array(chainLabelSchema).max(MAX_SITEMAP_DISCOVERED).optional()
+          .describe("Optional independent discovered URLs, not fetched in this call."),
+        page_observations: z.array(sitemapPageInputSchema)
+          .max(MAX_SITEMAP_PAGE_OBSERVATIONS).optional()
+          .describe("Optional HTTP/indexing evidence for up to 250 known pages."),
+        documents_complete: z.boolean().optional(),
+        discovered_complete: z.boolean().optional(),
+        observed_at: z.string().max(40).optional(),
+      },
+      outputSchema: sitemapOutputSchema.shape,
+      annotations: externalReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Reviewing sitemap documents and sampled page evidence...",
+        invoked: "Sitemap inventory review complete.",
+      }),
+    },
+    async ({ url, sitemap_url, site_url, documents, discovered_urls, page_observations,
+      documents_complete, discovered_complete, observed_at }) => {
+      try {
+        if (url
+          ? Boolean(site_url || documents || discovered_urls || page_observations
+            || documents_complete !== undefined || discovered_complete !== undefined
+            || observed_at !== undefined)
+          : !(site_url && documents) || sitemap_url !== undefined) {
+          throw new Error("Select one live URL or complete offline sitemap evidence.");
+        }
+        const review = url
+          ? await probeSitemapInventory(url, sitemap_url, async () => {
+            const allowed = await env.SITE_AUDIT_RATE_LIMITER.limit({ key: siteAuditRateLimitKey });
+            if (!allowed.success) throw new PublicHttpProbeBudgetError("Sitemap public HTTP budget exceeded.");
+          })
+          : analyzeSitemapInventory({
+            site_url: site_url!, documents: documents!,
+            ...(discovered_urls ? { discovered_urls } : {}),
+            ...(page_observations ? { page_observations } : {}),
+            ...(documents_complete === undefined ? {} : { documents_complete }),
+            ...(discovered_complete === undefined ? {} : { discovered_complete }),
+            ...(observed_at ? { observed_at } : {}),
+          });
+        const attention = review.known_indexability_conflicts > 0
+          || review.invalid_url_entries > 0 || review.lastmod_invalid_count > 0;
+        const overview: ResultOverview = {
+          kind: "report",
+          status: attention ? "needs_attention" : "partial",
+          title: "Sitemap inventory (V05)",
+          headline: review.documents_observed + " sampled document(s), "
+            + review.distinct_page_urls + " distinct page URL(s), "
+            + review.missing_child_documents + " missing child sitemap(s).",
+          detail: review.duplicate_url_entries + " duplicate(s), "
+            + review.invalid_url_entries + " invalid URL(s), "
+            + review.lastmod_invalid_count + " invalid lastmod(s), "
+            + review.known_indexability_conflicts + " observed indexability conflict(s). "
+            + (review.inventory_complete
+              ? "Caller-provided document coverage marked complete."
+              : "Full document coverage is not established.")
+            + " No Google indexing/crawling status is inferred.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("invalid_urls", "Invalid URLs", review.invalid_url_entries, "warning"),
+            metric("missing_children", "Unseen child sitemaps", review.missing_child_documents, "info"),
+            metric("indexability_conflicts", "Indexability conflicts",
+              review.known_indexability_conflicts, "warning"),
+          ],
+          next_action: "Verify the complete sitemap index, important page statuses/canonical directives, and independent crawl coverage before treating any inventory as comprehensive.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview, review.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code + " (document " + finding.document + ")",
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "Sitemap inventory could not be evaluated within public URL, bounded XML/text or request limits.";
+        const overview = failedOverview("report", "Sitemap inventory (V05)",
+          "No trustworthy sitemap inventory comparison could be completed.", error);
+        return {
+          structuredContent: { ...emptySitemapInventoryReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "review_redirect_canonical_chains",
+    {
+      title: "Review HTTP redirect chains and canonical destination conflicts",
+      description:
+        "V04: review up to eight supplied ordered HTTP response hops with redirects and static HTML/HTTP canonical plus X-Robots-Tag evidence; or probe a bounded same-origin public GET chain and static HTML destination. Detects loops, chain mismatches, missing or unsafe Location, 4xx/5xx/noindex destinations, conflicting/cyclic canonical declarations and non-matching explicit expected targets. Does not impersonate Googlebot, retrieve Google indexing decisions, store response bodies or echo raw URLs/tokens. Hosted live mode charges rate limit per outgoing request.",
+      inputSchema: {
+        url: deliveryInputUrl.optional()
+          .describe("One authorized query-free public URL for a bounded live GET chain."),
+        source_url: chainLabelSchema.optional()
+          .describe("Offline mode: source URL label; first supplied observation must match."),
+        observations: z.array(chainObservationSchema).min(1).max(MAX_CHAIN_HOPS).optional()
+          .describe("Offline: one to eight ordered observed redirect/status/canonical records."),
+        expected_destination: chainLabelSchema.optional()
+          .describe("Optional expected final URL to identify an observed destination mismatch."),
+      },
+      outputSchema: chainOutputSchema.shape,
+      annotations: externalReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Reviewing redirect hops and canonical destination evidence...",
+        invoked: "Redirect/canonical chain diagnostics complete.",
+      }),
+    },
+    async ({ url, source_url, observations, expected_destination }) => {
+      try {
+        if (url
+          ? Boolean(source_url || observations)
+          : !(source_url && observations)) {
+          throw new Error("Select either live URL or complete offline observations.");
+        }
+        const review = url
+          ? await probeRedirectCanonicalChain(url, expected_destination, async () => {
+            const allowed = await env.SITE_AUDIT_RATE_LIMITER.limit({ key: siteAuditRateLimitKey });
+            if (!allowed.success) throw new PublicHttpProbeBudgetError("Public HTTP request budget exceeded.");
+          })
+          : analyzeRedirectCanonicalChains({
+            source_url: source_url!, observations: observations!,
+            ...(expected_destination ? { expected_destination } : {}),
+          });
+        const warnings = review.findings.filter((item) => item.severity === "warning");
+        const overview: ResultOverview = {
+          kind: "report",
+          status: warnings.length > 0 ? "needs_attention" : "partial",
+          title: "Redirect and canonical chains (V04)",
+          headline: review.hops_observed + " HTTP response(s), "
+            + review.redirects_observed + " redirect(s), "
+            + review.conflicting_canonical_hops + " conflicting-canonical hop(s).",
+          detail: review.canonical_cycles + " canonical cycle(s), "
+            + (review.chain_complete ? "observed chain complete." : "observed chain incomplete.")
+            + (review.nonindexable_destination
+              ? " Sampled destination has an HTTP, noindex or robots-block signal." : "")
+            + " No Google-selected canonical or search indexing status was verified.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("redirects", "Redirect hops", review.redirects_observed, "info"),
+            metric("canonical_conflicts", "Canonical conflicts",
+              review.conflicting_canonical_hops, "warning"),
+            metric("canonical_cycles", "Canonical cycles", review.canonical_cycles, "warning"),
+          ],
+          next_action: warnings.length > 0
+            ? "Inspect the response Location and canonical declarations in the site's configuration; verify important destinations in Search Console or crawler logs separately."
+            : "Compare against the explicitly expected destination and verified crawler responses if the issue recurs.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview, review.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code + " (hop " + finding.hop + ")",
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "The redirect/canonical evidence could not be evaluated within safe public URL, input and request limits.";
+        const overview = failedOverview("report", "Redirect and canonical chains (V04)",
+          "No trustworthy redirect/canonical comparison could be completed.", error);
+        return {
+          structuredContent: { ...emptyRedirectCanonicalReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "review_crawler_access",
+    {
+      title: "Review crawler robots access and indexing directive matrix",
+      description:
+        "V03: compare up to eight user-provided same-origin page observations, static HTML meta robots and X-Robots-Tag against crawler-specific robots.txt rules for Googlebot desktop/smartphone/news/image, Bingbot and GPTBot. Alternatively fetch a single public page and robots.txt with the service's own User-Agent, applying public URL and robots guards and charging per outgoing GET. Crawl permission is NOT an indexing verdict; this does not impersonate or authenticate search crawlers, execute JS, store HTML or inspect crawler logs.",
+      inputSchema: {
+        url: deliveryInputUrl.optional()
+          .describe("Live: one authorized public query-free page URL; omit offline fields."),
+        site_url: deliveryInputUrl.optional()
+          .describe("Offline: origin URL to compare with the supplied pages."),
+        robots_txt: z.string().max(MAX_CRAWLER_ROBOTS_BYTES).optional()
+          .describe("Offline: previously acquired robots.txt text, maximum 64 KB."),
+        robots_status_code: z.number().int().min(100).max(599).optional()
+          .describe("Offline: actual observed robots.txt status; 429 and 5xx remain unknown."),
+        pages: z.array(crawlerPageInputSchema).min(1).max(MAX_CRAWLER_PAGES).optional()
+          .describe("Offline: one to eight page URL, HTTP, static HTML and header samples."),
+        profiles: crawlerProfileInput.describe("Optional distinct profiles, six available and all checked by default."),
+      },
+      outputSchema: crawlerOutputSchema.shape,
+      annotations: externalReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Reviewing crawler rules and indexing directives...",
+        invoked: "Crawler-access matrix complete.",
+      }),
+    },
+    async ({ url, site_url, robots_txt, robots_status_code, pages, profiles }) => {
+      try {
+        if (url
+          ? Boolean(site_url || pages || robots_txt !== undefined || robots_status_code !== undefined)
+          : !(site_url && pages)) {
+          throw new Error("Choose only live URL or complete offline evidence.");
+        }
+        const review = url
+          ? await probeCrawlerAccess(url, profiles, async () => {
+            const allowed = await env.SITE_AUDIT_RATE_LIMITER.limit({ key: siteAuditRateLimitKey });
+            if (!allowed.success) throw new PublicHttpProbeBudgetError("Site audit rate limit reached.");
+          })
+          : analyzeCrawlerAccess({
+            site_url: site_url!, pages: pages!,
+            ...(robots_txt === undefined ? {} : { robots_txt }),
+            ...(robots_status_code === undefined ? {} : { robots_status_code }),
+            ...(profiles ? { profiles } : {}),
+          });
+        const overview: ResultOverview = {
+          kind: "report",
+          status: review.crawler_disallowed_rows > 0 || review.noindex_declared_rows > 0
+            ? "needs_attention" : "partial",
+          title: "Crawler access matrix (V03)",
+          headline: review.rows_checked + " observed profile/page combinations; "
+            + review.crawler_disallowed_rows + " robots-disallowed and "
+            + review.noindex_declared_rows + " with declared noindex.",
+          detail: review.unknown_access_rows + " unknown robots decisions and "
+            + review.unknown_indexing_rows + " unknown indexing observations. "
+            + "These are static, declared or sampled signals, not real Googlebot/Bingbot responses or confirmed index state.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("robots_disallow", "Robots disallow", review.crawler_disallowed_rows, "warning"),
+            metric("noindex", "Noindex declared", review.noindex_declared_rows, "warning"),
+            metric("unknown_access", "Unknown crawl access", review.unknown_access_rows, "info"),
+          ],
+          next_action: "Verify the applicable robots.txt and actual response headers in verified crawler logs and Search Console before attributing an indexing decline.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview, review.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code + " (page " + finding.page + ", " + finding.profile + ")",
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "Crawler access cannot be assessed within public URL, source-evidence and request-rate safety limits.";
+        const overview = failedOverview("report", "Crawler access matrix (V03)",
+          "The crawler-access sample or offline comparison could not be completed.", error);
+        return {
+          structuredContent: { ...emptyCrawlerAccessReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "review_availability_history",
+    {
+      title: "Compare observed availability history and repeat HTTP delivery samples",
+      description:
+        "V02: compare two to 48 caller-supplied chronological HTTP/transport outcomes, or take two to three bounded live public GET observations. Counts intermittent success/non-success, HTTP 429/5xx, explicit challenges, timeouts and status transitions. Sample rate is not continuous uptime. No cloud persistence, scheduler, Googlebot verification, JavaScript, response bodies or raw URL/header output.",
+      inputSchema: {
+        url: deliveryInputUrl.optional()
+          .describe("One authorized public, query-free URL for a short live 2–3 GET burst."),
+        checks: z.number().int().min(2).max(3).optional()
+          .describe("Two or three live GET observations, default three; omit for offline input."),
+        observations: z.array(availabilityObservationSchema).min(2)
+          .max(MAX_AVAILABILITY_OBSERVATIONS).optional()
+          .describe("Previously collected chronological HTTP or transport outcomes; no network requests."),
+      },
+      outputSchema: availabilityOutputSchema.shape,
+      annotations: externalReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Comparing availability response observations...",
+        invoked: "Availability comparison complete.",
+      }),
+    },
+    async ({ url, checks, observations }) => {
+      try {
+        if (Boolean(url) === Boolean(observations) || (observations && checks !== undefined)) {
+          throw new Error("Exactly one input mode is required.");
+        }
+        const requestedChecks = checks ?? 3;
+        const review = analyzeAvailabilityHistory(
+          observations ?? await collectPublicAvailability(url!, requestedChecks,
+            async () => (await env.SITE_AUDIT_RATE_LIMITER.limit({
+              key: siteAuditRateLimitKey,
+            })).success),
+          url ? "live_bounded_burst" : "caller_supplied_history",
+        );
+        const warns = review.findings.filter((finding) => finding.severity === "warning");
+        const overview: ResultOverview = {
+          kind: "report",
+          status: warns.length > 0 ? "needs_attention" : "partial",
+          title: "Availability observations (V02)",
+          headline: review.observed_successes + "/" + review.observations_count
+            + " sampled requests returned HTTP 2xx (" + review.observed_success_percent + "% of samples).",
+          detail: review.observed_http_5xx + " HTTP 5xx, " + review.observed_rate_limits
+            + " HTTP 429, " + review.observed_transport_failures
+            + " no-response events, " + review.http_status_changes
+            + " response status changes. These samples do not establish continuous uptime or actual outage duration.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("non_2xx", "Non-2xx samples",
+              review.observations_count - review.observed_successes, "warning"),
+            metric("transport_errors", "No-response samples", review.observed_transport_failures, "warning"),
+            metric("status_transitions", "Status changes", review.http_status_changes, "info"),
+          ],
+          next_action: warns.length > 0
+            ? "Correlate the sampled timestamps with server/CDN logs and verified crawler records. Repeat at planned intervals for genuine history."
+            : "Store samples externally or locally with the separate local MCP; repeat observations to establish a useful time series.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview, review.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code,
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "Availability history could not be evaluated within the public URL, chronology, sample and rate limits.";
+        const overview = failedOverview("report", "Availability observations (V02)",
+          "The availability sample or comparison could not be completed.", error);
+        return {
+          structuredContent: { ...emptyAvailabilityReview(), overview, error },
           content: contentForOverview(overview),
           isError: true,
         };

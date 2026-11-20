@@ -30,17 +30,22 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "audit.history",
       "audit.monitor",
       "audit.trends",
+      "availability.history",
+      "browser.dom_diff",
       "browser.wcag",
       "content.competitors",
       "content.duplicates",
       "content.metadata",
       "content.provenance",
       "content.quality",
+      "crawler.access",
       "css.local",
       "html.local",
       "html.url",
+      "http.availability",
       "http.delivery",
       "http.directives",
+      "http.redirect_chain",
       "http.security",
       "http.variants",
       "links.broken",
@@ -52,8 +57,131 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "screenshot.capture",
       "seo.metadata",
       "site.hreflang",
+      "site.link_graph",
       "site.links",
+      "site.sitemaps",
     ]);
+
+    const renderedTool = tools.find((tool) => tool.name === "browser.dom_diff");
+    assert.equal(renderedTool?.annotations?.readOnlyHint, true);
+    assert.equal(renderedTool?.outputSchema?.properties?.findings?.maxItems, 18);
+    const dom = await client.callTool({
+      name: "browser.dom_diff",
+      arguments: {
+        mode: "compare_snapshots", page_url: "https://example.com/",
+        raw_html: '<html><head><title>Original</title></head><body><main><h1>Original</h1><a href="/private-v07">Source</a></main></body></html>',
+        rendered_html: '<html><head><title>Hydrated</title></head><body><main><h1>Hydrated</h1><a href="/new-v07">Rendered</a></main></body></html>',
+      },
+    });
+    assert.equal(dom.isError, undefined);
+    assert.equal(dom.structuredContent?.scope, "caller_supplied_rendered_snapshot");
+    assert.equal(dom.structuredContent?.title_changed, true);
+    assert.equal(dom.structuredContent?.link_targets_added, 1);
+    assert.equal(dom.structuredContent?.link_targets_removed, 1);
+    assert.equal(dom.structuredContent?.browser_executed, false);
+    assert(!JSON.stringify(dom).includes("private-v07"));
+    assert(!JSON.stringify(dom).includes("new-v07"));
+
+    const graphTool = tools.find((tool) => tool.name === "site.link_graph");
+    assert.equal(graphTool?.annotations?.readOnlyHint, true);
+    assert.equal(graphTool?.outputSchema?.properties?.pages_observed?.maximum, 8);
+    const graph = await client.callTool({
+      name: "site.link_graph",
+      arguments: {
+        site_url: "https://example.com/",
+        pages: [
+          { url: "https://example.com/", status_code: 200,
+            html: '<html><body><nav><a href="/known">Known</a></nav><a href="/unknown-secret">Unknown</a></body></html>' },
+          { url: "https://example.com/known", status_code: 200,
+            html: "<html><body><h1>Known</h1></body></html>" },
+          { url: "https://example.com/orphan-secret", status_code: 200,
+            html: "<html><body><h1>Orphan candidate</h1></body></html>" },
+        ],
+        sitemap_urls: [
+          "https://example.com/", "https://example.com/known",
+          "https://example.com/orphan-secret", "https://example.com/not-sampled-secret",
+        ],
+      },
+    });
+    assert.equal(graph.isError, undefined);
+    assert.equal(graph.structuredContent?.scope, "caller_supplied_link_graph");
+    assert.equal(graph.structuredContent?.pages_observed, 3);
+    assert.equal(graph.structuredContent?.unique_observed_sample_edges, 1);
+    assert.equal(graph.structuredContent?.pages_reachable_within_sample, 2);
+    assert.equal(graph.structuredContent?.potential_orphans_within_sample, 1);
+    assert.equal(graph.structuredContent?.sitemap_urls_without_page_sample, 1);
+    assert(!JSON.stringify(graph).includes("orphan-secret"));
+    assert(!JSON.stringify(graph).includes("not-sampled-secret"));
+
+    const sitemapTool = tools.find((tool) => tool.name === "site.sitemaps");
+    assert.equal(sitemapTool?.annotations?.readOnlyHint, true);
+    assert.equal(sitemapTool?.outputSchema?.properties?.documents_observed?.maximum, 8);
+    const sitemap = await client.callTool({
+      name: "site.sitemaps",
+      arguments: {
+        site_url: "https://example.com/",
+        documents: [{
+          sitemap_url: "https://example.com/sitemap.xml",
+          content: '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            + '<url><loc>https://example.com/private-v05</loc></url></urlset>',
+        }],
+        page_observations: [{
+          url: "https://example.com/private-v05", status_code: 404, noindex: true,
+        }],
+      },
+    });
+    assert.equal(sitemap.isError, undefined);
+    assert.equal(sitemap.structuredContent?.distinct_page_urls, 1);
+    assert.equal(sitemap.structuredContent?.known_indexability_conflicts, 1);
+    assert.equal(sitemap.structuredContent?.noindex_conflicts, 1);
+    assert(!JSON.stringify(sitemap).includes("private-v05"));
+
+    const chainTool = tools.find((tool) => tool.name === "http.redirect_chain");
+    assert.equal(chainTool?.annotations?.readOnlyHint, true);
+    assert.equal(chainTool?.outputSchema?.properties?.hops_observed?.maximum, 8);
+    const chain = await client.callTool({
+      name: "http.redirect_chain",
+      arguments: {
+        source_url: "https://example.com/",
+        expected_destination: "https://example.com/landing",
+        observations: [
+          { url: "https://example.com/", status_code: 301, location: "/landing" },
+          { url: "https://example.com/landing", status_code: 200,
+            html: "<html><head><meta name='robots' content='noindex'></head></html>",
+            x_robots_tag: [] },
+        ],
+      },
+    });
+    assert.equal(chain.isError, undefined);
+    assert.equal(chain.structuredContent?.hops_observed, 2);
+    assert.equal(chain.structuredContent?.chain_complete, true);
+    assert.equal(chain.structuredContent?.nonindexable_destination, true);
+    assert.equal(chain.structuredContent?.expected_destination_match, true);
+    assert(!JSON.stringify(chain).includes("https://example.com/landing"));
+
+    const crawlerTool = tools.find((tool) => tool.name === "crawler.access");
+    assert.equal(crawlerTool?.annotations?.readOnlyHint, true);
+    assert.equal(crawlerTool?.outputSchema?.properties?.rows_checked?.maximum, 48);
+    const robots = await client.callTool({
+      name: "crawler.access",
+      arguments: {
+        site_url: "https://example.com/",
+        robots_txt: "User-agent: Googlebot\nDisallow: /private",
+        pages: [{
+          url: "https://example.com/private/secret-to-redact",
+          status_code: 200,
+          html: "<meta name='googlebot' content='noindex'>",
+          x_robots_tag: [],
+        }],
+        profiles: ["googlebot-smartphone", "bingbot"],
+      },
+    });
+    assert.equal(robots.isError, undefined);
+    assert.equal(robots.structuredContent?.rows_checked, 2);
+    assert.equal(robots.structuredContent?.crawler_disallowed_rows, 1);
+    assert.equal(robots.structuredContent?.noindex_declared_rows, 1);
+    assert.equal(robots.structuredContent?.coverage_limited, true);
+    assert(!JSON.stringify(robots).includes("secret-to-redact"));
 
     const deliveryTool = tools.find((tool) => tool.name === "http.delivery");
     assert.equal(deliveryTool?.annotations?.readOnlyHint, true);
@@ -71,6 +199,31 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.equal(edgeSample.structuredContent?.challenges_observed, 1);
     assert.equal(edgeSample.structuredContent?.hops?.[0]?.retry_after_seconds, 20);
     assert(!JSON.stringify(edgeSample).includes("confidential-edge-ID"));
+    const availabilityTool = tools.find((tool) => tool.name === "http.availability");
+    assert.equal(availabilityTool?.annotations?.readOnlyHint, true);
+    assert.equal(availabilityTool?.outputSchema?.properties?.observations_count?.maximum, 48);
+    const availabilitySample = await client.callTool({
+      name: "http.availability",
+      arguments: { observations: [
+        { observed_at: "2026-11-20T09:00:00Z", status_code: 200 },
+        { observed_at: "2026-11-20T09:01:00Z", status_code: 503 },
+        { observed_at: "2026-11-20T09:02:00Z", status_code: 200 },
+      ] },
+    });
+    assert.equal(availabilitySample.isError, undefined);
+    assert.equal(availabilitySample.structuredContent?.observed_success_percent, 67);
+    assert.equal(availabilitySample.structuredContent?.intermittent_non_success, true);
+    assert.equal(availabilitySample.structuredContent?.observed_http_5xx, 1);
+    assert.equal(availabilitySample.structuredContent?.coverage_limited, true);
+    const historyTool = tools.find((tool) => tool.name === "availability.history");
+    assert.equal(historyTool?.annotations?.readOnlyHint, false);
+    assert.equal(historyTool?.annotations?.destructiveHint, true);
+    const localHistory = await client.callTool({
+      name: "availability.history",
+      arguments: { action: "list", url: "https://example.com/" },
+    });
+    assert.equal(localHistory.isError, undefined);
+    assert.equal(Array.isArray(localHistory.structuredContent?.records), true);
 
     const seoTool = tools.find((tool) => tool.name === "seo.metadata");
     assert.ok((seoTool?.description ?? "").includes("Use for a quick on-page check"));

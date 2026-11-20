@@ -144,6 +144,367 @@ describe("V01 real hosted MCP tool diagnostics", () => {
   });
 });
 
+describe("V06 hosted MCP internal-link graph", () => {
+  const html = (links: string) => "<html><body><nav>" + links + "</nav></body></html>";
+
+  it("discovers a read-only V06 tool, analyzes offline graph and never exposes page paths", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    const tool = (await listTools()).find((entry) => entry.name === "review_internal_link_graph");
+    expect(tool?.annotations).toMatchObject({
+      readOnlyHint: true, destructiveHint: false, openWorldHint: true,
+    });
+    const result = await callTool("review_internal_link_graph", {
+      site_url: "https://example.com/",
+      pages: [
+        { url: "https://example.com/", status_code: 200,
+          html: html('<a href="/target">Target</a>') },
+        { url: "https://example.com/target", status_code: 200,
+          html: html("") },
+        { url: "https://example.com/orphan-token-secret", status_code: 200,
+          html: html("") },
+      ],
+      sitemap_urls: ["https://example.com/target",
+        "https://example.com/orphan-token-secret", "https://example.com/unseen-token-secret"],
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      scope: "caller_supplied_link_graph", pages_observed: 3,
+      unique_observed_sample_edges: 1, pages_reachable_within_sample: 2,
+      potential_orphans_within_sample: 1, sitemap_urls_without_page_sample: 1,
+      overview: { status: "partial" },
+    });
+    expect(JSON.stringify(result)).not.toContain("orphan-token-secret");
+    expect(JSON.stringify(result)).not.toContain("unseen-token-secret");
+    expect(mock).not.toHaveBeenCalled();
+  });
+
+  it("runs the actual hosted MCP with at most 3 guarded pages and robots.txt", async () => {
+    const mock = vi.fn(async (resource: RequestInfo | URL) => {
+      const uri = String(resource);
+      if (uri.endsWith("/robots.txt")) return new Response("User-agent: *\nAllow: /\n",
+        { status: 200, headers: { "content-type": "text/plain" } });
+      return new Response(uri === "https://example.com/"
+        ? html('<a href="/a">A</a><a href="/b">B</a>')
+        : html(""), { status: 200, headers: { "content-type": "text/html" } });
+    });
+    vi.stubGlobal("fetch", mock);
+    const result = await callTool("review_internal_link_graph", {
+      url: "https://example.com/",
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      scope: "live_bounded_public_link_graph",
+      pages_observed: 3, pages_reachable_within_sample: 3,
+      unique_observed_sample_edges: 2,
+    });
+    expect(mock).toHaveBeenCalledTimes(4);
+  });
+
+  it("rejects mixed modes, injected query tokens, oversized HTML without making requests", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    for (const args of [
+      { url: "https://example.com/?token=private-v06" },
+      { url: "https://example.com/", site_url: "https://example.com/",
+        pages: [{ url: "https://example.com/", html: html("") }] },
+      { site_url: "https://example.com/", pages: [
+        { url: "https://example.com/?token=private-v06", html: html("") },
+      ] },
+      { site_url: "https://example.com/", pages: [
+        { url: "https://example.com/", html: "x".repeat(1_048_577) },
+      ] },
+    ]) {
+      const r = await callTool("review_internal_link_graph", args);
+      expect(r.isError).toBe(true);
+      expect(JSON.stringify(r)).not.toContain("private-v06");
+    }
+    expect(mock).not.toHaveBeenCalled();
+  });
+});
+
+describe("V05 hosted MCP sitemap inventory", () => {
+  const sitemap = (path: string) => '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+    + '<url><loc>https://example.com/' + path + "</loc></url></urlset>";
+
+  it("discovers the read-only tool and reports redacted offline conflicts", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    const tool = (await listTools()).find((t) => t.name === "review_sitemap_inventory");
+    expect(tool?.annotations).toMatchObject({
+      readOnlyHint: true, destructiveHint: false, openWorldHint: true,
+    });
+    const r = await callTool("review_sitemap_inventory", {
+      site_url: "https://example.com/",
+      documents: [{ sitemap_url: "https://example.com/sitemap.xml",
+        content: sitemap("private-token") }],
+      page_observations: [{ url: "https://example.com/private-token",
+        status_code: 404, noindex: true }],
+    });
+    expect(r.isError).not.toBe(true);
+    expect(r.structuredContent).toMatchObject({
+      scope: "caller_supplied_sitemap_evidence", documents_observed: 1,
+      distinct_page_urls: 1, noindex_conflicts: 1, status_conflicts: 1,
+      known_indexability_conflicts: 1, inventory_complete: false,
+      overview: { status: "needs_attention" },
+    });
+    expect(JSON.stringify(r)).not.toContain("private-token");
+    expect(mock).not.toHaveBeenCalled();
+  });
+
+  it("performs bounded live sitemap GETs and reports unseen children", async () => {
+    const mock = vi.fn(async (url: RequestInfo | URL) =>
+      String(url).endsWith("/sitemap.xml")
+        ? new Response('<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+          + '<sitemap><loc>https://example.com/a.xml</loc></sitemap>'
+          + '<sitemap><loc>https://example.com/b.xml</loc></sitemap>'
+          + '<sitemap><loc>https://example.com/c.xml</loc></sitemap>'
+          + '</sitemapindex>', { status: 200, headers: { "content-type": "application/xml" } })
+        : new Response(sitemap("landing"), {
+          status: 200, headers: { "content-type": "text/xml" },
+        }));
+    vi.stubGlobal("fetch", mock);
+    const r = await callTool("review_sitemap_inventory",
+      { url: "https://example.com/", sitemap_url: "https://example.com/sitemap.xml" });
+    expect(r.isError).not.toBe(true);
+    expect(r.structuredContent).toMatchObject({
+      scope: "live_public_sitemap_sample", documents_observed: 3,
+      missing_child_documents: 1, inventory_complete: false,
+    });
+    expect(mock).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects conflicting input modes and URL secret leaks", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    for (const input of [
+      { url: "https://example.com/?key=secret-V05" },
+      { url: "https://example.com/", site_url: "https://example.com/",
+        documents: [{ sitemap_url: "https://example.com/sitemap.xml", content: sitemap("one") }] },
+      { site_url: "https://example.com/", documents: [
+        { sitemap_url: "https://example.com/sitemap.xml?key=secret-V05", content: sitemap("one") },
+      ] },
+    ]) {
+      const r = await callTool("review_sitemap_inventory", input);
+      expect(r.isError).toBe(true);
+      expect(JSON.stringify(r)).not.toContain("secret-V05");
+    }
+    expect(mock).not.toHaveBeenCalled();
+  });
+});
+
+describe("V04 hosted MCP redirect and canonical chain review", () => {
+  it("discovers the read-only tool, returns structured offline findings and redacts URL tokens", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    const tool = (await listTools()).find((entry) => entry.name === "review_redirect_canonical_chains");
+    expect(tool?.annotations).toMatchObject({
+      readOnlyHint: true, openWorldHint: true, destructiveHint: false,
+    });
+    const report = await callTool("review_redirect_canonical_chains", {
+      source_url: "https://example.com/",
+      expected_destination: "https://example.com/final",
+      observations: [
+        { url: "https://example.com/", status_code: 301, location: "/final" },
+        { url: "https://example.com/final", status_code: 200,
+          html: "<html><head><meta name='robots' content='noindex'></head></html>",
+          x_robots_tag: [] },
+      ],
+    });
+    expect(report.isError).not.toBe(true);
+    expect(report.structuredContent).toMatchObject({
+      scope: "caller_supplied_redirect_evidence", hops_observed: 2,
+      redirects_observed: 1, chain_complete: true, expected_destination_match: true,
+      nonindexable_destination: true, overview: { status: "needs_attention" },
+    });
+    expect(JSON.stringify(report)).not.toContain("https://example.com/final");
+    expect(mock).not.toHaveBeenCalled();
+  });
+
+  it("calls the actual hosted live MCP with bounded redirect/HTML probes", async () => {
+    let n = 0;
+    const mock = vi.fn(async () => {
+      n++;
+      if (n === 1) return new Response(null, {
+        status: 301, headers: { location: "/final" },
+      });
+      if (n === 2) return new Response(null, { status: 200 });
+      return new Response("<html><head><link rel='canonical' href='/final'></head></html>", {
+        status: 200, headers: { "content-type": "text/html" },
+      });
+    });
+    vi.stubGlobal("fetch", mock);
+    const report = await callTool("review_redirect_canonical_chains", {
+      url: "https://example.com/",
+      expected_destination: "https://example.com/final",
+    });
+    expect(report.isError).not.toBe(true);
+    expect(report.structuredContent).toMatchObject({
+      scope: "live_public_redirect_probe", hops_observed: 2,
+      final_status_code: 200, chain_complete: true,
+      expected_destination_match: true,
+      destination_indexing_state: "no_noindex_observed",
+    });
+    expect(mock).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects conflicting modes, unsafe source URLs and malicious evidence", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    for (const args of [
+      { url: "https://example.com/?token=SECRET_V04" },
+      { url: "https://example.com/", source_url: "https://example.com/",
+        observations: [{ url: "https://example.com/", status_code: 200 }] },
+      { source_url: "https://example.com/", observations: [
+        { url: "https://example.com/", status_code: 200 },
+        { url: "https://example.com/unrelated", status_code: 200 },
+      ] },
+      { source_url: "https://example.com/", observations: [
+        { url: "https://example.com/", status_code: 200,
+          canonicals: ["a".repeat(1025)] },
+      ] },
+    ]) {
+      const r = await callTool("review_redirect_canonical_chains", args);
+      expect(r.isError).toBe(true);
+      expect(JSON.stringify(r)).not.toContain("SECRET_V04");
+    }
+    expect(mock).not.toHaveBeenCalled();
+  });
+});
+
+describe("V03 hosted MCP crawler-access matrix", () => {
+  it("discovers the new read-only tool and runs a redacted offline profile comparison", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    const tool = (await listTools()).find((entry) => entry.name === "review_crawler_access");
+    expect(tool?.annotations).toMatchObject({
+      readOnlyHint: true, openWorldHint: true, destructiveHint: false,
+    });
+    const r = await callTool("review_crawler_access", {
+      site_url: "https://example.com/",
+      robots_txt: "User-agent: Googlebot\nDisallow: /private",
+      pages: [{
+        url: "https://example.com/private/not-for-output",
+        status_code: 200,
+        html: "<meta name='googlebot' content='noindex'>",
+        x_robots_tag: [],
+      }],
+      profiles: ["googlebot-smartphone", "bingbot"],
+    });
+    expect(r.isError).not.toBe(true);
+    expect(r.structuredContent).toMatchObject({
+      scope: "caller_supplied_crawler_evidence", rows_checked: 2,
+      crawler_disallowed_rows: 1, noindex_declared_rows: 1,
+      overview: { status: "needs_attention" },
+    });
+    expect(mock).not.toHaveBeenCalled();
+    expect(JSON.stringify(r)).not.toContain("not-for-output");
+  });
+
+  it("live MCP fetches robots.txt and an authorized HTML page, without a crawler identity claim", async () => {
+    const mock = vi.fn(async (url: RequestInfo | URL) =>
+      String(url).endsWith("/robots.txt")
+        ? new Response("User-agent: *\nAllow: /", {
+          status: 200, headers: { "content-type": "text/plain" },
+        })
+        : new Response("<html><head><meta name='robots' content='noindex'></head></html>", {
+          status: 200, headers: { "content-type": "text/html" },
+        }));
+    vi.stubGlobal("fetch", mock);
+    const r = await callTool("review_crawler_access", { url: "https://example.com/" });
+    expect(r.isError).not.toBe(true);
+    expect(r.structuredContent).toMatchObject({
+      scope: "live_public_crawler_probe", rows_checked: 6,
+      noindex_declared_rows: 6,
+      unknown_access_rows: 0,
+    });
+    expect(mock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects conflicting live/offline modes and secret-bearing URL inputs", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    for (const args of [
+      { url: "https://example.com/?token=SECRET_V03" },
+      { url: "https://example.com/", site_url: "https://example.com/" },
+      { site_url: "https://example.com/", pages: [
+        { url: "https://other.example.net/", html: "<h1>mismatch</h1>" },
+      ] },
+    ]) {
+      const r = await callTool("review_crawler_access", args);
+      expect(r.isError).toBe(true);
+      expect(JSON.stringify(r)).not.toContain("SECRET_V03");
+    }
+    expect(mock).not.toHaveBeenCalled();
+  });
+});
+
+describe("V02 hosted MCP availability history and bounded repeat probes", () => {
+  it("lists a stateless, read-only tool and compares offline observations", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    const registered = (await listTools()).find((tool) => tool.name === "review_availability_history");
+    expect(registered?.annotations).toMatchObject({
+      readOnlyHint: true, destructiveHint: false, openWorldHint: true,
+    });
+    const r = await callTool("review_availability_history", { observations: [
+      { observed_at: "2026-11-20T09:00:00Z", status_code: 200 },
+      { observed_at: "2026-11-20T09:01:00Z", status_code: 503 },
+      { observed_at: "2026-11-20T09:02:00Z", status_code: 200 },
+    ] });
+    expect(r.isError).not.toBe(true);
+    expect(r.structuredContent).toMatchObject({
+      observations_count: 3, observed_success_percent: 67,
+      observed_http_5xx: 1, intermittent_non_success: true,
+      scope: "caller_supplied_history", overview: { status: "needs_attention" },
+    });
+    expect(mock).not.toHaveBeenCalled();
+  });
+
+  it("calls the genuine hosted MCP tool for three bounded sequential GET outcomes", async () => {
+    let ordinal = 0;
+    const mock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => {
+      ordinal++;
+      return new Response(null, { status: ordinal === 2 ? 429 : 200,
+        headers: ordinal === 2 ? { "cf-mitigated": "challenge" } : {},
+      });
+    });
+    vi.stubGlobal("fetch", mock);
+    const r = await callTool("review_availability_history",
+      { url: "https://example.com/", checks: 3 });
+    expect(r.isError).not.toBe(true);
+    expect(r.structuredContent).toMatchObject({
+      scope: "live_bounded_burst", observations_count: 3,
+      observed_success_percent: 67, observed_rate_limits: 1, observed_challenges: 1,
+    });
+    expect(mock).toHaveBeenCalledTimes(3);
+  });
+
+  it("refuses URL secrets, invalid sample chronology and impossible input combinations", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    const cases = [
+      { url: "https://example.com/?secret=V02HIDDEN" },
+      { url: "https://example.com/", checks: 4 },
+      { observations: [{ observed_at: "2026-11-20T09:00:00Z", status_code: 200 }] },
+      { observations: [
+        { observed_at: "2026-11-20T09:02:00Z", status_code: 200 },
+        { observed_at: "2026-11-20T09:00:00Z", status_code: 200 },
+      ] },
+      { url: "https://example.com/", observations: [
+        { observed_at: "2026-11-20T09:00:00Z", status_code: 200 },
+        { observed_at: "2026-11-20T09:01:00Z", status_code: 200 },
+      ] },
+    ];
+    for (const input of cases) {
+      const r = await callTool("review_availability_history", input);
+      expect(r.isError).toBe(true);
+      expect(JSON.stringify(r)).not.toContain("V02HIDDEN");
+    }
+    expect(mock).not.toHaveBeenCalled();
+  });
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -363,7 +724,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers twenty-one accurately annotated tools", async () => {
+  it("discovers twenty-six accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -381,8 +742,13 @@ describe("hosted tool contract", () => {
       "verify_content_provenance",
       "compare_competitor_intent",
       "validate_supported_schema",
+      "review_internal_link_graph",
       "review_internal_links",
       "review_metadata_consistency",
+      "review_sitemap_inventory",
+      "review_redirect_canonical_chains",
+      "review_crawler_access",
+      "review_availability_history",
       "diagnose_http_delivery",
       "review_url_variants",
       "review_https_security",

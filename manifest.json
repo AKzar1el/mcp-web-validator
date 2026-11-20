@@ -85,12 +85,36 @@
       "description": "Opt-in local-only site-audit snapshot history. Save a previous hosted audit_public_site structured result as JSON, list saved IDs, or retrieve an exact version. A single compact local JSON file retains at most 10 versions; saving the 11th removes the oldest. No database, background task, or network request."
     },
     {
+      "name": "browser.dom_diff",
+      "description": "V07 local-only: compare two caller-supplied raw/rendered HTML snapshots offline, or render caller-supplied HTML in fresh network-denied Chromium with inline scripts only, or fetch one robots-allowed public HTML page and sample its inline-script DOM. Detects changed/missing title, description, H1, text, same-origin anchor links, canonical, noindex and JSON-LD declarations using bounded redacted evidence. Does not load external JS/CSS/assets, impersonate Google WRS, access GSC/GA4, claim indexing or save content. Inline modes execute untrusted JS only inside fresh browser sandbox; external requests are denied."
+    },
+    {
       "name": "browser.wcag",
       "description": "Local-only inert Chromium analysis of supplied HTML: sandboxed pinned headless browser, no external resource requests, scripts disabled and stripped, DOM accessible-name heuristics, aria-hidden focus, positive tabindex, custom role focusability, up to 24 real keyboard Tab focus samples, computed focus indicator review and native summary Enter toggle. Never navigates URLs, clicks links/buttons, submits forms, stores screenshots or certifies WCAG; may provision pinned browser on first use."
     },
     {
       "name": "media.diagnostics",
       "description": "Local-only, offline review of caller-supplied HTML image alt/name evidence, responsive picture fallbacks, intrinsic dimensions, lazy loading/decoding/fetchpriority hints, video sources and caption tracks. Bounded and redacted; never fetches or renders media, executes scripts, measures layout, validates caption contents or certifies accessibility/performance."
+    },
+    {
+      "name": "site.sitemaps",
+      "description": "V05: compare up to eight previously observed XML/text sitemap documents with independent discovered URLs and page response/indexability evidence, or sample one authorized public sitemap plus up to two same-origin children. Finds malformed/duplicate/cross-origin URLs, missing child documents, invalid/future/inconsistent lastmod, independent discovery gaps and sampled redirect/noindex/canonical/robots conflicts. The bounded live sample never fetches listed pages, stores source documents, returns raw URLs, claims full search-engine inventory or guarantees Google indexing."
+    },
+    {
+      "name": "http.redirect_chain",
+      "description": "V04: review up to eight ordered HTTP response hops, Location redirects, static HTML/HTTP Link canonical declarations, and Googlebot-applicable noindex/robots observations, or probe a bounded public query-free HTTP(S) URL. Detects redirect loops, incomplete/mismatched chains, HTTP errors, canonical conflicts/cycles/chains and non-indexable sampled destinations. A destination is called wrong only relative to an explicitly supplied expected URL. Reports no raw URLs, HTML, headers, credentials, authenticated crawler observations or Google-selected canonical/indexing verdict."
+    },
+    {
+      "name": "crawler.access",
+      "description": "V03: compare up to eight supplied pages against robots.txt group precedence and static meta/X-Robots-Tag directives for Googlebot smartphone/desktop/news/image, Bingbot and GPTBot; or probe one public page and robots.txt using only the service's own User-Agent. Distinguishes crawl disallow from explicit noindex and unavailable/ambiguous evidence. Live probe obeys site robots for this service; it does NOT impersonate/verify real crawlers, request indexing, crawl historical logs, or claim a page is indexed. Raw URLs, source and response headers are not returned."
+    },
+    {
+      "name": "http.availability",
+      "description": "V02: compare two to 48 ordered, caller-supplied timestamped HTTP/transport outcomes, or make two to three bounded sequential public GET probes. Flags intermittent non-2xx, status transitions, 429/5xx, explicit challenge and network failures, and sampling gaps. The percentages are only ratios of sampled responses, never guaranteed uptime or actual outage duration. No scheduler, history storage, Googlebot verification or response bodies; use availability.history separately to opt into local storage."
+    },
+    {
+      "name": "availability.history",
+      "description": "V02 local-only opt-in compact availability archive. 'capture' makes one public HTTP GET and saves only its HTTP/transport outcome and timestamp. 'list' and 'compare' read existing outcomes for exactly one authorized URL. A single 24 KB JSON archive retains a maximum of ten total observations and automatically evicts the oldest; no scheduler, Cloudflare/Google access, cloud storage, secret headers or response bodies. Capture writes local state and may evict old data."
     },
     {
       "name": "http.delivery",
@@ -119,6 +143,10 @@
     {
       "name": "content.metadata",
       "description": "Offline bounded consistency check for 1-8 caller-supplied same-origin HTML pages: duplicate/conflicting title, description and canonical declarations, Open Graph/Twitter differences, explicit robots directives and repeated titles/descriptions across distinct sampled canonical preferences. Outputs review evidence, not a Google-selected canonical, indexing or ranking verdict. No network or storage."
+    },
+    {
+      "name": "site.link_graph",
+      "description": "V06: evaluate one to eight caller-supplied same-origin static HTML/page observations and up to 256 previously observed sitemap labels, or perform a guarded public sample of one robots.txt and up to three HTML pages. Counts standard anchor links including navigation, computes shortest sample-only entry paths, and flags nofollow-only, missing inbound, unobserved URL, blocked/HTTP-error, noindex and noncanonical targets. Orphan candidates are not verified site-wide orphans. No raw URLs/HTML, JavaScript, full crawl, Googlebot impersonation, PageRank, GSC or production changes."
     },
     {
       "name": "site.links",

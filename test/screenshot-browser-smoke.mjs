@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { captureScreenshots } from "../dist/screenshot.js";
 import { reviewWcagInteractions } from "../dist/modules/browser-ux/wcag-interactions.js";
+import { renderInlineHtml } from "../dist/modules/browser-ux/raw-rendered-probe.js";
 
 const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "mcp-web-validator-screenshot-smoke-"));
 
@@ -50,6 +51,22 @@ try {
   assert.ok(Number.isInteger(review.resources_blocked));
   assert.ok(review.resources_blocked >= 0);
   assert(!JSON.stringify(review).includes("/private-resource"));
+  const rendered = await renderInlineHtml(
+    '<!doctype html><html><head><title>Source</title></head><body>'
+    + '<main><div id="app">Unhydrated shell</div></main>'
+    + '<script>document.getElementById("app").innerHTML = '
+    + '"<h1>Hydrated title</h1><a href=/client-only>Client link</a>";</script>'
+    + '<img src="https://example.com/external-blocked.png">'
+    + '</body></html>',
+    "https://example.com/",
+  );
+  assert.equal(rendered.browser_executed, true);
+  assert.equal(rendered.inline_scripts_attempted, true);
+  assert.equal(rendered.raw.h1_count, 0);
+  assert.equal(rendered.rendered.h1_count, 1);
+  assert.equal(rendered.link_targets_added, 1);
+  assert.equal(rendered.coverage_limited, true);
+  assert(!JSON.stringify(rendered).includes("/client-only"));
 } finally {
   await rm(temporaryDirectory, { recursive: true, force: true });
 }

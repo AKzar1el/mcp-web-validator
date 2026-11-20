@@ -33,10 +33,14 @@ try {
     npm,
     [
       "install", "--prefix", consumer, "--omit=dev",
-      "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-offline",
+      "--ignore-scripts", "--no-audit", "--no-fund",
+      process.env.MCP_WEB_VALIDATOR_SMOKE_OFFLINE === "1" ? "--offline" : "--prefer-offline",
       path.join(scratch, packages[0].filename),
     ],
-    { cwd: scratch, shell: process.platform === "win32" ? path.join(process.env.SystemRoot ?? "C:/Windows", "System32", "cmd.exe") : false, timeout: process.platform === "win32" ? 240_000 : 120_000, maxBuffer: 2_000_000 },
+    // Windows Defender/slow storage can make a cold clean-room npm install
+    // reach the old 4-minute limit even after npm reports cache hits. The
+    // larger allowance applies only to the explicitly opted-in offline smoke.
+    { cwd: scratch, shell: process.platform === "win32" ? path.join(process.env.SystemRoot ?? "C:/Windows", "System32", "cmd.exe") : false, timeout: process.platform === "win32" ? (process.env.MCP_WEB_VALIDATOR_SMOKE_OFFLINE === "1" ? 480_000 : 240_000) : 120_000, maxBuffer: 2_000_000 },
   );
 
   const installedEntry = path.join(
@@ -61,10 +65,126 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "audit.monitor", "audit.trends", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "http.delivery", "http.directives", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
-      "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links",
+      "audit.history", "audit.monitor", "audit.trends", "availability.history", "browser.dom_diff", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
+      "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.link_graph", "site.links", "site.sitemaps",
     ],
   );
+
+  phase = "v07_raw_rendered_snapshot";
+  const domCompare = await client.callTool({
+    name: "browser.dom_diff",
+    arguments: {
+      mode: "compare_snapshots", page_url: "https://example.com/",
+      raw_html: '<html><head><title>Source</title></head><body><main><h1>Source</h1><a href="/hidden-token-v07">Source link</a></main></body></html>',
+      rendered_html: '<html><head><title>Client</title></head><body><main><h1>Client</h1><a href="/client-v07">Client link</a></main></body></html>',
+    },
+  });
+  assert.notEqual(domCompare.isError, true);
+  assert.equal(domCompare.structuredContent?.scope, "caller_supplied_rendered_snapshot");
+  assert.equal(domCompare.structuredContent?.title_changed, true);
+  assert.equal(domCompare.structuredContent?.link_targets_removed, 1);
+  assert.equal(domCompare.structuredContent?.link_targets_added, 1);
+  assert(!JSON.stringify(domCompare).includes("hidden-token-v07"));
+
+  phase = "v07_sandboxed_inline_chromium";
+  const domBrowser = await client.callTool({
+    name: "browser.dom_diff",
+    arguments: {
+      mode: "inline_sandbox", page_url: "https://example.com/",
+      raw_html: '<!doctype html><html><head><title>Shell</title></head><body>'
+        + '<main id="app">Loading</main><script>document.getElementById("app").innerHTML='
+        + '"<h1>Hydrated</h1><a href=/client-only-v07>Client</a>";</script>'
+        + '</body></html>',
+    },
+  });
+  assert.notEqual(domBrowser.isError, true);
+  assert.equal(domBrowser.structuredContent?.browser_executed, true);
+  assert.equal(domBrowser.structuredContent?.raw?.h1_count, 0);
+  assert.equal(domBrowser.structuredContent?.rendered?.h1_count, 1);
+  assert.equal(domBrowser.structuredContent?.link_targets_added, 1);
+  assert(!JSON.stringify(domBrowser).includes("/client-only-v07"));
+
+  phase = "v06_internal_link_graph";
+  const graph = await client.callTool({
+    name: "site.link_graph",
+    arguments: {
+      site_url: "https://example.com/",
+      pages: [
+        { url: "https://example.com/", status_code: 200,
+          html: '<html><body><nav><a href="/target">Target</a></nav></body></html>' },
+        { url: "https://example.com/target", status_code: 200,
+          html: "<html><body><h1>Target</h1></body></html>" },
+        { url: "https://example.com/private-orphan", status_code: 200,
+          html: "<html><body><h1>Candidate</h1></body></html>" },
+      ],
+    },
+  });
+  assert.notEqual(graph.isError, true);
+  assert.equal(graph.structuredContent?.pages_observed, 3);
+  assert.equal(graph.structuredContent?.unique_observed_sample_edges, 1);
+  assert.equal(graph.structuredContent?.pages_reachable_within_sample, 2);
+  assert.equal(graph.structuredContent?.potential_orphans_within_sample, 1);
+  assert(!JSON.stringify(graph).includes("private-orphan"));
+
+  phase = "v05_sitemap_inventory";
+  const sitemap = await client.callTool({
+    name: "site.sitemaps",
+    arguments: {
+      site_url: "https://example.com/",
+      documents: [{
+        sitemap_url: "https://example.com/sitemap.xml",
+        content: '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+          + '<url><loc>https://example.com/audit-target-v05</loc></url></urlset>',
+      }],
+      page_observations: [{
+        url: "https://example.com/audit-target-v05",
+        status_code: 404, noindex: true,
+      }],
+    },
+  });
+  assert.notEqual(sitemap.isError, true);
+  assert.equal(sitemap.structuredContent?.distinct_page_urls, 1);
+  assert.equal(sitemap.structuredContent?.known_indexability_conflicts, 1);
+  assert(!JSON.stringify(sitemap).includes("audit-target-v05"));
+
+  phase = "v04_redirect_canonical";
+  const chain = await client.callTool({
+    name: "http.redirect_chain",
+    arguments: {
+      source_url: "https://example.com/",
+      expected_destination: "https://example.com/redirected",
+      observations: [
+        { url: "https://example.com/", status_code: 301, location: "/redirected" },
+        { url: "https://example.com/redirected", status_code: 200,
+          html: "<html><head><meta name='googlebot' content='noindex'></head></html>",
+          x_robots_tag: [] },
+      ],
+    },
+  });
+  assert.notEqual(chain.isError, true);
+  assert.equal(chain.structuredContent?.chain_complete, true);
+  assert.equal(chain.structuredContent?.expected_destination_match, true);
+  assert.equal(chain.structuredContent?.nonindexable_destination, true);
+  assert(!JSON.stringify(chain).includes("/redirected"));
+
+  phase = "v03_crawler_access";
+  const crawler = await client.callTool({
+    name: "crawler.access",
+    arguments: {
+      site_url: "https://example.com/",
+      robots_txt: "User-agent: Googlebot\nDisallow: /private",
+      pages: [{
+        url: "https://example.com/private/secret",
+        html: "<meta name='googlebot' content='noindex'>",
+        x_robots_tag: [],
+      }],
+      profiles: ["googlebot-smartphone", "bingbot"],
+    },
+  });
+  assert.notEqual(crawler.isError, true);
+  assert.equal(crawler.structuredContent?.rows_checked, 2);
+  assert.equal(crawler.structuredContent?.crawler_disallowed_rows, 1);
+  assert(!JSON.stringify(crawler).includes("/private/secret"));
 
   phase = "v01_delivery";
   const delivery = await client.callTool({
@@ -79,6 +199,26 @@ try {
   assert.equal(delivery.structuredContent?.errors_observed, 1);
   assert.equal(delivery.structuredContent?.challenges_observed, 1);
   assert(!JSON.stringify(delivery).includes("private-package-test-id"));
+  phase = "v02_availability";
+  const availability = await client.callTool({
+    name: "http.availability",
+    arguments: { observations: [
+      { observed_at: "2026-11-20T09:00:00Z", status_code: 200 },
+      { observed_at: "2026-11-20T09:01:00Z", status_code: 503 },
+      { observed_at: "2026-11-20T09:02:00Z", status_code: 200 },
+    ] },
+  });
+  assert.notEqual(availability.isError, true);
+  assert.equal(availability.structuredContent?.observed_success_percent, 67);
+  assert.equal(availability.structuredContent?.intermittent_non_success, true);
+  const availabilityList = await client.callTool({
+    name: "availability.history",
+    arguments: { action: "list", url: "https://example.com/" },
+  });
+  assert.notEqual(availabilityList.isError, true);
+  assert.equal(availabilityList.structuredContent?.count, 0);
+  await assert.rejects(stat(path.join(scratch, ".mcp-validator", "availability-history.json")),
+    { code: "ENOENT" });
 
   phase = "history_trend";
   const historySnapshot = (count) => JSON.stringify({

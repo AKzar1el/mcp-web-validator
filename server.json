@@ -2932,6 +2932,422 @@
       }
     },
     {
+      "name": "browser.dom_diff",
+      "title": "Compare HTTP source HTML and sandboxed rendered DOM SEO signals",
+      "description": "V07 local-only: compare two caller-supplied raw/rendered HTML snapshots offline, or render caller-supplied HTML in fresh network-denied Chromium with inline scripts only, or fetch one robots-allowed public HTML page and sample its inline-script DOM. Detects changed/missing title, description, H1, text, same-origin anchor links, canonical, noindex and JSON-LD declarations using bounded redacted evidence. Does not load external JS/CSS/assets, impersonate Google WRS, access GSC/GA4, claim indexing or save content. Inline modes execute untrusted JS only inside fresh browser sandbox; external requests are denied.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "compare_snapshots",
+              "inline_sandbox",
+              "live_inline_sandbox"
+            ],
+            "description": "Choose offline caller snapshots, local Chromium inline-script execution, or a guarded public HTML fetch followed by the same isolated browser render."
+          },
+          "url": {
+            "description": "Only for live_inline_sandbox: safe public query-free HTTP(S) page URL; robots.txt permission checked before GET.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "page_url": {
+            "description": "For offline modes, the page URL label for resolving relative links and canonicals; never fetched.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "raw_html": {
+            "description": "Caller-observed source HTML. Inline mode executes only its inline scripts in a fresh, offline Chromium sandbox.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 524288
+          },
+          "rendered_html": {
+            "description": "Only compare_snapshots: rendered HTML already obtained by an authorized browser or source; never executed or fetched.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 524288
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "caller_supplied_rendered_snapshot",
+              "isolated_inline_script_chromium",
+              "isolated_public_html_inline_script_sample"
+            ]
+          },
+          "browser_executed": {
+            "type": "boolean"
+          },
+          "inline_scripts_attempted": {
+            "type": "boolean"
+          },
+          "external_resources_blocked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "script_errors_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "raw": {
+            "type": "object",
+            "properties": {
+              "title_present": {
+                "type": "boolean"
+              },
+              "title_characters": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "description_present": {
+                "type": "boolean"
+              },
+              "description_characters": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "h1_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "main_words": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "same_origin_link_targets": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "query_links_excluded": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "external_link_targets": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "canonicals": {
+                "type": "string",
+                "enum": [
+                  "missing",
+                  "self",
+                  "different",
+                  "ambiguous"
+                ]
+              },
+              "noindex_declared": {
+                "type": "boolean"
+              },
+              "jsonld_blocks": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "external_script_tags": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "inline_script_tags": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "sample_truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "title_present",
+              "title_characters",
+              "description_present",
+              "description_characters",
+              "h1_count",
+              "main_words",
+              "same_origin_link_targets",
+              "query_links_excluded",
+              "external_link_targets",
+              "canonicals",
+              "noindex_declared",
+              "jsonld_blocks",
+              "external_script_tags",
+              "inline_script_tags",
+              "sample_truncated"
+            ],
+            "additionalProperties": false
+          },
+          "rendered": {
+            "type": "object",
+            "properties": {
+              "title_present": {
+                "type": "boolean"
+              },
+              "title_characters": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "description_present": {
+                "type": "boolean"
+              },
+              "description_characters": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "h1_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "main_words": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "same_origin_link_targets": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "query_links_excluded": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "external_link_targets": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "canonicals": {
+                "type": "string",
+                "enum": [
+                  "missing",
+                  "self",
+                  "different",
+                  "ambiguous"
+                ]
+              },
+              "noindex_declared": {
+                "type": "boolean"
+              },
+              "jsonld_blocks": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "external_script_tags": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "inline_script_tags": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "sample_truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "title_present",
+              "title_characters",
+              "description_present",
+              "description_characters",
+              "h1_count",
+              "main_words",
+              "same_origin_link_targets",
+              "query_links_excluded",
+              "external_link_targets",
+              "canonicals",
+              "noindex_declared",
+              "jsonld_blocks",
+              "external_script_tags",
+              "inline_script_tags",
+              "sample_truncated"
+            ],
+            "additionalProperties": false
+          },
+          "title_changed": {
+            "type": "boolean"
+          },
+          "h1_changed": {
+            "type": "boolean"
+          },
+          "canonical_changed": {
+            "type": "boolean"
+          },
+          "noindex_changed": {
+            "type": "boolean"
+          },
+          "shared_main_words": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "main_words_removed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "main_words_added": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "link_targets_removed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "link_targets_added": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unchanged_link_targets": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 320
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 18,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "title_removed",
+                    "title_added",
+                    "title_changed",
+                    "description_removed",
+                    "description_added",
+                    "h1_removed",
+                    "h1_added",
+                    "main_text_dropped",
+                    "main_text_added",
+                    "main_text_changed",
+                    "links_removed",
+                    "links_added",
+                    "noindex_added",
+                    "noindex_removed",
+                    "canonical_changed",
+                    "jsonld_removed",
+                    "jsonld_added",
+                    "external_scripts_blocked",
+                    "resources_blocked",
+                    "script_errors_observed",
+                    "snapshot_coverage_limited"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "browser_executed",
+          "inline_scripts_attempted",
+          "external_resources_blocked",
+          "script_errors_observed",
+          "raw",
+          "rendered",
+          "title_changed",
+          "h1_changed",
+          "canonical_changed",
+          "noindex_changed",
+          "shared_main_words",
+          "main_words_removed",
+          "main_words_added",
+          "link_targets_removed",
+          "link_targets_added",
+          "unchanged_link_targets",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "browser.wcag",
       "title": "Review bounded rendered-DOM keyboard and WCAG interaction evidence",
       "description": "Local-only inert Chromium analysis of supplied HTML: sandboxed pinned headless browser, no external resource requests, scripts disabled and stripped, DOM accessible-name heuristics, aria-hidden focus, positive tabindex, custom role focusability, up to 24 real keyboard Tab focus samples, computed focus indicator review and native summary Enter toggle. Never navigates URLs, clicks links/buttons, submits forms, stores screenshots or certifies WCAG; may provision pinned browser on first use.",
@@ -3400,6 +3816,2053 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "site.sitemaps",
+      "title": "Review sitemap inventory, lastmod consistency and indexability conflicts",
+      "description": "V05: compare up to eight previously observed XML/text sitemap documents with independent discovered URLs and page response/indexability evidence, or sample one authorized public sitemap plus up to two same-origin children. Finds malformed/duplicate/cross-origin URLs, missing child documents, invalid/future/inconsistent lastmod, independent discovery gaps and sampled redirect/noindex/canonical/robots conflicts. The bounded live sample never fetches listed pages, stores source documents, returns raw URLs, claims full search-engine inventory or guarantees Google indexing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "description": "Live mode: one authorized query-free public site URL; sitemap defaults to /sitemap.xml.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "sitemap_url": {
+            "description": "Live mode optional same-origin sitemap URL, otherwise uses /sitemap.xml.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "site_url": {
+            "description": "Offline mode: public site URL whose sitemap documents were observed.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "documents": {
+            "description": "Offline: 1–8 previously observed XML or plain-text sitemap bodies.",
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sitemap_url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Same-origin, query-free sitemap URL; never echoed."
+                },
+                "content": {
+                  "type": "string",
+                  "maxLength": 512000,
+                  "description": "Observed XML or plain-text sitemap document, UTF-8 byte bounded."
+                },
+                "content_type": {
+                  "description": "Observed document content type; defaults to XML.",
+                  "type": "string",
+                  "enum": [
+                    "application/xml",
+                    "text/xml",
+                    "text/plain"
+                  ]
+                },
+                "status_code": {
+                  "description": "Observed HTTP status for this sitemap, if known.",
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                }
+              },
+              "required": [
+                "sitemap_url",
+                "content"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "discovered_urls": {
+            "description": "Optional independently discovered same-origin URLs; no site crawl is performed.",
+            "maxItems": 500,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 1024,
+              "format": "uri"
+            }
+          },
+          "page_observations": {
+            "description": "Optional independent HTTP/indexability observations for up to 250 pages.",
+            "maxItems": 250,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 1024,
+                  "format": "uri",
+                  "description": "Independently observed same-origin page URL."
+                },
+                "status_code": {
+                  "description": "Observed page HTTP response status.",
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "canonical_url": {
+                  "description": "Observed page canonical preference, not Google-selected canonical.",
+                  "type": "string",
+                  "maxLength": 1024,
+                  "format": "uri"
+                },
+                "noindex": {
+                  "description": "Observed robots meta or X-Robots-Tag noindex declaration.",
+                  "type": "boolean"
+                },
+                "robots_allowed": {
+                  "description": "Independently observed crawler robots permission, not inferred.",
+                  "type": "boolean"
+                },
+                "modified_at": {
+                  "description": "Independently established significant modification date in W3C format.",
+                  "type": "string",
+                  "maxLength": 40
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "documents_complete": {
+            "description": "Caller-verified completeness of all linked sitemap documents.",
+            "type": "boolean"
+          },
+          "discovered_complete": {
+            "description": "Caller-verified completeness of independent site discovery.",
+            "type": "boolean"
+          },
+          "observed_at": {
+            "description": "Optional W3C date/datetime clock for lastmod verification, defaults to now.",
+            "type": "string",
+            "maxLength": 40
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "caller_supplied_sitemap_evidence",
+              "live_public_sitemap_sample"
+            ]
+          },
+          "documents_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "documents_complete": {
+            "type": "boolean"
+          },
+          "discovered_complete": {
+            "type": "boolean"
+          },
+          "inventory_complete": {
+            "type": "boolean"
+          },
+          "documents_truncated": {
+            "type": "boolean"
+          },
+          "total_entries_seen": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "distinct_sitemap_urls": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "distinct_page_urls": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "distinct_child_sitemaps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "missing_child_documents": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "duplicate_url_entries": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "invalid_url_entries": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "external_url_entries": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lastmod_values_seen": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lastmod_invalid_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lastmod_future_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lastmod_conflicting_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "independently_discovered_urls": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "discovered_in_sitemaps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "discovered_missing_from_sitemaps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "sitemap_urls_not_in_discovery": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "page_observations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "sitemap_urls_with_page_evidence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "status_conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "noindex_conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "robots_conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "canonical_conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lastmod_observation_conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "known_indexability_conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unknown_page_indexability": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 260
+            }
+          },
+          "documents": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "document": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "urlset",
+                    "sitemapindex",
+                    "text",
+                    "invalid",
+                    "unsupported"
+                  ]
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "entries_seen": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "valid_url_entries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "child_sitemaps": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "invalid_entries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "external_entries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "duplicate_entries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "lastmod_present": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "lastmod_invalid": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "lastmod_future": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "truncated": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "document",
+                "kind",
+                "entries_seen",
+                "valid_url_entries",
+                "child_sitemaps",
+                "invalid_entries",
+                "external_entries",
+                "duplicate_entries",
+                "lastmod_present",
+                "lastmod_invalid",
+                "lastmod_future",
+                "truncated"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "document": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "entry": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "sitemap_http_error",
+                    "xml_malformed",
+                    "unsupported_format",
+                    "missing_loc",
+                    "invalid_loc",
+                    "external_loc",
+                    "out_of_scope_loc",
+                    "duplicate_loc",
+                    "invalid_lastmod",
+                    "future_lastmod",
+                    "conflicting_lastmod",
+                    "lastmod_vs_observed_change",
+                    "sitemap_child_missing",
+                    "sitemap_unlisted_child",
+                    "sitemap_cycle",
+                    "sitemap_inventory_truncated",
+                    "sitemap_page_not_discovered",
+                    "discovered_page_not_sitemapped",
+                    "sitemap_url_http_error",
+                    "sitemap_url_redirect",
+                    "sitemap_url_noindex",
+                    "sitemap_url_robots_blocked",
+                    "sitemap_url_noncanonical",
+                    "observed_page_not_in_sitemap",
+                    "unverified_indexability",
+                    "unverified_coverage"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 260
+                }
+              },
+              "required": [
+                "document",
+                "severity",
+                "code",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "documents_observed",
+          "documents_complete",
+          "discovered_complete",
+          "inventory_complete",
+          "documents_truncated",
+          "total_entries_seen",
+          "distinct_sitemap_urls",
+          "distinct_page_urls",
+          "distinct_child_sitemaps",
+          "missing_child_documents",
+          "duplicate_url_entries",
+          "invalid_url_entries",
+          "external_url_entries",
+          "lastmod_values_seen",
+          "lastmod_invalid_count",
+          "lastmod_future_count",
+          "lastmod_conflicting_count",
+          "independently_discovered_urls",
+          "discovered_in_sitemaps",
+          "discovered_missing_from_sitemaps",
+          "sitemap_urls_not_in_discovery",
+          "page_observations",
+          "sitemap_urls_with_page_evidence",
+          "status_conflicts",
+          "noindex_conflicts",
+          "robots_conflicts",
+          "canonical_conflicts",
+          "lastmod_observation_conflicts",
+          "known_indexability_conflicts",
+          "unknown_page_indexability",
+          "coverage_limited",
+          "limitations",
+          "documents",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "http.redirect_chain",
+      "title": "Analyze observed HTTP redirects and canonical destination chains",
+      "description": "V04: review up to eight ordered HTTP response hops, Location redirects, static HTML/HTTP Link canonical declarations, and Googlebot-applicable noindex/robots observations, or probe a bounded public query-free HTTP(S) URL. Detects redirect loops, incomplete/mismatched chains, HTTP errors, canonical conflicts/cycles/chains and non-indexable sampled destinations. A destination is called wrong only relative to an explicitly supplied expected URL. Reports no raw URLs, HTML, headers, credentials, authenticated crawler observations or Google-selected canonical/indexing verdict.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "description": "Live mode: one authorized public query-free URL; bounded GET/redirect chain.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "source_url": {
+            "description": "Offline mode: source URL, equal to the first supplied HTTP observation.",
+            "type": "string",
+            "maxLength": 1024,
+            "format": "uri"
+          },
+          "observations": {
+            "description": "Offline mode: one to eight ordered observed HTTP responses. No requests made.",
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 1024,
+                  "format": "uri",
+                  "description": "Observed HTTP URL label, not echoed in the report."
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599,
+                  "description": "Observed HTTP status code from this response hop."
+                },
+                "location": {
+                  "description": "Observed Location header when HTTP returned a redirect.",
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                "canonicals": {
+                  "description": "Previously observed canonical href values, including HTTP Link declarations.",
+                  "maxItems": 4,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 1024
+                  }
+                },
+                "html": {
+                  "description": "Optional static source HTML (150 KB UTF-8 cap), never executed or returned.",
+                  "type": "string",
+                  "maxLength": 1048576
+                },
+                "x_robots_tag": {
+                  "description": "Optional observed X-Robots-Tag fields; [] means inspected and absent.",
+                  "maxItems": 8,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 512
+                  }
+                },
+                "robots_allowed": {
+                  "description": "Optional independent robots-access evidence; never inferred from the HTTP status.",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "url",
+                "status_code"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "expected_destination": {
+            "description": "Optional caller-defined expected final URL, compared only on a complete observed chain.",
+            "type": "string",
+            "maxLength": 1024,
+            "format": "uri"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "caller_supplied_redirect_evidence",
+              "live_public_redirect_probe"
+            ]
+          },
+          "hops_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "redirects_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "permanent_redirects": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "temporary_redirects": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "chain_complete": {
+            "type": "boolean"
+          },
+          "loop_detected": {
+            "type": "boolean"
+          },
+          "final_status_code": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "expected_destination_match": {
+            "type": "boolean"
+          },
+          "conflicting_canonical_hops": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "canonical_cycles": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "canonical_chain_edges": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "nonindexable_destination": {
+            "type": "boolean"
+          },
+          "destination_indexing_state": {
+            "type": "string",
+            "enum": [
+              "explicit_noindex",
+              "no_noindex_observed",
+              "unknown"
+            ]
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 260
+            }
+          },
+          "hops": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "hop": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "redirect_state": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "permanent",
+                    "temporary"
+                  ]
+                },
+                "redirect_target": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "next_observed",
+                    "loop",
+                    "cross_origin",
+                    "https_downgrade",
+                    "query_target",
+                    "unobserved",
+                    "missing",
+                    "invalid",
+                    "mismatch"
+                  ]
+                },
+                "next_hop_observed": {
+                  "type": "boolean"
+                },
+                "canonical_state": {
+                  "type": "string",
+                  "enum": [
+                    "absent",
+                    "self",
+                    "sampled",
+                    "external",
+                    "unobserved",
+                    "conflicting",
+                    "invalid",
+                    "redirect_target"
+                  ]
+                },
+                "canonical_declarations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "canonical_target_sampled": {
+                  "type": "boolean"
+                },
+                "googlebot_indexing_state": {
+                  "type": "string",
+                  "enum": [
+                    "explicit_noindex",
+                    "no_noindex_observed",
+                    "unknown"
+                  ]
+                },
+                "robots_allowed": {
+                  "type": "string",
+                  "enum": [
+                    "allowed",
+                    "disallowed",
+                    "unknown"
+                  ]
+                },
+                "static_html_examined": {
+                  "type": "boolean"
+                },
+                "x_robots_header_examined": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "hop",
+                "status_code",
+                "redirect_state",
+                "redirect_target",
+                "next_hop_observed",
+                "canonical_state",
+                "canonical_declarations",
+                "canonical_target_sampled",
+                "googlebot_indexing_state",
+                "robots_allowed",
+                "static_html_examined",
+                "x_robots_header_examined"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 24,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "hop": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "redirect_missing_location",
+                    "redirect_invalid_target",
+                    "redirect_loop",
+                    "redirect_cross_origin",
+                    "redirect_https_downgrade",
+                    "redirect_query_target",
+                    "redirect_observation_mismatch",
+                    "redirect_chain_unobserved",
+                    "redirect_long_chain",
+                    "redirect_destination_http_error",
+                    "redirect_destination_noindex",
+                    "redirect_destination_robots_blocked",
+                    "expected_destination_mismatch",
+                    "canonical_conflict",
+                    "canonical_invalid",
+                    "canonical_external",
+                    "canonical_unobserved",
+                    "canonical_to_redirect",
+                    "canonical_to_http_error",
+                    "canonical_to_noindex",
+                    "canonical_cycle",
+                    "canonical_chain",
+                    "final_status_unverified",
+                    "destination_indexing_unverified"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 260
+                }
+              },
+              "required": [
+                "hop",
+                "code",
+                "severity",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "hops_observed",
+          "redirects_observed",
+          "permanent_redirects",
+          "temporary_redirects",
+          "chain_complete",
+          "loop_detected",
+          "conflicting_canonical_hops",
+          "canonical_cycles",
+          "canonical_chain_edges",
+          "nonindexable_destination",
+          "destination_indexing_state",
+          "coverage_limited",
+          "limitations",
+          "hops",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "crawler.access",
+      "title": "Review crawler access, robots rules and indexing directives by profile",
+      "description": "V03: compare up to eight supplied pages against robots.txt group precedence and static meta/X-Robots-Tag directives for Googlebot smartphone/desktop/news/image, Bingbot and GPTBot; or probe one public page and robots.txt using only the service's own User-Agent. Distinguishes crawl disallow from explicit noindex and unavailable/ambiguous evidence. Live probe obeys site robots for this service; it does NOT impersonate/verify real crawlers, request indexing, crawl historical logs, or claim a page is indexed. Raw URLs, source and response headers are not returned.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "description": "Live mode: one authorized public query-free HTML page; cannot be combined with supplied evidence.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "site_url": {
+            "description": "Offline mode: public site origin URL matching all supplied pages.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "robots_txt": {
+            "description": "Offline: previously obtained robots.txt body, max 64,000 UTF-8 bytes.",
+            "type": "string",
+            "maxLength": 64000
+          },
+          "robots_status_code": {
+            "description": "Offline: observed robots.txt HTTP status; 429/5xx are unknown, not allow.",
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "pages": {
+            "description": "Offline: one to eight same-origin static page and HTTP indexing observations.",
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Exact same-origin query-free page URL label, never returned."
+                },
+                "status_code": {
+                  "description": "Observed page HTTP status, if known.",
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "html": {
+                  "description": "Optional static raw HTML (150 KB byte cap); scripts are not executed or stored.",
+                  "type": "string",
+                  "maxLength": 150000
+                },
+                "x_robots_tag": {
+                  "description": "Observed X-Robots-Tag response header values; [] means checked and absent.",
+                  "maxItems": 8,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 512
+                  }
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "profiles": {
+            "description": "Optional distinct crawler product profiles; all six by default.",
+            "minItems": 1,
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "googlebot-smartphone",
+                "googlebot-desktop",
+                "googlebot-news",
+                "googlebot-image",
+                "bingbot",
+                "gptbot"
+              ]
+            }
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "caller_supplied_crawler_evidence",
+              "live_public_crawler_probe"
+            ]
+          },
+          "pages_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "profiles_checked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6
+          },
+          "rows_checked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 48
+          },
+          "robots_status_code": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "robots_rules_used": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "robots_rules_truncated": {
+            "type": "boolean"
+          },
+          "robots_unavailable": {
+            "type": "boolean"
+          },
+          "crawler_disallowed_rows": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "noindex_declared_rows": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unknown_access_rows": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unknown_indexing_rows": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "scope_ambiguous_rows": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 260
+            }
+          },
+          "rows": {
+            "maxItems": 48,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "profile": {
+                  "type": "string",
+                  "enum": [
+                    "googlebot-smartphone",
+                    "googlebot-desktop",
+                    "googlebot-news",
+                    "googlebot-image",
+                    "bingbot",
+                    "gptbot"
+                  ]
+                },
+                "robots_access": {
+                  "type": "string",
+                  "enum": [
+                    "allowed",
+                    "disallowed",
+                    "unknown"
+                  ]
+                },
+                "robots_rule": {
+                  "type": "string",
+                  "enum": [
+                    "allow",
+                    "disallow",
+                    "none",
+                    "unknown"
+                  ]
+                },
+                "robots_group_matched": {
+                  "type": "boolean"
+                },
+                "indexing_state": {
+                  "type": "string",
+                  "enum": [
+                    "explicit_noindex",
+                    "no_noindex_observed",
+                    "unknown"
+                  ]
+                },
+                "indexing_source": {
+                  "type": "string",
+                  "enum": [
+                    "meta",
+                    "header",
+                    "both",
+                    "none"
+                  ]
+                },
+                "explicit_index_directive": {
+                  "type": "boolean"
+                },
+                "conflicting_index_directives": {
+                  "type": "boolean"
+                },
+                "x_robots_scope_ambiguous": {
+                  "type": "boolean"
+                },
+                "page_http_status": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "static_html_examined": {
+                  "type": "boolean"
+                },
+                "effective_access": {
+                  "type": "string",
+                  "enum": [
+                    "crawl_disallowed",
+                    "crawl_allowed_noindex_declared",
+                    "crawl_allowed_no_noindex_observed",
+                    "unverified"
+                  ]
+                }
+              },
+              "required": [
+                "page",
+                "profile",
+                "robots_access",
+                "robots_rule",
+                "robots_group_matched",
+                "indexing_state",
+                "indexing_source",
+                "explicit_index_directive",
+                "conflicting_index_directives",
+                "x_robots_scope_ambiguous",
+                "static_html_examined",
+                "effective_access"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 24,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "crawler_disallowed",
+                    "explicit_noindex",
+                    "blocked_with_noindex",
+                    "robots_unavailable",
+                    "indexing_observation_missing",
+                    "page_http_error",
+                    "conflicting_indexing_directives",
+                    "x_robots_scope_ambiguous",
+                    "robots_rules_truncated"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "profile": {
+                  "type": "string",
+                  "enum": [
+                    "googlebot-smartphone",
+                    "googlebot-desktop",
+                    "googlebot-news",
+                    "googlebot-image",
+                    "bingbot",
+                    "gptbot"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 260
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "page",
+                "profile",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "pages_observed",
+          "profiles_checked",
+          "rows_checked",
+          "robots_rules_used",
+          "robots_rules_truncated",
+          "robots_unavailable",
+          "crawler_disallowed_rows",
+          "noindex_declared_rows",
+          "unknown_access_rows",
+          "unknown_indexing_rows",
+          "scope_ambiguous_rows",
+          "coverage_limited",
+          "limitations",
+          "rows",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "http.availability",
+      "title": "Analyze observed availability changes and short repeat-fetch reliability",
+      "description": "V02: compare two to 48 ordered, caller-supplied timestamped HTTP/transport outcomes, or make two to three bounded sequential public GET probes. Flags intermittent non-2xx, status transitions, 429/5xx, explicit challenge and network failures, and sampling gaps. The percentages are only ratios of sampled responses, never guaranteed uptime or actual outage duration. No scheduler, history storage, Googlebot verification or response bodies; use availability.history separately to opt into local storage.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "description": "Authorized public query-free HTTP(S) URL for a short live repeat-fetch sample; omit for offline analysis.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "checks": {
+            "description": "Live checks per call, two or three (default three); ignored for neither/invalid modes.",
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 3
+          },
+          "observations": {
+            "description": "Two to 48 real timestamped HTTP or transport outcomes, ordered oldest to newest; offline.",
+            "minItems": 2,
+            "maxItems": 48,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "observed_at": {
+                  "type": "string",
+                  "maxLength": 40,
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                  "description": "Real observation timestamp with explicit UTC offset, in strictly increasing order."
+                },
+                "status_code": {
+                  "description": "Actual HTTP response code, mutually exclusive with failure.",
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "failure": {
+                  "description": "Explicit no-response failure class, mutually exclusive with status_code.",
+                  "type": "string",
+                  "enum": [
+                    "timeout",
+                    "dns_error",
+                    "network_error",
+                    "fetch_error",
+                    "policy_blocked"
+                  ]
+                },
+                "cf_challenge": {
+                  "description": "Whether this HTTP response explicitly reported a Cloudflare challenge header.",
+                  "type": "boolean"
+                },
+                "elapsed_ms": {
+                  "description": "Elapsed duration of this observed request in integer milliseconds, if measured.",
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 120000
+                }
+              },
+              "required": [
+                "observed_at"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "caller_supplied_history",
+              "live_bounded_burst",
+              "local_saved_history"
+            ]
+          },
+          "observations_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 48
+          },
+          "first_observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "last_observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "sampled_window_minutes": {
+            "type": "number",
+            "minimum": 0
+          },
+          "max_observation_gap_minutes": {
+            "type": "number",
+            "minimum": 0
+          },
+          "observed_successes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_redirects": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_http_4xx": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_http_5xx": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_timeouts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_transport_failures": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_rate_limits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_challenges": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_success_percent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "http_status_changes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "outcome_changes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "intermittent_non_success": {
+            "type": "boolean"
+          },
+          "longest_non_success_streak": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "current_non_success_streak": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "latest_observed_state": {
+            "type": "string",
+            "enum": [
+              "success",
+              "challenge",
+              "redirect",
+              "forbidden",
+              "rate_limited",
+              "client_error",
+              "server_error",
+              "timeout",
+              "transport_error",
+              "policy_blocked",
+              "other"
+            ]
+          },
+          "latest_http_status": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 260
+            }
+          },
+          "samples": {
+            "maxItems": 48,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "observation": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 48
+                },
+                "observed_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "success",
+                    "challenge",
+                    "redirect",
+                    "forbidden",
+                    "rate_limited",
+                    "client_error",
+                    "server_error",
+                    "timeout",
+                    "transport_error",
+                    "policy_blocked",
+                    "other"
+                  ]
+                },
+                "cf_challenge": {
+                  "type": "boolean"
+                },
+                "elapsed_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 120000
+                }
+              },
+              "required": [
+                "observation",
+                "observed_at",
+                "state",
+                "cf_challenge"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "intermittent_non_success",
+                    "latest_non_success",
+                    "rate_limiting",
+                    "server_failures",
+                    "transport_failures",
+                    "challenge_observed",
+                    "status_transitions",
+                    "sparse_samples",
+                    "large_sampling_gap"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 260
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "observations_count",
+          "sampled_window_minutes",
+          "max_observation_gap_minutes",
+          "observed_successes",
+          "observed_redirects",
+          "observed_http_4xx",
+          "observed_http_5xx",
+          "observed_timeouts",
+          "observed_transport_failures",
+          "observed_rate_limits",
+          "observed_challenges",
+          "observed_success_percent",
+          "http_status_changes",
+          "outcome_changes",
+          "intermittent_non_success",
+          "longest_non_success_streak",
+          "current_non_success_streak",
+          "coverage_limited",
+          "limitations",
+          "samples",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "availability.history",
+      "title": "Capture and compare local availability history (ten records maximum)",
+      "description": "V02 local-only opt-in compact availability archive. 'capture' makes one public HTTP GET and saves only its HTTP/transport outcome and timestamp. 'list' and 'compare' read existing outcomes for exactly one authorized URL. A single 24 KB JSON archive retains a maximum of ten total observations and automatically evicts the oldest; no scheduler, Cloudflare/Google access, cloud storage, secret headers or response bodies. Capture writes local state and may evict old data.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "capture",
+              "list",
+              "compare"
+            ],
+            "description": "Explicitly capture one HTTP observation into local storage, list saved outcomes, or compare at least two saved outcomes."
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri",
+            "description": "Exact safe query-free URL whose local observations should be captured or read."
+          }
+        },
+        "required": [
+          "action",
+          "url"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "capture",
+              "list",
+              "compare"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "records": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "saved_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "observation": {
+                  "type": "object",
+                  "properties": {
+                    "observed_at": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                      "description": "Real observation timestamp with explicit UTC offset, in strictly increasing order."
+                    },
+                    "status_code": {
+                      "description": "Actual HTTP response code, mutually exclusive with failure.",
+                      "type": "integer",
+                      "minimum": 100,
+                      "maximum": 599
+                    },
+                    "failure": {
+                      "description": "Explicit no-response failure class, mutually exclusive with status_code.",
+                      "type": "string",
+                      "enum": [
+                        "timeout",
+                        "dns_error",
+                        "network_error",
+                        "fetch_error",
+                        "policy_blocked"
+                      ]
+                    },
+                    "cf_challenge": {
+                      "description": "Whether this HTTP response explicitly reported a Cloudflare challenge header.",
+                      "type": "boolean"
+                    },
+                    "elapsed_ms": {
+                      "description": "Elapsed duration of this observed request in integer milliseconds, if measured.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 120000
+                    }
+                  },
+                  "required": [
+                    "observed_at"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "id",
+                "saved_at",
+                "observation"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "saved_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "evicted_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "review": {
+            "type": "object",
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "caller_supplied_history",
+                  "live_bounded_burst",
+                  "local_saved_history"
+                ]
+              },
+              "observations_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 48
+              },
+              "first_observed_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "last_observed_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "sampled_window_minutes": {
+                "type": "number",
+                "minimum": 0
+              },
+              "max_observation_gap_minutes": {
+                "type": "number",
+                "minimum": 0
+              },
+              "observed_successes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_redirects": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_http_4xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_http_5xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_timeouts": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_transport_failures": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_rate_limits": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_challenges": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_success_percent": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "http_status_changes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "outcome_changes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "intermittent_non_success": {
+                "type": "boolean"
+              },
+              "longest_non_success_streak": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "current_non_success_streak": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "latest_observed_state": {
+                "type": "string",
+                "enum": [
+                  "success",
+                  "challenge",
+                  "redirect",
+                  "forbidden",
+                  "rate_limited",
+                  "client_error",
+                  "server_error",
+                  "timeout",
+                  "transport_error",
+                  "policy_blocked",
+                  "other"
+                ]
+              },
+              "latest_http_status": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 599
+              },
+              "coverage_limited": {
+                "type": "boolean",
+                "const": true
+              },
+              "limitations": {
+                "maxItems": 4,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 260
+                }
+              },
+              "samples": {
+                "maxItems": 48,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "observation": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 48
+                    },
+                    "observed_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    "status_code": {
+                      "type": "integer",
+                      "minimum": 100,
+                      "maximum": 599
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "success",
+                        "challenge",
+                        "redirect",
+                        "forbidden",
+                        "rate_limited",
+                        "client_error",
+                        "server_error",
+                        "timeout",
+                        "transport_error",
+                        "policy_blocked",
+                        "other"
+                      ]
+                    },
+                    "cf_challenge": {
+                      "type": "boolean"
+                    },
+                    "elapsed_ms": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 120000
+                    }
+                  },
+                  "required": [
+                    "observation",
+                    "observed_at",
+                    "state",
+                    "cf_challenge"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "total_findings": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "findings": {
+                "maxItems": 12,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "intermittent_non_success",
+                        "latest_non_success",
+                        "rate_limiting",
+                        "server_failures",
+                        "transport_failures",
+                        "challenge_observed",
+                        "status_transitions",
+                        "sparse_samples",
+                        "large_sampling_gap"
+                      ]
+                    },
+                    "severity": {
+                      "type": "string",
+                      "enum": [
+                        "warning",
+                        "info"
+                      ]
+                    },
+                    "message": {
+                      "type": "string",
+                      "maxLength": 260
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "severity",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "findings_truncated": {
+                "type": "boolean"
+              },
+              "error": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "scope",
+              "observations_count",
+              "sampled_window_minutes",
+              "max_observation_gap_minutes",
+              "observed_successes",
+              "observed_redirects",
+              "observed_http_4xx",
+              "observed_http_5xx",
+              "observed_timeouts",
+              "observed_transport_failures",
+              "observed_rate_limits",
+              "observed_challenges",
+              "observed_success_percent",
+              "http_status_changes",
+              "outcome_changes",
+              "intermittent_non_success",
+              "longest_non_success_streak",
+              "current_non_success_streak",
+              "coverage_limited",
+              "limitations",
+              "samples",
+              "total_findings",
+              "findings",
+              "findings_truncated"
+            ],
+            "additionalProperties": false
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "count",
+          "records"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
       },
       "execution": {
         "taskSupport": "forbidden"
@@ -5629,6 +8092,515 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "site.link_graph",
+      "title": "Review sampled internal-link graph, depth and possible orphans",
+      "description": "V06: evaluate one to eight caller-supplied same-origin static HTML/page observations and up to 256 previously observed sitemap labels, or perform a guarded public sample of one robots.txt and up to three HTML pages. Counts standard anchor links including navigation, computes shortest sample-only entry paths, and flags nofollow-only, missing inbound, unobserved URL, blocked/HTTP-error, noindex and noncanonical targets. Orphan candidates are not verified site-wide orphans. No raw URLs/HTML, JavaScript, full crawl, Googlebot impersonation, PageRank, GSC or production changes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "description": "Live mode: one authorized public query-free entry URL, at most three bounded same-origin HTML GETs after robots.txt permission.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "site_url": {
+            "description": "Offline mode: site URL used as the exact-origin comparison scope.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "pages": {
+            "description": "Offline mode: one to eight distinct page observations with optional already obtained HTML, no requests.",
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Observed page URL; only the supplied label is compared."
+                },
+                "html": {
+                  "description": "Optional static HTML of this page; absent HTML never certifies an empty link graph.",
+                  "type": "string",
+                  "maxLength": 1048576
+                },
+                "status_code": {
+                  "description": "Optional independently observed HTTP response status.",
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "robots_allowed": {
+                  "description": "Optional independently observed crawler access; unknown when absent.",
+                  "type": "boolean"
+                },
+                "noindex": {
+                  "description": "Optional independently observed Google-applicable noindex declaration.",
+                  "type": "boolean"
+                },
+                "canonical_url": {
+                  "description": "Optional observed preferred canonical target, not Google's selected canonical.",
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri"
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "entry_urls": {
+            "description": "Optional explicit entry roots; when absent, the site homepage is used only if supplied.",
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 512,
+              "format": "uri"
+            }
+          },
+          "sitemap_urls": {
+            "description": "Optional already observed sitemap page labels; URLs not in the page sample are unverified, never called orphans.",
+            "maxItems": 256,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 512,
+              "format": "uri"
+            }
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "caller_supplied_link_graph",
+              "live_bounded_public_link_graph"
+            ]
+          },
+          "pages_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "html_pages_examined": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "entry_pages_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "entry_pages_missing": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pages_reachable_within_sample": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pages_unreachable_within_sample": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "deepest_observed_sample_depth": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deep_pages_at_three_or_more": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "potential_orphans_within_sample": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unique_observed_sample_edges": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "internal_links_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "external_links_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "nofollow_internal_links": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "distinct_unsampled_link_targets": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unsafe_or_query_links_excluded": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pages_with_truncated_links": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "linked_http_error_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "linked_robots_blocked_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "linked_declared_noindex_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "linked_noncanonical_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "sitemap_urls_provided": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "sitemap_urls_without_page_sample": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "sampled_pages_not_in_sitemap": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "robots_unknown_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "status_unknown_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 350
+            }
+          },
+          "pages": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "html_examined": {
+                  "type": "boolean"
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "robots_access": {
+                  "type": "string",
+                  "enum": [
+                    "allowed",
+                    "disallowed",
+                    "unknown"
+                  ]
+                },
+                "noindex_state": {
+                  "type": "string",
+                  "enum": [
+                    "declared",
+                    "not_observed",
+                    "unknown"
+                  ]
+                },
+                "canonical_state": {
+                  "type": "string",
+                  "enum": [
+                    "self",
+                    "different",
+                    "ambiguous",
+                    "unknown"
+                  ]
+                },
+                "links_observed": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "internal_links": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "external_links": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "fragment_links": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "query_links_excluded": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "unsafe_links_excluded": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "self_links": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "nofollow_internal": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "sampled_targets": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "unobserved_internal_targets": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "incoming_sampled_sources": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "depth_from_entry": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 8
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "potential_orphan_in_sample": {
+                  "type": "boolean"
+                },
+                "extraction_limited": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "page",
+                "html_examined",
+                "robots_access",
+                "noindex_state",
+                "canonical_state",
+                "links_observed",
+                "internal_links",
+                "external_links",
+                "fragment_links",
+                "query_links_excluded",
+                "unsafe_links_excluded",
+                "self_links",
+                "nofollow_internal",
+                "sampled_targets",
+                "unobserved_internal_targets",
+                "incoming_sampled_sources",
+                "depth_from_entry",
+                "potential_orphan_in_sample",
+                "extraction_limited"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 24,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "entry_not_sampled",
+                    "entry_not_crawlable",
+                    "sampled_page_unreachable",
+                    "possible_orphan_in_sample",
+                    "sampled_deep_page",
+                    "link_sample_truncated",
+                    "linked_to_http_error",
+                    "linked_to_robots_blocked",
+                    "linked_to_noindex",
+                    "linked_to_noncanonical",
+                    "nofollow_only_path",
+                    "unobserved_link_targets",
+                    "sitemap_pages_unobserved",
+                    "unsafe_links_excluded",
+                    "query_links_excluded",
+                    "external_base_ignored",
+                    "page_html_unverified",
+                    "no_sampled_outgoing_links"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "page": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "target_page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 360
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "page",
+                "count",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "pages_observed",
+          "html_pages_examined",
+          "entry_pages_observed",
+          "entry_pages_missing",
+          "pages_reachable_within_sample",
+          "pages_unreachable_within_sample",
+          "deepest_observed_sample_depth",
+          "deep_pages_at_three_or_more",
+          "potential_orphans_within_sample",
+          "unique_observed_sample_edges",
+          "internal_links_observed",
+          "external_links_observed",
+          "nofollow_internal_links",
+          "distinct_unsampled_link_targets",
+          "unsafe_or_query_links_excluded",
+          "pages_with_truncated_links",
+          "linked_http_error_pages",
+          "linked_robots_blocked_pages",
+          "linked_declared_noindex_pages",
+          "linked_noncanonical_pages",
+          "sitemap_urls_provided",
+          "sitemap_urls_without_page_sample",
+          "sampled_pages_not_in_sitemap",
+          "robots_unknown_pages",
+          "status_unknown_pages",
+          "coverage_limited",
+          "limitations",
+          "pages",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
       },
       "execution": {
         "taskSupport": "forbidden"

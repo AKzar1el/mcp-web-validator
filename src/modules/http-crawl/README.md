@@ -7,6 +7,33 @@
 - **Reuse:** `src/network.ts`, `src/seo-auditor.ts`; registrations remain in `src/index.ts`.
 - **Guardrail:** Preserve public-IP/SSRF, redirects, robots, byte/time/concurrency caps. V02 history is owned by M05.
 
+V01 adds the bounded point-in-time `http.delivery` response probe.
+V02 adds shared `http.availability` sampled outcome analysis (2–48 supplied
+observations or two/three live HTTP probes). The optional local ten-record
+`availability.history` archive lives in M05 at
+`src/modules/change-regression/availability-history-store.ts`. Hosted
+`review_availability_history` has **no** persisted state, background scheduler
+or uptime-certification claim. See `docs/v02-availability-history.md`.
+
+V03 `crawler.access` and hosted `review_crawler_access` compare crawler
+product-token robots rules with explicit static meta and X-Robots-Tag evidence,
+or inspect robots.txt plus one authorized page with the service's own UA.
+Crawler access and indexing are intentionally separate and unknown evidence is
+not reported as healthy. See `docs/v03-crawler-access.md`.
+
+V04 `http.redirect_chain` and hosted `review_redirect_canonical_chains`
+validate ordered HTTP Location observations, sampled destination status,
+Google-applicable static noindex declarations and canonical chains/cycles.
+An explicit expected destination is required before declaring a wrong target;
+unobserved destinations are unknown, not presumed broken. See
+`docs/v04-redirect-canonical-chains.md`.
+
+V05 `site.sitemaps` and hosted `review_sitemap_inventory` review bounded
+XML/text sitemap documents, child sitemap coverage, lastmod anomalies and
+duplicates, alongside independently observed page redirect/noindex/canonical
+conflicts. Live fetch reads at most three sitemap documents and never crawls
+their listed pages. See `docs/v05-sitemap-inventory.md`.
+
 P1-11 now provides a bounded **offline HTTP response-observation analyzer** in
 `non-html-directives.ts`, exposed through local MCP `http.directives`. It
 parses supplied headers only; no binary download, URL probing or crawler

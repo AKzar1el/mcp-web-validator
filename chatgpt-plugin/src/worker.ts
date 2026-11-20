@@ -29,6 +29,16 @@ import { validateCss, validateHtmlDetailed } from "./validators";
 import { auditPublicSite } from "./site-audit";
 import { compareSiteAudits } from "./site-comparison";
 import {
+  analyzeHistoricalAudits,
+  emptyHistoricalReview,
+  MAX_HISTORICAL_VERSIONS,
+  MAX_HISTORICAL_FINDINGS,
+  MAX_HISTORICAL_SNAPSHOT_BYTES,
+  MAX_HISTORICAL_TOTAL_BYTES,
+  HISTORICAL_STATUSES,
+  HISTORICAL_FINDING_CODES,
+} from "./modules/change-regression/historical-comparisons";
+import {
   compareProductClaims,
   observeProductClaims,
   registeredToolEvidence,
@@ -835,6 +845,89 @@ const siteAuditSnapshotSchema = z.object({
   pages: z.array(sitePageSchema).max(SITE_AUDIT_MAX_PAGES),
   issue_groups: z.array(siteIssueGroupSchema).max(50),
   overview: overviewSchema.optional(),
+  error: z.string().optional(),
+});
+
+const historicalVersionsInputSchema = z.array(z.object({
+  saved_at: z.string().datetime({ offset: true }).max(40)
+    .describe("Actual snapshot timestamp with explicit UTC offset; versions must be ordered oldest first."),
+  snapshot: siteAuditSnapshotSchema
+    .describe("Complete previously observed audit_public_site snapshot (compact site-audit fields), not a URL to fetch."),
+})).min(2).max(MAX_HISTORICAL_VERSIONS)
+  .refine((versions) => {
+    try {
+      let total = 0;
+      const encoder = new TextEncoder();
+      for (const version of versions) {
+        const size = encoder.encode(JSON.stringify(version.snapshot)).byteLength;
+        if (size > MAX_HISTORICAL_SNAPSHOT_BYTES) return false;
+        total += size;
+        if (total > MAX_HISTORICAL_TOTAL_BYTES) return false;
+      }
+      return true;
+    } catch { return false; }
+  }, "Each supplied historical version must fit 60 KB and the aggregate 610 KB limit.");
+const historicalStepSchema = z.object({
+  baseline_version: z.number().int().min(1).max(MAX_HISTORICAL_VERSIONS),
+  current_version: z.number().int().min(1).max(MAX_HISTORICAL_VERSIONS),
+  status: z.enum(HISTORICAL_STATUSES),
+  shared_pages: z.number().int().nonnegative().max(8),
+  completely_checked_pairs: z.number().int().nonnegative().max(8),
+  regressed_pages: z.number().int().nonnegative().max(8),
+  improved_pages: z.number().int().nonnegative().max(8),
+  mixed_pages: z.number().int().nonnegative().max(8),
+  unchanged_pages: z.number().int().nonnegative().max(8),
+  coverage_lost_pages: z.number().int().nonnegative().max(8),
+  coverage_recovered_pages: z.number().int().nonnegative().max(8),
+  unverified_pages: z.number().int().nonnegative().max(8),
+  errors_delta_checked: z.number().int(),
+  warnings_delta_checked: z.number().int(),
+  changed_sample: z.boolean(), sitemap_changed: z.boolean(),
+  issue_group_comparison_available: z.boolean(),
+  newly_observed_groups: z.number().int().nonnegative().nullable(),
+  no_longer_observed_groups: z.number().int().nonnegative().nullable(),
+  expanding_groups: z.number().int().nonnegative().nullable(),
+  shrinking_groups: z.number().int().nonnegative().nullable(),
+});
+const historicalOutputSchema = z.object({
+  scope: z.literal("historical_compact_audit_versions_only"),
+  source: z.enum(["local_saved_ids", "caller_supplied_snapshots"]),
+  status: z.enum(HISTORICAL_STATUSES),
+  versions_compared: z.number().int().nonnegative().max(MAX_HISTORICAL_VERSIONS),
+  comparisons_made: z.number().int().nonnegative().max(MAX_HISTORICAL_VERSIONS - 1),
+  comparable_transitions: z.number().int().nonnegative(),
+  partial_transitions: z.number().int().nonnegative(),
+  not_comparable_transitions: z.number().int().nonnegative(),
+  stable_cohort_pages: z.number().int().nonnegative().max(8),
+  complete_stable_cohort_pages: z.number().int().nonnegative().max(8),
+  cohort_metrics_available: z.boolean(),
+  time_order_ambiguous: z.boolean(),
+  total_regressed_page_transitions: z.number().int().nonnegative(),
+  total_improved_page_transitions: z.number().int().nonnegative(),
+  total_coverage_lost_transitions: z.number().int().nonnegative(),
+  historical_points: z.array(z.object({
+    version: z.number().int().min(1).max(MAX_HISTORICAL_VERSIONS),
+    sampled_pages: z.number().int().nonnegative().max(8),
+    completed_pages: z.number().int().nonnegative().max(8),
+    sample_limited: z.boolean(),
+    cohort_completed_pages: z.number().int().nonnegative().max(8),
+    cohort_errors: z.number().int().nonnegative().nullable(),
+    cohort_warnings: z.number().int().nonnegative().nullable(),
+    cohort_mean_health_score: z.number().min(0).max(100).nullable(),
+  })).max(MAX_HISTORICAL_VERSIONS),
+  consecutive_changes: z.array(historicalStepSchema).max(MAX_HISTORICAL_VERSIONS - 1),
+  first_last_change: historicalStepSchema.nullable(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(360)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    version: z.number().int().min(1).max(MAX_HISTORICAL_VERSIONS),
+    code: z.enum(HISTORICAL_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(330),
+  })).max(MAX_HISTORICAL_FINDINGS),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
   error: z.string().optional(),
 });
 
@@ -2257,6 +2350,76 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           code: cause instanceof PublicHtmlFetchError ? cause.code : "audit_failed",
         }));
         return failedPublicSiteAudit(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "compare_historical_audits",
+    {
+      title: "Compare two to ten supplied site audit versions",
+      description:
+        "Pure, offline historical trends for 2–10 supplied timestamped compact audit_public_site results in oldest-first order. Compares adjacent and first/last observations and error/warning trends for the exact page cohort fully checked in every version. Distinguishes coverage loss from improvements and gates disappearing issue groups on fully checked identical sitemap samples. No hosted storage, saved IDs, scheduled monitoring, network requests, raw site URLs/messages, or ranking/indexing assertions.",
+      inputSchema: {
+        versions: historicalVersionsInputSchema.describe(
+          "Two to ten caller-supplied timestamped compact site-audit results, oldest first; <=60 KB each and 610 KB combined. Hosted service never reads a local archive or stores versions.",
+        ),
+      },
+      outputSchema: historicalOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Comparing historical audit snapshots...",
+        invoked: "Historical comparison complete.",
+      }),
+    },
+    async ({ versions }) => {
+      try {
+        const review = analyzeHistoricalAudits(versions, "caller_supplied_snapshots");
+        const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
+        const overview: ResultOverview = {
+          kind: "site",
+          status: warnings ? "needs_attention" : "partial",
+          title: "Historical site-audit trends",
+          headline: review.versions_compared + " supplied versions and " +
+            review.comparisons_made + " consecutive comparisons: " +
+            review.comparable_transitions + " comparable, " +
+            review.partial_transitions + " partial and " +
+            review.not_comparable_transitions + " nonoverlapping transitions.",
+          detail: review.total_regressed_page_transitions + " regressed and " +
+            review.total_improved_page_transitions + " improved fully checked page transitions; " +
+            review.total_coverage_lost_transitions + " observed coverage losses. " +
+            review.complete_stable_cohort_pages +
+            " pages have full checks in every version. Not a website-wide or Google canonical/ranking conclusion.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("versions", "Supplied versions", review.versions_compared, "info"),
+            metric("stable_cohort", "Consistently completed pages", review.complete_stable_cohort_pages, "info"),
+            metric("regressions", "Sampled page regressions", review.total_regressed_page_transitions, "warning"),
+            metric("improvements", "Sampled page improvements", review.total_improved_page_transitions, "info"),
+            metric("coverage_lost", "Lost checks", review.total_coverage_lost_transitions, "warning"),
+          ],
+          next_action: "Review comparable page-cohort evidence and re-audit missing checks. Only fully observed matched pages support changes; disappearance of a finding under partial coverage is not proof of repair.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview, review.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code + " (version " + finding.version + ")",
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "Historical snapshots cannot be safely compared within origin, chronology, page-coverage or evidence size limits.";
+        const overview = failedOverview("site", "Historical site-audit trends",
+          "The supplied historical evidence could not be compared.", error);
+        return {
+          structuredContent: { ...emptyHistoricalReview("caller_supplied_snapshots"), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
       }
     },
   );

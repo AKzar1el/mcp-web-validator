@@ -6,6 +6,7 @@ import * as path from "node:path";
 import {
   MAX_AUDIT_HISTORY,
   getAuditHistorySnapshot,
+  getAuditHistoryVersions,
   listAuditHistory,
   parseCompactAuditSnapshot,
   saveAuditHistorySnapshot,
@@ -100,6 +101,34 @@ test("saving version 11 evicts the oldest and always caps the file at 10", async
   const saved = JSON.parse(await fs.readFile(path.join(root, ".mcp-validator", "audit-history.json"), "utf8"));
   assert.equal(saved.items.length, 10);
   assert.equal(saved.items[0].id, ids[1]);
+});
+
+test("P2-01: batch reading saved historical IDs preserves disk bytes, order and exact compact snapshots", async (t) => {
+  const root = await temporaryRoot(t);
+  const ids = [];
+  for (let i = 0; i < 3; i++) {
+    const saved = await saveAuditHistorySnapshot(sample({
+      pages_discovered: i + 1,
+      pages: [{
+        ...JSON.parse(sample()).pages[0],
+        seo_errors: i,
+        health_score: 100 - i * 5,
+      }],
+    }), root);
+    ids.push(saved.items[0].id);
+  }
+  const historyFile = path.join(root, ".mcp-validator", "audit-history.json");
+  const before = await fs.readFile(historyFile);
+  const historical = await getAuditHistoryVersions(ids, root);
+  assert.equal(historical.length, 3);
+  assert.deepEqual(historical.map((item) => item.snapshot.pages_discovered), [1, 2, 3]);
+  assert.deepEqual(historical.map((item) => item.snapshot.pages[0].seo_errors), [0, 1, 2]);
+  assert(historical.every((item) => !("indexability_graph" in item.snapshot)));
+  assert.deepEqual(await fs.readFile(historyFile), before);
+  await assert.rejects(getAuditHistoryVersions([...ids].reverse(), root), /oldest/i);
+  await assert.rejects(getAuditHistoryVersions([ids[0], ids[0]], root), /distinct/i);
+  await assert.rejects(getAuditHistoryVersions([ids[0], "00000000-0000-4000-8000-000000000000"], root), /not found|evicted/i);
+  assert.deepEqual(await fs.readFile(historyFile), before);
 });
 
 test("rejects credential/query-bearing URLs rather than persisting tokens", async (t) => {

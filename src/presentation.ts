@@ -13,6 +13,7 @@ import type { WcagInteractionReview } from "./modules/browser-ux/wcag-interactio
 import type { HttpDirectiveReview } from "./modules/http-crawl/non-html-directives.js";
 import type { HttpsSecurityReview } from "./modules/http-crawl/https-security.js";
 import type { UrlVariantReview } from "./modules/http-crawl/url-variants.js";
+import type { HistoricalReview } from "./modules/change-regression/historical-comparisons.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
@@ -572,6 +573,26 @@ export function mediaDiagnosticsContent(review: MediaDiagnostics): string {
       message: `${finding.code}: ${finding.message}`,
     })),
     nextStep: "Inspect the flagged elements and verify their rendered behavior separately. Static metadata cannot prove actual resource availability, accessibility compliance, loading speed or video caption accuracy.",
+  });
+}
+
+export function historicalComparisonContent(review: HistoricalReview): string {
+  const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
+  return toolContent({
+    title: "Saved site-audit history trends",
+    status: warnings ? "attention needed" : "partial",
+    outcome: `${review.versions_compared} versions, ${review.comparisons_made} adjacent comparisons; ` +
+      `${review.comparable_transitions} comparable samples, ${review.partial_transitions} limited and ` +
+      `${review.not_comparable_transitions} nonoverlapping transitions. Across their matching checked pages, ` +
+      `${review.total_regressed_page_transitions} page regressions and ` +
+      `${review.total_improved_page_transitions} improvements were observed. ` +
+      `${review.complete_stable_cohort_pages} pages have fully checked evidence across all versions.`,
+    actions: review.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: `Saved version ${finding.version}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Review the per-version complete-cohort error/warning totals and changes, then collect comparable authorized audits where coverage is missing. Unobserved pages and unavailable validators cannot establish fixes, website-wide improvement, ranking changes or causality.",
   });
 }
 

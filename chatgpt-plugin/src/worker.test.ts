@@ -314,7 +314,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers eighteen accurately annotated tools", async () => {
+  it("discovers nineteen accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -325,6 +325,7 @@ describe("hosted tool contract", () => {
       "generate_validation_report",
       "audit_public_webpage",
       "audit_public_site",
+      "compare_historical_audits",
       "compare_site_audits",
       "verify_product_claims",
       "verify_content_provenance",
@@ -2307,6 +2308,87 @@ describe("hosted site audit comparison", () => {
       ...options,
     };
   }
+
+  const historicalVersions = (...counts: number[]) => counts.map((issueCount, index) => ({
+    saved_at: new Date(Date.UTC(2026, 9, 1 + index)).toISOString(),
+    snapshot: snapshot(issueCount),
+  }));
+
+  it("P2-01: discovers and invokes hosted historical comparison fully offline with stable cohort trends", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Historical comparison must be offline"); }));
+    const tools = await listTools();
+    expect(tools.find((tool) => tool.name === "compare_historical_audits")?.annotations)
+      .toMatchObject({ readOnlyHint: true, openWorldHint: false, destructiveHint: false });
+    const r = await callTool("compare_historical_audits", {
+      versions: historicalVersions(0, 2, 1),
+    });
+    expect(r.isError).not.toBe(true);
+    expect(r.structuredContent).toMatchObject({
+      scope: "historical_compact_audit_versions_only",
+      source: "caller_supplied_snapshots",
+      versions_compared: 3, comparisons_made: 2,
+      status: "comparable_sample",
+      total_regressed_page_transitions: 1,
+      total_improved_page_transitions: 1,
+      complete_stable_cohort_pages: 1,
+      coverage_limited: true,
+      overview: { kind: "site", status: "needs_attention" },
+    });
+    expect(r.structuredContent.historical_points.map(
+      (point: { cohort_errors: number }) => point.cohort_errors)).toEqual([0, 2, 1]);
+    expect(JSON.stringify(r)).not.toContain("https://example.com/");
+    expect(JSON.stringify(r)).not.toContain("Page title is missing");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("P2-01: sitemap drift and validator failure remain partial, with unknown group changes", async () => {
+    const versions = historicalVersions(1, 0);
+    versions[1].snapshot = snapshot(0, {
+      discovery_fingerprint: "b".repeat(64),
+      pages_partial: 1, pages_audited: 0,
+      pages: [{
+        ...snapshot(0).pages[0],
+        status: "partial", health_score: undefined,
+        html_validation_status: "timeout",
+      }],
+    });
+    const r = await callTool("compare_historical_audits", { versions });
+    expect(r.isError).not.toBe(true);
+    expect(r.structuredContent.status).toBe("partial");
+    expect(r.structuredContent.consecutive_changes[0]).toMatchObject({
+      coverage_lost_pages: 1, improved_pages: 0,
+      issue_group_comparison_available: false,
+      no_longer_observed_groups: null,
+    });
+    expect(r.structuredContent.cohort_metrics_available).toBe(false);
+  });
+
+  it("P2-01: rejects invalid chronological order and different site origins without echoing inputs", async () => {
+    const versions = historicalVersions(0, 1);
+    const secret = "FAKE_SENSITIVE_HISTORY_TOKEN";
+    for (const invalid of [
+      [...versions].reverse(),
+      [{ ...versions[0], snapshot: { ...snapshot(0), site_url: "https://another.example/" } }, versions[1]],
+      [{ ...versions[0], snapshot: { ...snapshot(0), pages: [
+        { ...snapshot(0).pages[0], url: "https://example.com/?token=" + secret },
+      ] } }, versions[1]],
+      [{ ...versions[0], snapshot: { ...snapshot(0), discovery_fingerprint: "malformed" } }, versions[1]],
+    ]) {
+      const result = await callTool("compare_historical_audits", { versions: invalid });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).not.toContain(secret);
+    }
+  });
+
+  it("P2-01: hosted storage remains stateless and tool cannot read local version IDs", async () => {
+    const tools = await listTools();
+    expect(tools.map((tool) => tool.name)).not.toContain("audit.history");
+    const r = await callTool("compare_historical_audits", { ids: [
+      "00000000-0000-4000-8000-000000000001",
+      "00000000-0000-4000-8000-000000000002",
+    ] });
+    expect(r.isError).toBe(true);
+  });
 
   it("exposes a genuinely offline, read-only comparison of previous site audit results", async () => {
     vi.stubGlobal("fetch", vi.fn(() => { throw new Error("No network should be contacted"); }));

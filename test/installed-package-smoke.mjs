@@ -65,10 +65,44 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "audit.monitor", "audit.trends", "availability.history", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
+      "audit.history", "audit.monitor", "audit.trends", "availability.history", "browser.dom_diff", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.link_graph", "site.links", "site.sitemaps",
     ],
   );
+
+  phase = "v07_raw_rendered_snapshot";
+  const domCompare = await client.callTool({
+    name: "browser.dom_diff",
+    arguments: {
+      mode: "compare_snapshots", page_url: "https://example.com/",
+      raw_html: '<html><head><title>Source</title></head><body><main><h1>Source</h1><a href="/hidden-token-v07">Source link</a></main></body></html>',
+      rendered_html: '<html><head><title>Client</title></head><body><main><h1>Client</h1><a href="/client-v07">Client link</a></main></body></html>',
+    },
+  });
+  assert.notEqual(domCompare.isError, true);
+  assert.equal(domCompare.structuredContent?.scope, "caller_supplied_rendered_snapshot");
+  assert.equal(domCompare.structuredContent?.title_changed, true);
+  assert.equal(domCompare.structuredContent?.link_targets_removed, 1);
+  assert.equal(domCompare.structuredContent?.link_targets_added, 1);
+  assert(!JSON.stringify(domCompare).includes("hidden-token-v07"));
+
+  phase = "v07_sandboxed_inline_chromium";
+  const domBrowser = await client.callTool({
+    name: "browser.dom_diff",
+    arguments: {
+      mode: "inline_sandbox", page_url: "https://example.com/",
+      raw_html: '<!doctype html><html><head><title>Shell</title></head><body>'
+        + '<main id="app">Loading</main><script>document.getElementById("app").innerHTML='
+        + '"<h1>Hydrated</h1><a href=/client-only-v07>Client</a>";</script>'
+        + '</body></html>',
+    },
+  });
+  assert.notEqual(domBrowser.isError, true);
+  assert.equal(domBrowser.structuredContent?.browser_executed, true);
+  assert.equal(domBrowser.structuredContent?.raw?.h1_count, 0);
+  assert.equal(domBrowser.structuredContent?.rendered?.h1_count, 1);
+  assert.equal(domBrowser.structuredContent?.link_targets_added, 1);
+  assert(!JSON.stringify(domBrowser).includes("/client-only-v07"));
 
   phase = "v06_internal_link_graph";
   const graph = await client.callTool({

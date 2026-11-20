@@ -85,6 +85,10 @@
       "description": "Opt-in local-only site-audit snapshot history. Save a previous hosted audit_public_site structured result as JSON, list saved IDs, or retrieve an exact version. A single compact local JSON file retains at most 10 versions; saving the 11th removes the oldest. No database, background task, or network request."
     },
     {
+      "name": "browser.dom_diff",
+      "description": "V07 local-only: compare two caller-supplied raw/rendered HTML snapshots offline, or render caller-supplied HTML in fresh network-denied Chromium with inline scripts only, or fetch one robots-allowed public HTML page and sample its inline-script DOM. Detects changed/missing title, description, H1, text, same-origin anchor links, canonical, noindex and JSON-LD declarations using bounded redacted evidence. Does not load external JS/CSS/assets, impersonate Google WRS, access GSC/GA4, claim indexing or save content. Inline modes execute untrusted JS only inside fresh browser sandbox; external requests are denied."
+    },
+    {
       "name": "browser.wcag",
       "description": "Local-only inert Chromium analysis of supplied HTML: sandboxed pinned headless browser, no external resource requests, scripts disabled and stripped, DOM accessible-name heuristics, aria-hidden focus, positive tabindex, custom role focusability, up to 24 real keyboard Tab focus samples, computed focus indicator review and native summary Enter toggle. Never navigates URLs, clicks links/buttons, submits forms, stores screenshots or certifies WCAG; may provision pinned browser on first use."
     },

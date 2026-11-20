@@ -2932,6 +2932,422 @@
       }
     },
     {
+      "name": "browser.dom_diff",
+      "title": "Compare HTTP source HTML and sandboxed rendered DOM SEO signals",
+      "description": "V07 local-only: compare two caller-supplied raw/rendered HTML snapshots offline, or render caller-supplied HTML in fresh network-denied Chromium with inline scripts only, or fetch one robots-allowed public HTML page and sample its inline-script DOM. Detects changed/missing title, description, H1, text, same-origin anchor links, canonical, noindex and JSON-LD declarations using bounded redacted evidence. Does not load external JS/CSS/assets, impersonate Google WRS, access GSC/GA4, claim indexing or save content. Inline modes execute untrusted JS only inside fresh browser sandbox; external requests are denied.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "compare_snapshots",
+              "inline_sandbox",
+              "live_inline_sandbox"
+            ],
+            "description": "Choose offline caller snapshots, local Chromium inline-script execution, or a guarded public HTML fetch followed by the same isolated browser render."
+          },
+          "url": {
+            "description": "Only for live_inline_sandbox: safe public query-free HTTP(S) page URL; robots.txt permission checked before GET.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "page_url": {
+            "description": "For offline modes, the page URL label for resolving relative links and canonicals; never fetched.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "raw_html": {
+            "description": "Caller-observed source HTML. Inline mode executes only its inline scripts in a fresh, offline Chromium sandbox.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 524288
+          },
+          "rendered_html": {
+            "description": "Only compare_snapshots: rendered HTML already obtained by an authorized browser or source; never executed or fetched.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 524288
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "caller_supplied_rendered_snapshot",
+              "isolated_inline_script_chromium",
+              "isolated_public_html_inline_script_sample"
+            ]
+          },
+          "browser_executed": {
+            "type": "boolean"
+          },
+          "inline_scripts_attempted": {
+            "type": "boolean"
+          },
+          "external_resources_blocked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "script_errors_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "raw": {
+            "type": "object",
+            "properties": {
+              "title_present": {
+                "type": "boolean"
+              },
+              "title_characters": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "description_present": {
+                "type": "boolean"
+              },
+              "description_characters": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "h1_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "main_words": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "same_origin_link_targets": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "query_links_excluded": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "external_link_targets": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "canonicals": {
+                "type": "string",
+                "enum": [
+                  "missing",
+                  "self",
+                  "different",
+                  "ambiguous"
+                ]
+              },
+              "noindex_declared": {
+                "type": "boolean"
+              },
+              "jsonld_blocks": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "external_script_tags": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "inline_script_tags": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "sample_truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "title_present",
+              "title_characters",
+              "description_present",
+              "description_characters",
+              "h1_count",
+              "main_words",
+              "same_origin_link_targets",
+              "query_links_excluded",
+              "external_link_targets",
+              "canonicals",
+              "noindex_declared",
+              "jsonld_blocks",
+              "external_script_tags",
+              "inline_script_tags",
+              "sample_truncated"
+            ],
+            "additionalProperties": false
+          },
+          "rendered": {
+            "type": "object",
+            "properties": {
+              "title_present": {
+                "type": "boolean"
+              },
+              "title_characters": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "description_present": {
+                "type": "boolean"
+              },
+              "description_characters": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "h1_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "main_words": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "same_origin_link_targets": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "query_links_excluded": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "external_link_targets": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "canonicals": {
+                "type": "string",
+                "enum": [
+                  "missing",
+                  "self",
+                  "different",
+                  "ambiguous"
+                ]
+              },
+              "noindex_declared": {
+                "type": "boolean"
+              },
+              "jsonld_blocks": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "external_script_tags": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "inline_script_tags": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "sample_truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "title_present",
+              "title_characters",
+              "description_present",
+              "description_characters",
+              "h1_count",
+              "main_words",
+              "same_origin_link_targets",
+              "query_links_excluded",
+              "external_link_targets",
+              "canonicals",
+              "noindex_declared",
+              "jsonld_blocks",
+              "external_script_tags",
+              "inline_script_tags",
+              "sample_truncated"
+            ],
+            "additionalProperties": false
+          },
+          "title_changed": {
+            "type": "boolean"
+          },
+          "h1_changed": {
+            "type": "boolean"
+          },
+          "canonical_changed": {
+            "type": "boolean"
+          },
+          "noindex_changed": {
+            "type": "boolean"
+          },
+          "shared_main_words": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "main_words_removed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "main_words_added": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "link_targets_removed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "link_targets_added": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unchanged_link_targets": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 320
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 18,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "title_removed",
+                    "title_added",
+                    "title_changed",
+                    "description_removed",
+                    "description_added",
+                    "h1_removed",
+                    "h1_added",
+                    "main_text_dropped",
+                    "main_text_added",
+                    "main_text_changed",
+                    "links_removed",
+                    "links_added",
+                    "noindex_added",
+                    "noindex_removed",
+                    "canonical_changed",
+                    "jsonld_removed",
+                    "jsonld_added",
+                    "external_scripts_blocked",
+                    "resources_blocked",
+                    "script_errors_observed",
+                    "snapshot_coverage_limited"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "browser_executed",
+          "inline_scripts_attempted",
+          "external_resources_blocked",
+          "script_errors_observed",
+          "raw",
+          "rendered",
+          "title_changed",
+          "h1_changed",
+          "canonical_changed",
+          "noindex_changed",
+          "shared_main_words",
+          "main_words_removed",
+          "main_words_added",
+          "link_targets_removed",
+          "link_targets_added",
+          "unchanged_link_targets",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "browser.wcag",
       "title": "Review bounded rendered-DOM keyboard and WCAG interaction evidence",
       "description": "Local-only inert Chromium analysis of supplied HTML: sandboxed pinned headless browser, no external resource requests, scripts disabled and stripped, DOM accessible-name heuristics, aria-hidden focus, positive tabindex, custom role focusability, up to 24 real keyboard Tab focus samples, computed focus indicator review and native summary Enter toggle. Never navigates URLs, clicks links/buttons, submits forms, stores screenshots or certifies WCAG; may provision pinned browser on first use.",

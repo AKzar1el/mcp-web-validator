@@ -21,3 +21,10 @@ remain outside the tool; see `docs/p1-12-browser-wcag-interactions.md`.
 
 Browser-verified live resource loading, viewport comparison and Lighthouse
 remain separate M03 work.
+
+V07 adds local `browser.dom_diff`: compare caller-supplied raw versus rendered
+HTML snapshots, or obtain a bounded DOM snapshot with only inline scripts in
+fresh network-denied Chromium. A separate robots-gated public HTML sample is
+available but external JavaScript/CSS/API resources are not loaded; it is not
+Google WRS or a full-resource browser render. See
+`docs/v07-raw-rendered-dom.md`.

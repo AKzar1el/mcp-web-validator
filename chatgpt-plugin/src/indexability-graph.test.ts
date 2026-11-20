@@ -241,18 +241,34 @@ describe("indexability graph: sampled-only corroboration", () => {
     }
   });
 
-  it("does not mistake an x-default fallback for the page's language self-reference", () => {
-    const url = "https://example.com/en";
-    const fallbackOnly = page(url,
-      '<link rel=alternate hreflang=x-default href="/en"><link rel=alternate hreflang=de href="/de">');
-    expect(build([fallbackOnly]).findings.map((finding) => finding.code))
-      .toContain("indexability.hreflang_missing_self");
-
-    const localizedSelf = page(url,
-      '<link rel=alternate hreflang=x-default href="/en">'
+  it("does not falsely require a language self-link on an x-default language selector", () => {
+    const selector = page("https://example.com/choose-language",
+      '<link rel=alternate hreflang=x-default href="/choose-language">'
       + '<link rel=alternate hreflang=en href="/en"><link rel=alternate hreflang=de href="/de">');
-    expect(build([localizedSelf]).findings.map((finding) => finding.code))
+    expect(build([selector]).findings.map((finding) => finding.code))
       .not.toContain("indexability.hreflang_missing_self");
+  });
+
+  it("flags conflicting URLs for one hreflang language without flagging exact repeated links", () => {
+    const url = "https://example.com/en";
+    const conflicting = page(url,
+      '<link rel=alternate hreflang=en href="/en">'
+      + '<link rel=alternate hreflang=de href="/de-a">'
+      + '<link rel=alternate hreflang=de href="/de-b">');
+    expect(build([conflicting]).findings).toContainEqual({
+      code: "indexability.hreflang_conflicting_targets",
+      severity: "warning",
+      confidence: "observed",
+      message: expect.any(String),
+      example_urls: [url, "https://example.com/de-a", "https://example.com/de-b"],
+    });
+
+    const repeated = page(url,
+      '<link rel=alternate hreflang=en href="/en">'
+      + '<link rel=alternate hreflang=de href="/de-a">'
+      + '<link rel=alternate hreflang=de href="/de-a">');
+    expect(build([repeated]).findings.map((finding) => finding.code))
+      .not.toContain("indexability.hreflang_conflicting_targets");
   });
 
   it("does not claim missing pages passed, or noindex seed URLs are included in sitemaps", () => {

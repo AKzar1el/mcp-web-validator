@@ -310,13 +310,31 @@ export function buildSiteIndexabilityGraph(
     // declarations. An x-default-only fallback is not enough evidence.
     if (!page.indexability.hreflang_truncated
       && page.indexability.hreflang.some((link) => link.language !== "x-default" && link.url !== ownUrl)
-      && !page.indexability.hreflang.some((link) => link.url === ownUrl && link.language !== "x-default")) {
+      && !page.indexability.hreflang.some((link) => link.url === ownUrl)) {
       report({
         code: "indexability.hreflang_missing_self",
         severity: "warning",
         confidence: "observed",
         message: "Sampled HTML declares alternate languages without including this page in its hreflang set; review the missing self-reference.",
         example_urls: [ownUrl],
+      });
+    }
+    // Multiple distinct destinations for the same locale make a declaration
+    // ambiguous even when all pages are otherwise valid and reachable.
+    const targetsByLanguage = new Map<string, Set<string>>();
+    for (const alternative of page.indexability.hreflang) {
+      const targets = targetsByLanguage.get(alternative.language) ?? new Set<string>();
+      targets.add(alternative.url);
+      targetsByLanguage.set(alternative.language, targets);
+    }
+    for (const targets of targetsByLanguage.values()) {
+      if (targets.size < 2) continue;
+      report({
+        code: "indexability.hreflang_conflicting_targets",
+        severity: "warning",
+        confidence: "observed",
+        message: "Sampled HTML assigns different destinations to the same hreflang language; review the conflicting declarations.",
+        example_urls: [ownUrl, ...[...targets].sort()].slice(0, MAX_EXAMPLE_URLS),
       });
     }
     for (const alternative of page.indexability.hreflang) {

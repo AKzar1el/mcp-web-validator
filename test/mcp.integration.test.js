@@ -31,6 +31,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "audit.monitor",
       "audit.trends",
       "availability.history",
+      "browser.dom_diff",
       "browser.wcag",
       "content.competitors",
       "content.duplicates",
@@ -60,6 +61,26 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "site.links",
       "site.sitemaps",
     ]);
+
+    const renderedTool = tools.find((tool) => tool.name === "browser.dom_diff");
+    assert.equal(renderedTool?.annotations?.readOnlyHint, true);
+    assert.equal(renderedTool?.outputSchema?.properties?.findings?.maxItems, 18);
+    const dom = await client.callTool({
+      name: "browser.dom_diff",
+      arguments: {
+        mode: "compare_snapshots", page_url: "https://example.com/",
+        raw_html: '<html><head><title>Original</title></head><body><main><h1>Original</h1><a href="/private-v07">Source</a></main></body></html>',
+        rendered_html: '<html><head><title>Hydrated</title></head><body><main><h1>Hydrated</h1><a href="/new-v07">Rendered</a></main></body></html>',
+      },
+    });
+    assert.equal(dom.isError, undefined);
+    assert.equal(dom.structuredContent?.scope, "caller_supplied_rendered_snapshot");
+    assert.equal(dom.structuredContent?.title_changed, true);
+    assert.equal(dom.structuredContent?.link_targets_added, 1);
+    assert.equal(dom.structuredContent?.link_targets_removed, 1);
+    assert.equal(dom.structuredContent?.browser_executed, false);
+    assert(!JSON.stringify(dom).includes("private-v07"));
+    assert(!JSON.stringify(dom).includes("new-v07"));
 
     const graphTool = tools.find((tool) => tool.name === "site.link_graph");
     assert.equal(graphTool?.annotations?.readOnlyHint, true);

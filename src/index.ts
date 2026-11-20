@@ -26,6 +26,11 @@ import {
   WCAG_EVIDENCE_TYPES,
 } from "./modules/browser-ux/wcag-interactions.js";
 import {
+  analyzeRawRendered, emptyRawRenderedReview,
+  MAX_RENDER_HTML_BYTES, MAX_RENDER_FINDINGS, RENDER_FINDING_CODES,
+} from "./modules/browser-ux/raw-rendered-diff.js";
+import { renderInlineHtml, reviewPublicInlineDom } from "./modules/browser-ux/raw-rendered-probe.js";
+import {
   analyzeHttpDirectives,
   emptyHttpDirectiveReview,
   safeHttpResourceUrl,
@@ -776,6 +781,54 @@ const screenshotSchema = z.object({
   outputPath: z.string(),
   incompleteAssetCount: z.number().int().nonnegative().optional(),
 });
+
+const domSnapshotOutputSchema = z.object({
+  title_present: z.boolean(),
+  title_characters: z.number().int().nonnegative(),
+  description_present: z.boolean(),
+  description_characters: z.number().int().nonnegative(),
+  h1_count: z.number().int().nonnegative(),
+  main_words: z.number().int().nonnegative(),
+  same_origin_link_targets: z.number().int().nonnegative(),
+  query_links_excluded: z.number().int().nonnegative(),
+  external_link_targets: z.number().int().nonnegative(),
+  canonicals: z.enum(["missing", "self", "different", "ambiguous"]),
+  noindex_declared: z.boolean(),
+  jsonld_blocks: z.number().int().nonnegative(),
+  external_script_tags: z.number().int().nonnegative(),
+  inline_script_tags: z.number().int().nonnegative(),
+  sample_truncated: z.boolean(),
+});
+const domDiffOutputShape = {
+  scope: z.enum(["caller_supplied_rendered_snapshot",
+    "isolated_inline_script_chromium", "isolated_public_html_inline_script_sample"]),
+  browser_executed: z.boolean(),
+  inline_scripts_attempted: z.boolean(),
+  external_resources_blocked: z.number().int().nonnegative(),
+  script_errors_observed: z.number().int().nonnegative(),
+  raw: domSnapshotOutputSchema,
+  rendered: domSnapshotOutputSchema,
+  title_changed: z.boolean(),
+  h1_changed: z.boolean(),
+  canonical_changed: z.boolean(),
+  noindex_changed: z.boolean(),
+  shared_main_words: z.number().int().nonnegative(),
+  main_words_removed: z.number().int().nonnegative(),
+  main_words_added: z.number().int().nonnegative(),
+  link_targets_removed: z.number().int().nonnegative(),
+  link_targets_added: z.number().int().nonnegative(),
+  unchanged_link_targets: z.number().int().nonnegative(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(320)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(RENDER_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(320),
+  })).max(MAX_RENDER_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
 
 const wcagReviewOutputSchema = {
   scope: z.literal("offline_sandboxed_rendered_html"),
@@ -2358,6 +2411,78 @@ export function createServer(): McpServer {
           failureContent("Audit history", error, "Review snapshot JSON or local history file permissions and retry."),
           true,
         );
+      }
+    },
+  );
+
+  server.registerTool(
+    "browser.dom_diff",
+    {
+      title: "Compare HTTP source HTML and sandboxed rendered DOM SEO signals",
+      description:
+        "V07 local-only: compare two caller-supplied raw/rendered HTML snapshots offline, or render caller-supplied HTML in fresh network-denied Chromium with inline scripts only, or fetch one robots-allowed public HTML page and sample its inline-script DOM. Detects changed/missing title, description, H1, text, same-origin anchor links, canonical, noindex and JSON-LD declarations using bounded redacted evidence. Does not load external JS/CSS/assets, impersonate Google WRS, access GSC/GA4, claim indexing or save content. Inline modes execute untrusted JS only inside fresh browser sandbox; external requests are denied.",
+      inputSchema: {
+        mode: z.enum(["compare_snapshots", "inline_sandbox", "live_inline_sandbox"])
+          .describe("Choose offline caller snapshots, local Chromium inline-script execution, or a guarded public HTML fetch followed by the same isolated browser render."),
+        url: deliveryInputUrl.optional()
+          .describe("Only for live_inline_sandbox: safe public query-free HTTP(S) page URL; robots.txt permission checked before GET."),
+        page_url: z.string().url().max(512)
+          .refine((value) => Boolean(safeLinkPageUrl(value)),
+            "An offline page label must be query-free HTTP(S) without credentials or fragments.")
+          .optional()
+          .describe("For offline modes, the page URL label for resolving relative links and canonicals; never fetched."),
+        raw_html: z.string().min(1).max(MAX_RENDER_HTML_BYTES).refine(
+          (value) => Buffer.byteLength(value, "utf8") <= MAX_RENDER_HTML_BYTES,
+          "Raw HTML must be 512 KiB UTF-8 or less.").optional()
+          .describe("Caller-observed source HTML. Inline mode executes only its inline scripts in a fresh, offline Chromium sandbox."),
+        rendered_html: z.string().min(1).max(MAX_RENDER_HTML_BYTES).refine(
+          (value) => Buffer.byteLength(value, "utf8") <= MAX_RENDER_HTML_BYTES,
+          "Rendered HTML must be 512 KiB UTF-8 or less.").optional()
+          .describe("Only compare_snapshots: rendered HTML already obtained by an authorized browser or source; never executed or fetched."),
+      },
+      outputSchema: domDiffOutputShape,
+      annotations: externalReadOnlyAnnotations,
+    },
+    async ({ mode, url, page_url, raw_html, rendered_html }) => {
+      try {
+        const compare = mode === "compare_snapshots";
+        const inline = mode === "inline_sandbox";
+        const live = mode === "live_inline_sandbox";
+        if (live
+          ? !url || Boolean(page_url || raw_html || rendered_html)
+          : !page_url || !raw_html || Boolean(url)
+            || (compare ? !rendered_html : !inline || Boolean(rendered_html))) {
+          throw new Error("Provide exactly one declared browser or offline evidence mode.");
+        }
+        const review = live
+          ? await reviewPublicInlineDom(url!)
+          : compare
+            ? analyzeRawRendered({
+              page_url: page_url!, raw_html: raw_html!, rendered_html: rendered_html!,
+            })
+            : await renderInlineHtml(raw_html!, page_url!);
+        return result(review,
+          "V07 source/render comparison: "
+          + review.raw.main_words + " source and " + review.rendered.main_words
+          + " rendered main-text words; " + review.link_targets_removed + " source links removed, "
+          + review.link_targets_added + " rendered links added, "
+          + (review.title_changed ? "title changed; " : "title unchanged; ")
+          + (review.canonical_changed ? "canonical declarations changed; " : "")
+          + (review.noindex_changed ? "noindex declarations changed; " : "")
+          + review.script_errors_observed + " script-error events observed. "
+          + "Only " + (review.browser_executed ? "inline JavaScript with all network blocked" :
+            "caller-supplied snapshots") + " was assessed; Google WRS/indexing was not verified.");
+      } catch {
+        const error = "Raw/rendered DOM evidence is unavailable within the bounded HTML, public URL or sandboxed Chromium limits.";
+        const scope = mode === "live_inline_sandbox"
+          ? "isolated_public_html_inline_script_sample"
+          : mode === "inline_sandbox"
+            ? "isolated_inline_script_chromium"
+            : "caller_supplied_rendered_snapshot";
+        return result({ ...emptyRawRenderedReview(scope), error }, failureContent(
+          "Browser source versus rendered DOM", error,
+          "Supply authorized small HTML snapshots or a safe public URL, and ensure pinned sandboxed Chromium can launch without disabling its security controls.",
+        ), true);
       }
     },
   );

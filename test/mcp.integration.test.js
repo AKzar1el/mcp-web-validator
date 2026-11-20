@@ -37,6 +37,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "content.metadata",
       "content.provenance",
       "content.quality",
+      "crawler.access",
       "css.local",
       "html.local",
       "html.url",
@@ -56,6 +57,30 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "site.hreflang",
       "site.links",
     ]);
+
+    const crawlerTool = tools.find((tool) => tool.name === "crawler.access");
+    assert.equal(crawlerTool?.annotations?.readOnlyHint, true);
+    assert.equal(crawlerTool?.outputSchema?.properties?.rows_checked?.maximum, 48);
+    const robots = await client.callTool({
+      name: "crawler.access",
+      arguments: {
+        site_url: "https://example.com/",
+        robots_txt: "User-agent: Googlebot\nDisallow: /private",
+        pages: [{
+          url: "https://example.com/private/secret-to-redact",
+          status_code: 200,
+          html: "<meta name='googlebot' content='noindex'>",
+          x_robots_tag: [],
+        }],
+        profiles: ["googlebot-smartphone", "bingbot"],
+      },
+    });
+    assert.equal(robots.isError, undefined);
+    assert.equal(robots.structuredContent?.rows_checked, 2);
+    assert.equal(robots.structuredContent?.crawler_disallowed_rows, 1);
+    assert.equal(robots.structuredContent?.noindex_declared_rows, 1);
+    assert.equal(robots.structuredContent?.coverage_limited, true);
+    assert(!JSON.stringify(robots).includes("secret-to-redact"));
 
     const deliveryTool = tools.find((tool) => tool.name === "http.delivery");
     assert.equal(deliveryTool?.annotations?.readOnlyHint, true);

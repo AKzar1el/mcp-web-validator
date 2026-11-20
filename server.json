@@ -3406,6 +3406,381 @@
       }
     },
     {
+      "name": "crawler.access",
+      "title": "Review crawler access, robots rules and indexing directives by profile",
+      "description": "V03: compare up to eight supplied pages against robots.txt group precedence and static meta/X-Robots-Tag directives for Googlebot smartphone/desktop/news/image, Bingbot and GPTBot; or probe one public page and robots.txt using only the service's own User-Agent. Distinguishes crawl disallow from explicit noindex and unavailable/ambiguous evidence. Live probe obeys site robots for this service; it does NOT impersonate/verify real crawlers, request indexing, crawl historical logs, or claim a page is indexed. Raw URLs, source and response headers are not returned.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "description": "Live mode: one authorized public query-free HTML page; cannot be combined with supplied evidence.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "site_url": {
+            "description": "Offline mode: public site origin URL matching all supplied pages.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "robots_txt": {
+            "description": "Offline: previously obtained robots.txt body, max 64,000 UTF-8 bytes.",
+            "type": "string",
+            "maxLength": 64000
+          },
+          "robots_status_code": {
+            "description": "Offline: observed robots.txt HTTP status; 429/5xx are unknown, not allow.",
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "pages": {
+            "description": "Offline: one to eight same-origin static page and HTTP indexing observations.",
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Exact same-origin query-free page URL label, never returned."
+                },
+                "status_code": {
+                  "description": "Observed page HTTP status, if known.",
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "html": {
+                  "description": "Optional static raw HTML (150 KB byte cap); scripts are not executed or stored.",
+                  "type": "string",
+                  "maxLength": 150000
+                },
+                "x_robots_tag": {
+                  "description": "Observed X-Robots-Tag response header values; [] means checked and absent.",
+                  "maxItems": 8,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 512
+                  }
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "profiles": {
+            "description": "Optional distinct crawler product profiles; all six by default.",
+            "minItems": 1,
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "googlebot-smartphone",
+                "googlebot-desktop",
+                "googlebot-news",
+                "googlebot-image",
+                "bingbot",
+                "gptbot"
+              ]
+            }
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "caller_supplied_crawler_evidence",
+              "live_public_crawler_probe"
+            ]
+          },
+          "pages_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "profiles_checked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6
+          },
+          "rows_checked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 48
+          },
+          "robots_status_code": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "robots_rules_used": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "robots_rules_truncated": {
+            "type": "boolean"
+          },
+          "robots_unavailable": {
+            "type": "boolean"
+          },
+          "crawler_disallowed_rows": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "noindex_declared_rows": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unknown_access_rows": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unknown_indexing_rows": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "scope_ambiguous_rows": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 260
+            }
+          },
+          "rows": {
+            "maxItems": 48,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "profile": {
+                  "type": "string",
+                  "enum": [
+                    "googlebot-smartphone",
+                    "googlebot-desktop",
+                    "googlebot-news",
+                    "googlebot-image",
+                    "bingbot",
+                    "gptbot"
+                  ]
+                },
+                "robots_access": {
+                  "type": "string",
+                  "enum": [
+                    "allowed",
+                    "disallowed",
+                    "unknown"
+                  ]
+                },
+                "robots_rule": {
+                  "type": "string",
+                  "enum": [
+                    "allow",
+                    "disallow",
+                    "none",
+                    "unknown"
+                  ]
+                },
+                "robots_group_matched": {
+                  "type": "boolean"
+                },
+                "indexing_state": {
+                  "type": "string",
+                  "enum": [
+                    "explicit_noindex",
+                    "no_noindex_observed",
+                    "unknown"
+                  ]
+                },
+                "indexing_source": {
+                  "type": "string",
+                  "enum": [
+                    "meta",
+                    "header",
+                    "both",
+                    "none"
+                  ]
+                },
+                "explicit_index_directive": {
+                  "type": "boolean"
+                },
+                "conflicting_index_directives": {
+                  "type": "boolean"
+                },
+                "x_robots_scope_ambiguous": {
+                  "type": "boolean"
+                },
+                "page_http_status": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "static_html_examined": {
+                  "type": "boolean"
+                },
+                "effective_access": {
+                  "type": "string",
+                  "enum": [
+                    "crawl_disallowed",
+                    "crawl_allowed_noindex_declared",
+                    "crawl_allowed_no_noindex_observed",
+                    "unverified"
+                  ]
+                }
+              },
+              "required": [
+                "page",
+                "profile",
+                "robots_access",
+                "robots_rule",
+                "robots_group_matched",
+                "indexing_state",
+                "indexing_source",
+                "explicit_index_directive",
+                "conflicting_index_directives",
+                "x_robots_scope_ambiguous",
+                "static_html_examined",
+                "effective_access"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 24,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "crawler_disallowed",
+                    "explicit_noindex",
+                    "blocked_with_noindex",
+                    "robots_unavailable",
+                    "indexing_observation_missing",
+                    "page_http_error",
+                    "conflicting_indexing_directives",
+                    "x_robots_scope_ambiguous",
+                    "robots_rules_truncated"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "profile": {
+                  "type": "string",
+                  "enum": [
+                    "googlebot-smartphone",
+                    "googlebot-desktop",
+                    "googlebot-news",
+                    "googlebot-image",
+                    "bingbot",
+                    "gptbot"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 260
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "page",
+                "profile",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "pages_observed",
+          "profiles_checked",
+          "rows_checked",
+          "robots_rules_used",
+          "robots_rules_truncated",
+          "robots_unavailable",
+          "crawler_disallowed_rows",
+          "noindex_declared_rows",
+          "unknown_access_rows",
+          "unknown_indexing_rows",
+          "scope_ambiguous_rows",
+          "coverage_limited",
+          "limitations",
+          "rows",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "http.availability",
       "title": "Analyze observed availability changes and short repeat-fetch reliability",
       "description": "V02: compare two to 48 ordered, caller-supplied timestamped HTTP/transport outcomes, or make two to three bounded sequential public GET probes. Flags intermittent non-2xx, status transitions, 429/5xx, explicit challenge and network failures, and sampling gaps. The percentages are only ratios of sampled responses, never guaranteed uptime or actual outage duration. No scheduler, history storage, Googlebot verification or response bodies; use availability.history separately to opt into local storage.",

@@ -16,7 +16,7 @@ import {
   SITE_AUDIT_MAX_PAGES,
   SITE_AUDIT_MAX_SITEMAP_URLS,
 } from "./constants";
-import { fetchPublicHtml, probePublicHttp, PublicHtmlFetchError, type HtmlMediaType } from "./network";
+import { fetchPublicHtml, probePublicHttp, PublicHtmlFetchError, PublicHttpProbeBudgetError, type HtmlMediaType } from "./network";
 import {
   contentForOverview,
   overviewSchema,
@@ -159,6 +159,13 @@ import {
   AVAILABILITY_FINDING_CODES,
 } from "./modules/http-crawl/availability-observations";
 import { collectPublicAvailability } from "./modules/http-crawl/availability-probe";
+import {
+  analyzeCrawlerAccess, emptyCrawlerAccessReview, CRAWLER_PROFILES,
+  CRAWLER_ACCESS_STATES, CRAWLER_INDEXING_STATES, CRAWLER_FINDING_CODES,
+  MAX_CRAWLER_PAGES, MAX_CRAWLER_FINDINGS, MAX_CRAWLER_ROBOTS_BYTES,
+  MAX_CRAWLER_HTML_BYTES,
+} from "./modules/http-crawl/crawler-access";
+import { probeCrawlerAccess } from "./modules/http-crawl/crawler-access-probe";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -286,6 +293,59 @@ const availabilityOutputSchema = z.object({
     severity: z.enum(["warning", "info"]),
     message: z.string().max(260),
   })).max(MAX_AVAILABILITY_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+  overview: overviewSchema,
+});
+
+const crawlerPageInputSchema = z.object({
+  url: deliveryInputUrl,
+  status_code: z.number().int().min(100).max(599).optional(),
+  html: z.string().max(MAX_CRAWLER_HTML_BYTES).optional(),
+  x_robots_tag: z.array(z.string().max(512)).max(8).optional(),
+}).strict();
+const crawlerProfileInput = z.array(z.enum(CRAWLER_PROFILES))
+  .min(1).max(CRAWLER_PROFILES.length).optional();
+const crawlerOutputSchema = z.object({
+  scope: z.enum(["caller_supplied_crawler_evidence", "live_public_crawler_probe"]),
+  pages_observed: z.number().int().min(0).max(MAX_CRAWLER_PAGES),
+  profiles_checked: z.number().int().nonnegative().max(CRAWLER_PROFILES.length),
+  rows_checked: z.number().int().nonnegative().max(MAX_CRAWLER_PAGES * CRAWLER_PROFILES.length),
+  robots_status_code: z.number().int().min(100).max(599).optional(),
+  robots_rules_used: z.number().int().nonnegative(),
+  robots_rules_truncated: z.boolean(),
+  robots_unavailable: z.boolean(),
+  crawler_disallowed_rows: z.number().int().nonnegative(),
+  noindex_declared_rows: z.number().int().nonnegative(),
+  unknown_access_rows: z.number().int().nonnegative(),
+  unknown_indexing_rows: z.number().int().nonnegative(),
+  scope_ambiguous_rows: z.number().int().nonnegative(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(260)).max(5),
+  rows: z.array(z.object({
+    page: z.number().int().min(1).max(MAX_CRAWLER_PAGES),
+    profile: z.enum(CRAWLER_PROFILES),
+    robots_access: z.enum(CRAWLER_ACCESS_STATES),
+    robots_rule: z.enum(["allow", "disallow", "none", "unknown"]),
+    robots_group_matched: z.boolean(),
+    indexing_state: z.enum(CRAWLER_INDEXING_STATES),
+    indexing_source: z.enum(["meta", "header", "both", "none"]),
+    explicit_index_directive: z.boolean(),
+    conflicting_index_directives: z.boolean(),
+    x_robots_scope_ambiguous: z.boolean(),
+    page_http_status: z.number().int().min(100).max(599).optional(),
+    static_html_examined: z.boolean(),
+    effective_access: z.enum(["crawl_disallowed", "crawl_allowed_noindex_declared",
+      "crawl_allowed_no_noindex_observed", "unverified"]),
+  })).max(MAX_CRAWLER_PAGES * CRAWLER_PROFILES.length),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(CRAWLER_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    page: z.number().int().min(1).max(MAX_CRAWLER_PAGES),
+    profile: z.enum(CRAWLER_PROFILES),
+    message: z.string().max(260),
+  })).max(MAX_CRAWLER_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
   overview: overviewSchema,
@@ -3184,6 +3244,93 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           "The supplied metadata sample could not be compared.", error);
         return {
           structuredContent: { ...emptyMetadataReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "review_crawler_access",
+    {
+      title: "Review crawler robots access and indexing directive matrix",
+      description:
+        "V03: compare up to eight user-provided same-origin page observations, static HTML meta robots and X-Robots-Tag against crawler-specific robots.txt rules for Googlebot desktop/smartphone/news/image, Bingbot and GPTBot. Alternatively fetch a single public page and robots.txt with the service's own User-Agent, applying public URL and robots guards and charging per outgoing GET. Crawl permission is NOT an indexing verdict; this does not impersonate or authenticate search crawlers, execute JS, store HTML or inspect crawler logs.",
+      inputSchema: {
+        url: deliveryInputUrl.optional()
+          .describe("Live: one authorized public query-free page URL; omit offline fields."),
+        site_url: deliveryInputUrl.optional()
+          .describe("Offline: origin URL to compare with the supplied pages."),
+        robots_txt: z.string().max(MAX_CRAWLER_ROBOTS_BYTES).optional()
+          .describe("Offline: previously acquired robots.txt text, maximum 64 KB."),
+        robots_status_code: z.number().int().min(100).max(599).optional()
+          .describe("Offline: actual observed robots.txt status; 429 and 5xx remain unknown."),
+        pages: z.array(crawlerPageInputSchema).min(1).max(MAX_CRAWLER_PAGES).optional()
+          .describe("Offline: one to eight page URL, HTTP, static HTML and header samples."),
+        profiles: crawlerProfileInput.describe("Optional distinct profiles, six available and all checked by default."),
+      },
+      outputSchema: crawlerOutputSchema.shape,
+      annotations: externalReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Reviewing crawler rules and indexing directives...",
+        invoked: "Crawler-access matrix complete.",
+      }),
+    },
+    async ({ url, site_url, robots_txt, robots_status_code, pages, profiles }) => {
+      try {
+        if (url
+          ? Boolean(site_url || pages || robots_txt !== undefined || robots_status_code !== undefined)
+          : !(site_url && pages)) {
+          throw new Error("Choose only live URL or complete offline evidence.");
+        }
+        const review = url
+          ? await probeCrawlerAccess(url, profiles, async () => {
+            const allowed = await env.SITE_AUDIT_RATE_LIMITER.limit({ key: siteAuditRateLimitKey });
+            if (!allowed.success) throw new PublicHttpProbeBudgetError("Site audit rate limit reached.");
+          })
+          : analyzeCrawlerAccess({
+            site_url: site_url!, pages: pages!,
+            ...(robots_txt === undefined ? {} : { robots_txt }),
+            ...(robots_status_code === undefined ? {} : { robots_status_code }),
+            ...(profiles ? { profiles } : {}),
+          });
+        const overview: ResultOverview = {
+          kind: "report",
+          status: review.crawler_disallowed_rows > 0 || review.noindex_declared_rows > 0
+            ? "needs_attention" : "partial",
+          title: "Crawler access matrix (V03)",
+          headline: review.rows_checked + " observed profile/page combinations; "
+            + review.crawler_disallowed_rows + " robots-disallowed and "
+            + review.noindex_declared_rows + " with declared noindex.",
+          detail: review.unknown_access_rows + " unknown robots decisions and "
+            + review.unknown_indexing_rows + " unknown indexing observations. "
+            + "These are static, declared or sampled signals, not real Googlebot/Bingbot responses or confirmed index state.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("robots_disallow", "Robots disallow", review.crawler_disallowed_rows, "warning"),
+            metric("noindex", "Noindex declared", review.noindex_declared_rows, "warning"),
+            metric("unknown_access", "Unknown crawl access", review.unknown_access_rows, "info"),
+          ],
+          next_action: "Verify the applicable robots.txt and actual response headers in verified crawler logs and Search Console before attributing an indexing decline.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview, review.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code + " (page " + finding.page + ", " + finding.profile + ")",
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "Crawler access cannot be assessed within public URL, source-evidence and request-rate safety limits.";
+        const overview = failedOverview("report", "Crawler access matrix (V03)",
+          "The crawler-access sample or offline comparison could not be completed.", error);
+        return {
+          structuredContent: { ...emptyCrawlerAccessReview(), overview, error },
           content: contentForOverview(overview),
           isError: true,
         };

@@ -15,6 +15,12 @@ observations or two/three live HTTP probes). The optional local ten-record
 `review_availability_history` has **no** persisted state, background scheduler
 or uptime-certification claim. See `docs/v02-availability-history.md`.
 
+V03 `crawler.access` and hosted `review_crawler_access` compare crawler
+product-token robots rules with explicit static meta and X-Robots-Tag evidence,
+or inspect robots.txt plus one authorized page with the service's own UA.
+Crawler access and indexing are intentionally separate and unknown evidence is
+not reported as healthy. See `docs/v03-crawler-access.md`.
+
 P1-11 now provides a bounded **offline HTTP response-observation analyzer** in
 `non-html-directives.ts`, exposed through local MCP `http.directives`. It
 parses supplied headers only; no binary download, URL probing or crawler

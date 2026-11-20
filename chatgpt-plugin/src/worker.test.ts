@@ -144,6 +144,73 @@ describe("V01 real hosted MCP tool diagnostics", () => {
   });
 });
 
+describe("V03 hosted MCP crawler-access matrix", () => {
+  it("discovers the new read-only tool and runs a redacted offline profile comparison", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    const tool = (await listTools()).find((entry) => entry.name === "review_crawler_access");
+    expect(tool?.annotations).toMatchObject({
+      readOnlyHint: true, openWorldHint: true, destructiveHint: false,
+    });
+    const r = await callTool("review_crawler_access", {
+      site_url: "https://example.com/",
+      robots_txt: "User-agent: Googlebot\nDisallow: /private",
+      pages: [{
+        url: "https://example.com/private/not-for-output",
+        status_code: 200,
+        html: "<meta name='googlebot' content='noindex'>",
+        x_robots_tag: [],
+      }],
+      profiles: ["googlebot-smartphone", "bingbot"],
+    });
+    expect(r.isError).not.toBe(true);
+    expect(r.structuredContent).toMatchObject({
+      scope: "caller_supplied_crawler_evidence", rows_checked: 2,
+      crawler_disallowed_rows: 1, noindex_declared_rows: 1,
+      overview: { status: "needs_attention" },
+    });
+    expect(mock).not.toHaveBeenCalled();
+    expect(JSON.stringify(r)).not.toContain("not-for-output");
+  });
+
+  it("live MCP fetches robots.txt and an authorized HTML page, without a crawler identity claim", async () => {
+    const mock = vi.fn(async (url: RequestInfo | URL) =>
+      String(url).endsWith("/robots.txt")
+        ? new Response("User-agent: *\nAllow: /", {
+          status: 200, headers: { "content-type": "text/plain" },
+        })
+        : new Response("<html><head><meta name='robots' content='noindex'></head></html>", {
+          status: 200, headers: { "content-type": "text/html" },
+        }));
+    vi.stubGlobal("fetch", mock);
+    const r = await callTool("review_crawler_access", { url: "https://example.com/" });
+    expect(r.isError).not.toBe(true);
+    expect(r.structuredContent).toMatchObject({
+      scope: "live_public_crawler_probe", rows_checked: 6,
+      noindex_declared_rows: 6,
+      unknown_access_rows: 0,
+    });
+    expect(mock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects conflicting live/offline modes and secret-bearing URL inputs", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    for (const args of [
+      { url: "https://example.com/?token=SECRET_V03" },
+      { url: "https://example.com/", site_url: "https://example.com/" },
+      { site_url: "https://example.com/", pages: [
+        { url: "https://other.example.net/", html: "<h1>mismatch</h1>" },
+      ] },
+    ]) {
+      const r = await callTool("review_crawler_access", args);
+      expect(r.isError).toBe(true);
+      expect(JSON.stringify(r)).not.toContain("SECRET_V03");
+    }
+    expect(mock).not.toHaveBeenCalled();
+  });
+});
+
 describe("V02 hosted MCP availability history and bounded repeat probes", () => {
   it("lists a stateless, read-only tool and compares offline observations", async () => {
     const mock = vi.fn();
@@ -429,7 +496,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers twenty-two accurately annotated tools", async () => {
+  it("discovers twenty-three accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -449,6 +516,7 @@ describe("hosted tool contract", () => {
       "validate_supported_schema",
       "review_internal_links",
       "review_metadata_consistency",
+      "review_crawler_access",
       "review_availability_history",
       "diagnose_http_delivery",
       "review_url_variants",

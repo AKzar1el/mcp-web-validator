@@ -39,6 +39,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "css.local",
       "html.local",
       "html.url",
+      "http.delivery",
       "http.directives",
       "http.security",
       "http.variants",
@@ -53,6 +54,23 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "site.hreflang",
       "site.links",
     ]);
+
+    const deliveryTool = tools.find((tool) => tool.name === "http.delivery");
+    assert.equal(deliveryTool?.annotations?.readOnlyHint, true);
+    assert.equal(deliveryTool?.outputSchema?.properties?.hops_observed?.maximum, 4);
+    const edgeSample = await client.callTool({
+      name: "http.delivery",
+      arguments: { observations: [{ url: "https://example.com/",
+        status_code: 429, headers: {
+          "cf-mitigated": "challenge", "cf-ray": "confidential-edge-ID",
+          "retry-after": "20",
+        } }] },
+    });
+    assert.equal(edgeSample.isError, undefined);
+    assert.equal(edgeSample.structuredContent?.errors_observed, 1);
+    assert.equal(edgeSample.structuredContent?.challenges_observed, 1);
+    assert.equal(edgeSample.structuredContent?.hops?.[0]?.retry_after_seconds, 20);
+    assert(!JSON.stringify(edgeSample).includes("confidential-edge-ID"));
 
     const seoTool = tools.find((tool) => tool.name === "seo.metadata");
     assert.ok((seoTool?.description ?? "").includes("Use for a quick on-page check"));

@@ -61,10 +61,24 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "audit.monitor", "audit.trends", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "http.directives", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
+      "audit.history", "audit.monitor", "audit.trends", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "http.delivery", "http.directives", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links",
     ],
   );
+
+  phase = "v01_delivery";
+  const delivery = await client.callTool({
+    name: "http.delivery",
+    arguments: { observations: [{
+      url: "https://example.com/", status_code: 403,
+      headers: { "cf-mitigated": "challenge", "cf-ray": "private-package-test-id" },
+    }] },
+  });
+  assert.notEqual(delivery.isError, true);
+  assert.equal(delivery.structuredContent?.hops_observed, 1);
+  assert.equal(delivery.structuredContent?.errors_observed, 1);
+  assert.equal(delivery.structuredContent?.challenges_observed, 1);
+  assert(!JSON.stringify(delivery).includes("private-package-test-id"));
 
   phase = "history_trend";
   const historySnapshot = (count) => JSON.stringify({

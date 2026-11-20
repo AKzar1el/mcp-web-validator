@@ -144,6 +144,76 @@ describe("V01 real hosted MCP tool diagnostics", () => {
   });
 });
 
+describe("V05 hosted MCP sitemap inventory", () => {
+  const sitemap = (path: string) => '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+    + '<url><loc>https://example.com/' + path + "</loc></url></urlset>";
+
+  it("discovers the read-only tool and reports redacted offline conflicts", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    const tool = (await listTools()).find((t) => t.name === "review_sitemap_inventory");
+    expect(tool?.annotations).toMatchObject({
+      readOnlyHint: true, destructiveHint: false, openWorldHint: true,
+    });
+    const r = await callTool("review_sitemap_inventory", {
+      site_url: "https://example.com/",
+      documents: [{ sitemap_url: "https://example.com/sitemap.xml",
+        content: sitemap("private-token") }],
+      page_observations: [{ url: "https://example.com/private-token",
+        status_code: 404, noindex: true }],
+    });
+    expect(r.isError).not.toBe(true);
+    expect(r.structuredContent).toMatchObject({
+      scope: "caller_supplied_sitemap_evidence", documents_observed: 1,
+      distinct_page_urls: 1, noindex_conflicts: 1, status_conflicts: 1,
+      known_indexability_conflicts: 1, inventory_complete: false,
+      overview: { status: "needs_attention" },
+    });
+    expect(JSON.stringify(r)).not.toContain("private-token");
+    expect(mock).not.toHaveBeenCalled();
+  });
+
+  it("performs bounded live sitemap GETs and reports unseen children", async () => {
+    const mock = vi.fn(async (url: RequestInfo | URL) =>
+      String(url).endsWith("/sitemap.xml")
+        ? new Response('<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+          + '<sitemap><loc>https://example.com/a.xml</loc></sitemap>'
+          + '<sitemap><loc>https://example.com/b.xml</loc></sitemap>'
+          + '<sitemap><loc>https://example.com/c.xml</loc></sitemap>'
+          + '</sitemapindex>', { status: 200, headers: { "content-type": "application/xml" } })
+        : new Response(sitemap("landing"), {
+          status: 200, headers: { "content-type": "text/xml" },
+        }));
+    vi.stubGlobal("fetch", mock);
+    const r = await callTool("review_sitemap_inventory",
+      { url: "https://example.com/", sitemap_url: "https://example.com/sitemap.xml" });
+    expect(r.isError).not.toBe(true);
+    expect(r.structuredContent).toMatchObject({
+      scope: "live_public_sitemap_sample", documents_observed: 3,
+      missing_child_documents: 1, inventory_complete: false,
+    });
+    expect(mock).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects conflicting input modes and URL secret leaks", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    for (const input of [
+      { url: "https://example.com/?key=secret-V05" },
+      { url: "https://example.com/", site_url: "https://example.com/",
+        documents: [{ sitemap_url: "https://example.com/sitemap.xml", content: sitemap("one") }] },
+      { site_url: "https://example.com/", documents: [
+        { sitemap_url: "https://example.com/sitemap.xml?key=secret-V05", content: sitemap("one") },
+      ] },
+    ]) {
+      const r = await callTool("review_sitemap_inventory", input);
+      expect(r.isError).toBe(true);
+      expect(JSON.stringify(r)).not.toContain("secret-V05");
+    }
+    expect(mock).not.toHaveBeenCalled();
+  });
+});
+
 describe("V04 hosted MCP redirect and canonical chain review", () => {
   it("discovers the read-only tool, returns structured offline findings and redacts URL tokens", async () => {
     const mock = vi.fn();
@@ -575,7 +645,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers twenty-four accurately annotated tools", async () => {
+  it("discovers twenty-five accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -595,6 +665,7 @@ describe("hosted tool contract", () => {
       "validate_supported_schema",
       "review_internal_links",
       "review_metadata_consistency",
+      "review_sitemap_inventory",
       "review_redirect_canonical_chains",
       "review_crawler_access",
       "review_availability_history",

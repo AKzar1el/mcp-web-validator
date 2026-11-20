@@ -1971,6 +1971,261 @@
       }
     },
     {
+      "name": "browser.wcag",
+      "title": "Review bounded rendered-DOM keyboard and WCAG interaction evidence",
+      "description": "Local-only inert Chromium analysis of supplied HTML: sandboxed pinned headless browser, no external resource requests, scripts disabled and stripped, DOM accessible-name heuristics, aria-hidden focus, positive tabindex, custom role focusability, up to 24 real keyboard Tab focus samples, computed focus indicator review and native summary Enter toggle. Never navigates URLs, clicks links/buttons, submits forms, stores screenshots or certifies WCAG; may provision pinned browser on first use.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "htmlContent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180000,
+            "description": "Caller-supplied authorized HTML only, never a URL or file path; scripts/frames removed, external resources blocked."
+          },
+          "viewportWidth": {
+            "description": "Optional isolated desktop/mobile viewport width in CSS pixels, 320–1440; defaults to 960.",
+            "type": "integer",
+            "minimum": 320,
+            "maximum": 1440
+          },
+          "viewportHeight": {
+            "description": "Optional isolated viewport height in CSS pixels, 360–1080; defaults to 720.",
+            "type": "integer",
+            "minimum": 360,
+            "maximum": 1080
+          },
+          "maxTabSteps": {
+            "description": "Maximum real browser Tab key samples (1–24), default 24; no click, form submission or network.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 24
+          }
+        },
+        "required": [
+          "htmlContent"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "offline_sandboxed_rendered_html"
+          },
+          "browser_executed": {
+            "type": "boolean"
+          },
+          "scripts_disabled": {
+            "type": "boolean",
+            "const": true
+          },
+          "viewport_width": {
+            "type": "integer",
+            "minimum": 320,
+            "maximum": 1440
+          },
+          "viewport_height": {
+            "type": "integer",
+            "minimum": 360,
+            "maximum": 1080
+          },
+          "resources_blocked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "scripts_present": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "controls_seen": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "controls_inspected": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120
+          },
+          "controls_truncated": {
+            "type": "boolean"
+          },
+          "visible_controls_without_name": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "positive_tabindex_controls": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "aria_hidden_focusable_controls": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "custom_roles_without_tab_stop": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "tab_steps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 24
+          },
+          "unique_tab_targets": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 24
+          },
+          "focus_indicator_review_leads": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "focus_outside_viewport": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "native_summaries_tested": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "native_summaries_toggled": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "keyboard_sampling_incomplete": {
+            "type": "boolean"
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 330
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "missing_accessible_name",
+                    "positive_tabindex",
+                    "aria_hidden_focusable",
+                    "custom_role_not_keyboard_focusable",
+                    "potential_focus_indicator_absent",
+                    "focus_outside_viewport",
+                    "summary_enter_not_toggled"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "evidence": {
+                  "type": "string",
+                  "enum": [
+                    "rendered_dom",
+                    "keyboard_tab",
+                    "native_summary"
+                  ]
+                },
+                "control": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 120
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "evidence",
+                "control",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "browser_executed",
+          "scripts_disabled",
+          "viewport_width",
+          "viewport_height",
+          "resources_blocked",
+          "scripts_present",
+          "controls_seen",
+          "controls_inspected",
+          "controls_truncated",
+          "visible_controls_without_name",
+          "positive_tabindex_controls",
+          "aria_hidden_focusable_controls",
+          "custom_roles_without_tab_stop",
+          "tab_steps",
+          "unique_tab_targets",
+          "focus_indicator_review_leads",
+          "focus_outside_viewport",
+          "native_summaries_tested",
+          "native_summaries_toggled",
+          "keyboard_sampling_incomplete",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "media.diagnostics",
       "title": "Review static images, video and media-loading evidence",
       "description": "Local-only, offline review of caller-supplied HTML image alt/name evidence, responsive picture fallbacks, intrinsic dimensions, lazy loading/decoding/fetchpriority hints, video sources and caption tracks. Bounded and redacted; never fetches or renders media, executes scripts, measures layout, validates caption contents or certifies accessibility/performance.",

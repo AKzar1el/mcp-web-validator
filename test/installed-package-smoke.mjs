@@ -58,7 +58,7 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "http.directives", "links.broken", "media.diagnostics", "product.claims",
+      "audit.history", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "http.directives", "links.broken", "media.diagnostics", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links",
     ],
   );
@@ -279,7 +279,24 @@ try {
     assert.equal(screenshot.structuredContent?.screenshots?.length, 1);
     const imagePath = screenshot.structuredContent.screenshots[0].outputPath;
     assert.ok((await stat(imagePath)).size > 0);
-    console.log("Installed npm tarball MCP handshake, offline audits, multilingual comparison and sandboxed screenshot: PASS");
+    phase = "browser_wcag";
+    const wcag = await client.callTool({
+      name: "browser.wcag",
+      arguments: {
+        htmlContent: '<!doctype html><html><head><title>Browser keyboard fixture</title></head>'
+          + '<body><button aria-label="Labeled control">Open</button>'
+          + '<details><summary>Show details</summary><p>Additional information</p></details></body></html>',
+        maxTabSteps: 4,
+      },
+    });
+    assert.notEqual(wcag.isError, true, "Installed MCP browser WCAG tool must launch safely");
+    assert.equal(wcag.structuredContent?.browser_executed, true);
+    assert.equal(wcag.structuredContent?.scripts_disabled, true);
+    assert.equal(wcag.structuredContent?.coverage_limited, true);
+    assert.ok(wcag.structuredContent?.unique_tab_targets >= 1);
+    assert.equal(wcag.structuredContent?.native_summaries_tested, 1);
+    assert.equal(wcag.structuredContent?.native_summaries_toggled, 1);
+    console.log("Installed npm tarball MCP handshake, offline audits, sandboxed screenshot and real keyboard/browser WCAG smoke: PASS");
   }
 } catch (error) {
   // Do not include untrusted HTML, source URLs or tool input in smoke logs.

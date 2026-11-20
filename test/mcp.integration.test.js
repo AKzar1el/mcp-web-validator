@@ -28,6 +28,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     const names = tools.map((tool) => tool.name).sort();
     assert.deepEqual(names, [
       "audit.history",
+      "browser.wcag",
       "content.competitors",
       "content.duplicates",
       "content.metadata",
@@ -119,6 +120,19 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       arguments: { htmlContent: "é".repeat(90_001) },
     });
     assert.equal(invalidMedia.isError, true);
+
+    const wcagTool = tools.find((tool) => tool.name === "browser.wcag");
+    assert.ok(wcagTool, "browser keyboard/WCAG evidence must be discoverable");
+    assert.equal(wcagTool?.annotations?.readOnlyHint, true);
+    assert.equal(wcagTool?.annotations?.openWorldHint, false);
+    assert.ok(JSON.stringify(wcagTool.inputSchema).includes("maxTabSteps"));
+    // Fail before launching Chromium, so this contract also works on hosts
+    // where the headless-shell executable cannot start.
+    const invalidWcag = await client.callTool({
+      name: "browser.wcag",
+      arguments: { htmlContent: "é".repeat(90_001) },
+    });
+    assert.equal(invalidWcag.isError, true);
 
     const httpEvidence = await client.callTool({
       name: "http.directives",

@@ -11,5 +11,13 @@ P1-10 now provides a real **local-only static** media analyzer at
 `media-diagnostics.ts`, exposed through the local `media.diagnostics` MCP
 tool. It inspects supplied markup without launching Chromium or fetching
 media; see `docs/p1-10-media-diagnostics.md` for exact evidence and bounds.
-Browser-verified resource loading, viewport comparison, Lighthouse and
-interactive WCAG checks are separate, still incomplete work.
+P1-12 now provides a real local-only `browser.wcag` tool powered by fresh
+sandboxed Chromium with scripts disabled and all document requests blocked.
+It samples rendered control names, focus styling and keyboard Tab targets
+and safely toggles one native `<details><summary>` disclosure. No arbitrary
+buttons or links are activated and no forms are submitted. Full dynamic
+JavaScript behavior, assistive-technology coverage and WCAG certification
+remain outside the tool; see `docs/p1-12-browser-wcag-interactions.md`.
+
+Browser-verified live resource loading, viewport comparison and Lighthouse
+remain separate M03 work.

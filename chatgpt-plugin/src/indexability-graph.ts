@@ -310,7 +310,7 @@ export function buildSiteIndexabilityGraph(
     // declarations. An x-default-only fallback is not enough evidence.
     if (!page.indexability.hreflang_truncated
       && page.indexability.hreflang.some((link) => link.language !== "x-default" && link.url !== ownUrl)
-      && !page.indexability.hreflang.some((link) => link.url === ownUrl)) {
+      && !page.indexability.hreflang.some((link) => link.url === ownUrl && link.language !== "x-default")) {
       report({
         code: "indexability.hreflang_missing_self",
         severity: "warning",

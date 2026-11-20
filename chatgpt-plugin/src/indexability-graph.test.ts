@@ -241,6 +241,20 @@ describe("indexability graph: sampled-only corroboration", () => {
     }
   });
 
+  it("does not mistake an x-default fallback for the page's language self-reference", () => {
+    const url = "https://example.com/en";
+    const fallbackOnly = page(url,
+      '<link rel=alternate hreflang=x-default href="/en"><link rel=alternate hreflang=de href="/de">');
+    expect(build([fallbackOnly]).findings.map((finding) => finding.code))
+      .toContain("indexability.hreflang_missing_self");
+
+    const localizedSelf = page(url,
+      '<link rel=alternate hreflang=x-default href="/en">'
+      + '<link rel=alternate hreflang=en href="/en"><link rel=alternate hreflang=de href="/de">');
+    expect(build([localizedSelf]).findings.map((finding) => finding.code))
+      .not.toContain("indexability.hreflang_missing_self");
+  });
+
   it("does not claim missing pages passed, or noindex seed URLs are included in sitemaps", () => {
     const root = page("https://example.com/", '<title>Home</title><meta name=robots content=noindex>');
     const failed = { ...page("https://example.com/private", '<title>Private</title>'), page_fetched: false, indexability: undefined };

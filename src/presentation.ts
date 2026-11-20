@@ -9,6 +9,7 @@ import type { SupportedSchemaReview } from "./modules/content-schema/structured-
 import type { InternalLinkReview } from "./modules/site-architecture/internal-link-quality.js";
 import type { MetadataReview } from "./modules/content-schema/metadata-consistency.js";
 import type { MediaDiagnostics } from "./modules/browser-ux/media-diagnostics.js";
+import type { WcagInteractionReview } from "./modules/browser-ux/wcag-interactions.js";
 import type { HttpDirectiveReview } from "./modules/http-crawl/non-html-directives.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
@@ -531,6 +532,26 @@ export function metadataConsistencyContent(analysis: MetadataReview): string {
       message: `${finding.code}: ${finding.message}`,
     })),
     nextStep: "Review on-page declarations in context. Identical titles and social-metadata variations may be intentional; use authorized crawling and Search Console evidence before attributing search performance.",
+  });
+}
+
+export function wcagInteractionsContent(review: WcagInteractionReview): string {
+  const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
+  return toolContent({
+    title: "Browser keyboard and WCAG evidence",
+    status: warnings ? "attention needed" : "partial",
+    outcome: `In script-disabled, offline Chromium, ${review.controls_inspected} of ${review.controls_seen} ` +
+      `controls were sampled at ${review.viewport_width} × ${review.viewport_height}; ` +
+      `${review.tab_steps} Tab key steps covered ${review.unique_tab_targets} distinct targets. ` +
+      `${review.visible_controls_without_name} accessible-name review leads, ` +
+      `${review.focus_indicator_review_leads} possible focus-indicator gaps, ` +
+      `${review.native_summaries_toggled}/${review.native_summaries_tested} native summaries toggled with Enter.`,
+    actions: review.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: `Rendered control ${finding.control} · ${finding.evidence}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Recheck the flagged focus/name signals in a fully styled, authorized website with JavaScript enabled and a screen reader. This inert sample is not an accessibility audit or WCAG 2.2 compliance determination.",
   });
 }
 

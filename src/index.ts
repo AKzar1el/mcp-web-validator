@@ -15,6 +15,16 @@ import {
   MAX_MEDIA_FINDINGS,
 } from "./modules/browser-ux/media-diagnostics.js";
 import {
+  reviewWcagInteractions,
+  emptyWcagReview,
+  MAX_WCAG_HTML_BYTES,
+  MAX_WCAG_CONTROLS,
+  MAX_WCAG_TAB_STEPS,
+  MAX_WCAG_FINDINGS,
+  WCAG_FINDING_CODES,
+  WCAG_EVIDENCE_TYPES,
+} from "./modules/browser-ux/wcag-interactions.js";
+import {
   analyzeHttpDirectives,
   emptyHttpDirectiveReview,
   safeHttpResourceUrl,
@@ -51,6 +61,7 @@ import {
   internalLinkContent,
   metadataConsistencyContent,
   mediaDiagnosticsContent,
+  wcagInteractionsContent,
   httpDirectivesContent,
   multilingualClusterContent,
   failureContent,
@@ -582,6 +593,42 @@ const screenshotSchema = z.object({
   outputPath: z.string(),
   incompleteAssetCount: z.number().int().nonnegative().optional(),
 });
+
+const wcagReviewOutputSchema = {
+  scope: z.literal("offline_sandboxed_rendered_html"),
+  browser_executed: z.boolean(),
+  scripts_disabled: z.literal(true),
+  viewport_width: z.number().int().min(320).max(1_440),
+  viewport_height: z.number().int().min(360).max(1_080),
+  resources_blocked: z.number().int().nonnegative(),
+  scripts_present: z.number().int().nonnegative(),
+  controls_seen: z.number().int().nonnegative(),
+  controls_inspected: z.number().int().nonnegative().max(MAX_WCAG_CONTROLS),
+  controls_truncated: z.boolean(),
+  visible_controls_without_name: z.number().int().nonnegative(),
+  positive_tabindex_controls: z.number().int().nonnegative(),
+  aria_hidden_focusable_controls: z.number().int().nonnegative(),
+  custom_roles_without_tab_stop: z.number().int().nonnegative(),
+  tab_steps: z.number().int().nonnegative().max(MAX_WCAG_TAB_STEPS),
+  unique_tab_targets: z.number().int().nonnegative().max(MAX_WCAG_TAB_STEPS),
+  focus_indicator_review_leads: z.number().int().nonnegative(),
+  focus_outside_viewport: z.number().int().nonnegative(),
+  native_summaries_tested: z.number().int().nonnegative().max(1),
+  native_summaries_toggled: z.number().int().nonnegative().max(1),
+  keyboard_sampling_incomplete: z.boolean(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(330)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(WCAG_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    evidence: z.enum(WCAG_EVIDENCE_TYPES),
+    control: z.number().int().min(1).max(MAX_WCAG_CONTROLS),
+    message: z.string().max(320),
+  })).max(MAX_WCAG_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
 
 const mediaReviewOutputSchema = {
   scope: z.literal("caller_supplied_static_media_markup_only"),
@@ -1480,6 +1527,43 @@ export function createServer(): McpServer {
           failureContent("Audit history", error, "Review snapshot JSON or local history file permissions and retry."),
           true,
         );
+      }
+    },
+  );
+
+  server.registerTool(
+    "browser.wcag",
+    {
+      title: "Review bounded rendered-DOM keyboard and WCAG interaction evidence",
+      description:
+        "Local-only inert Chromium analysis of supplied HTML: sandboxed pinned headless browser, no external resource requests, scripts disabled and stripped, DOM accessible-name heuristics, aria-hidden focus, positive tabindex, custom role focusability, up to 24 real keyboard Tab focus samples, computed focus indicator review and native summary Enter toggle. Never navigates URLs, clicks links/buttons, submits forms, stores screenshots or certifies WCAG; may provision pinned browser on first use.",
+      inputSchema: {
+        htmlContent: z.string().min(1).max(MAX_WCAG_HTML_BYTES)
+          .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_WCAG_HTML_BYTES,
+            "Supplied HTML must be at most 180,000 UTF-8 bytes.")
+          .describe("Caller-supplied authorized HTML only, never a URL or file path; scripts/frames removed, external resources blocked."),
+        viewportWidth: z.number().int().min(320).max(1_440).optional()
+          .describe("Optional isolated desktop/mobile viewport width in CSS pixels, 320–1440; defaults to 960."),
+        viewportHeight: z.number().int().min(360).max(1_080).optional()
+          .describe("Optional isolated viewport height in CSS pixels, 360–1080; defaults to 720."),
+        maxTabSteps: z.number().int().min(1).max(MAX_WCAG_TAB_STEPS).optional()
+          .describe("Maximum real browser Tab key samples (1–24), default 24; no click, form submission or network."),
+      },
+      outputSchema: wcagReviewOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ htmlContent, viewportWidth, viewportHeight, maxTabSteps }) => {
+      try {
+        const review = await reviewWcagInteractions(htmlContent, {
+          viewportWidth, viewportHeight, maxTabSteps,
+        });
+        return result(review, wcagInteractionsContent(review));
+      } catch {
+        const error = "Sandboxed Chromium interaction evidence is unavailable or the HTML exceeds its safety limits. No accessibility pass is claimed.";
+        return result({ ...emptyWcagReview({ viewportWidth, viewportHeight }), error }, failureContent(
+          "Browser keyboard and WCAG evidence", error,
+          "Confirm the pinned headless Chromium can launch with sandboxing enabled and supply bounded HTML; do not disable the browser sandbox.",
+        ), true);
       }
     },
   );

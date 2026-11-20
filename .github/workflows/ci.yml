@@ -106,6 +106,13 @@ jobs:
           cache: npm
           cache-dependency-path: chatgpt-plugin/package-lock.json
 
+      # Files imported from ../src resolve dependencies from the repository root.
+      - name: Install root dependencies for shared source imports
+        working-directory: .
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+        run: npm ci
+
       - name: Install dependencies
         run: npm ci
 

@@ -56,6 +56,40 @@ describe("indexability signal extraction", () => {
       .toBe(false);
   });
 
+  it("keeps comma-separated X-Robots-Tag directives scoped to their named crawler", () => {
+    const cases: Array<[string, boolean]> = [
+      ["bingbot: nofollow, noindex", false],
+      ["bingbot: noindex, nofollow, googlebot: follow", false],
+      ["googlebot: nofollow, noindex", true],
+      ["bingbot: nofollow, googlebot: noindex", true],
+      ["bingbot: noindex\nnoindex", true],
+      ["max-snippet:20, noindex", true],
+    ];
+    for (const [header, expected] of cases) {
+      expect(extractPageIndexabilitySignals(html("<title>A</title>"), "https://example.com/a", header).noindex_observed)
+        .toBe(expected);
+    }
+  });
+
+  it("recognizes the Google robots none alias as noindex without applying other crawlers' rules", () => {
+    for (const head of [
+      '<meta name="robots" content="none">',
+      '<meta name="googlebot" content="NONE, follow">',
+    ]) {
+      expect(extractPageIndexabilitySignals(html(head), "https://example.com/a").noindex_observed).toBe(true);
+    }
+    expect(extractPageIndexabilitySignals(html('<meta name="bingbot" content="none">'), "https://example.com/a").noindex_observed)
+      .toBe(false);
+    for (const header of ["none", "googlebot: none", "noarchive, none"]) {
+      expect(extractPageIndexabilitySignals(html("<title>A</title>"), "https://example.com/a", header).noindex_observed)
+        .toBe(true);
+    }
+    for (const header of ["bingbot: none", "bingbot: nofollow, none", "nonetheless"]) {
+      expect(extractPageIndexabilitySignals(html("<title>A</title>"), "https://example.com/a", header).noindex_observed)
+        .toBe(false);
+    }
+  });
+
   it("does not trust canonicals with credentials, secrets in queries, unsupported schemes, or multiple declarations", () => {
     const cases = [
       '<link rel=canonical href="https://user:secret@example.com/page">',
@@ -111,6 +145,15 @@ describe("indexability graph: sampled-only corroboration", () => {
     expect(result.findings.find((f) => f.code === "indexability.canonical_cycle")).toMatchObject({
       severity: "error", confidence: "observed",
     });
+  });
+
+  it("reports the robots none alias as an observed sitemap/indexability conflict", () => {
+    const url = "https://example.com/a";
+    const entry = page(url, '<title>Unlisted</title><meta name="robots" content="none">');
+    const result = build([entry]);
+    expect(result.findings).toContainEqual(expect.objectContaining({
+      code: "indexability.sitemap_noindex", confidence: "observed", example_urls: [url],
+    }));
   });
 
   it("does not declare canonical targets that are outside the sampled pages broken", () => {

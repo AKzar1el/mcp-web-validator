@@ -130,6 +130,15 @@ describe("indexability signal extraction", () => {
     expect(result.hreflang_truncated).toBe(true);
     expect(JSON.stringify(result)).not.toContain("secret");
   });
+
+  it("does not treat blank hreflang href attributes as links back to the current page", () => {
+    const result = extractPageIndexabilitySignals(html(
+      '<link rel="alternate" hreflang="en" href="">'
+      + '<link rel="alternate" hreflang="fr" href="   ">',
+    ), "https://example.com/en");
+    expect(result.hreflang).toEqual([]);
+    expect(result.hreflang_truncated).toBe(true);
+  });
 });
 
 describe("indexability graph: sampled-only corroboration", () => {
@@ -173,6 +182,17 @@ describe("indexability graph: sampled-only corroboration", () => {
     expect(build([a, consolidated]).findings.map((f) => f.code)).not.toContain("indexability.duplicate_title");
   });
 
+  it("keeps bounded duplicate-title URL examples stable across page discovery order", () => {
+    const pages = ["d", "b", "a", "c"].map((part) =>
+      page(`https://example.com/${part}`, `<title>Shared title</title><link rel=canonical href="/${part}">`));
+    const first = build(pages).findings.filter((f) => f.code === "indexability.duplicate_title");
+    const reversed = build([...pages].reverse()).findings.filter((f) => f.code === "indexability.duplicate_title");
+    expect(first).toEqual(reversed);
+    expect(first[0]?.example_urls).toEqual([
+      "https://example.com/a", "https://example.com/b", "https://example.com/c",
+    ]);
+  });
+
   it("checks return hreflang links only when both pages were sampled", () => {
     const a = page("https://example.com/en", '<title>English</title><link rel=alternate hreflang=de href="/de">');
     const b = page("https://example.com/de", '<title>Deutsch</title><link rel=alternate hreflang=de href="/de">');
@@ -181,6 +201,74 @@ describe("indexability graph: sampled-only corroboration", () => {
     expect(build([a]).findings.map((f) => f.code)).not.toContain("indexability.hreflang_missing_return");
     const reciprocal = page("https://example.com/de", '<title>Deutsch</title><link rel=alternate hreflang=en href="/en">');
     expect(build([a, reciprocal]).findings.map((f) => f.code)).not.toContain("indexability.hreflang_missing_return");
+  });
+
+  it("does not require language-selector x-default targets to link back", () => {
+    const english = page("https://example.com/en",
+      '<title>English</title><link rel=alternate hreflang=en href="/en"><link rel=alternate hreflang=x-default href="/choose-language">');
+    const selector = page("https://example.com/choose-language", '<title>Choose your language</title>');
+    expect(build([english, selector]).findings.map((finding) => finding.code))
+      .not.toContain("indexability.hreflang_missing_return");
+    const localizedTarget = page("https://example.com/choose-language",
+      '<title>Localized content</title><link rel=alternate hreflang=de href="/de">');
+    expect(build([english, localizedTarget]).findings.map((finding) => finding.code))
+      .toContain("indexability.hreflang_missing_return");
+  });
+
+  it("reports a missing HTML hreflang self-link only when the sampled declarations are complete", () => {
+    const sourceUrl = "https://example.com/en";
+    const source = page(sourceUrl, '<title>English</title><link rel=alternate hreflang=de href="/de">');
+    const target = page("https://example.com/de",
+      '<title>Deutsch</title><link rel=alternate hreflang=de href="/de"><link rel=alternate hreflang=en href="/en">');
+    expect(build([source, target]).findings.filter((f) => f.code === "indexability.hreflang_missing_self"))
+      .toEqual([{
+        code: "indexability.hreflang_missing_self",
+        severity: "warning",
+        confidence: "observed",
+        message: expect.any(String),
+        example_urls: [sourceUrl],
+      }]);
+
+    const withSelf = page(sourceUrl,
+      '<title>English</title><link rel=alternate hreflang=en href="/en"><link rel=alternate hreflang=de href="/de">');
+    const xDefaultOnly = page("https://example.com/selector",
+      '<link rel=alternate hreflang=x-default href="/en">');
+    const partial = page(sourceUrl,
+      '<link rel=alternate hreflang=de href="/de"><link rel=alternate hreflang=fr href="/fr?token=secret">');
+    for (const sampled of [[withSelf, target], [xDefaultOnly], [partial]]) {
+      expect(build(sampled).findings.filter((f) => f.code === "indexability.hreflang_missing_self"))
+        .toEqual([]);
+    }
+  });
+
+  it("does not falsely require a language self-link on an x-default language selector", () => {
+    const selector = page("https://example.com/choose-language",
+      '<link rel=alternate hreflang=x-default href="/choose-language">'
+      + '<link rel=alternate hreflang=en href="/en"><link rel=alternate hreflang=de href="/de">');
+    expect(build([selector]).findings.map((finding) => finding.code))
+      .not.toContain("indexability.hreflang_missing_self");
+  });
+
+  it("flags conflicting URLs for one hreflang language without flagging exact repeated links", () => {
+    const url = "https://example.com/en";
+    const conflicting = page(url,
+      '<link rel=alternate hreflang=en href="/en">'
+      + '<link rel=alternate hreflang=de href="/de-a">'
+      + '<link rel=alternate hreflang=de href="/de-b">');
+    expect(build([conflicting]).findings).toContainEqual({
+      code: "indexability.hreflang_conflicting_targets",
+      severity: "warning",
+      confidence: "observed",
+      message: expect.any(String),
+      example_urls: [url, "https://example.com/de-a", "https://example.com/de-b"],
+    });
+
+    const repeated = page(url,
+      '<link rel=alternate hreflang=en href="/en">'
+      + '<link rel=alternate hreflang=de href="/de-a">'
+      + '<link rel=alternate hreflang=de href="/de-a">');
+    expect(build([repeated]).findings.map((finding) => finding.code))
+      .not.toContain("indexability.hreflang_conflicting_targets");
   });
 
   it("does not claim missing pages passed, or noindex seed URLs are included in sitemaps", () => {
@@ -199,6 +287,60 @@ describe("indexability graph: sampled-only corroboration", () => {
     const result = build([a, b, c]);
     expect(result.findings.map((f) => f.code)).toContain("indexability.canonical_chain");
     expect(result.findings.map((f) => f.code)).not.toContain("indexability.canonical_cycle");
+  });
+
+  it("reports a sampled three-page canonical cycle once, without mislabeling its members as chains", () => {
+    const a = page("https://example.com/a", '<title>A</title><link rel=canonical href="/b">');
+    const b = page("https://example.com/b", '<title>B</title><link rel=canonical href="/c">');
+    const c = page("https://example.com/c", '<title>C</title><link rel=canonical href="/a">');
+    const tail = page("https://example.com/tail", '<title>Tail</title><link rel=canonical href="/a">');
+    const result = build([a, b, c, tail]);
+    expect(result.findings.filter((f) => f.code === "indexability.canonical_cycle")).toEqual([{
+      code: "indexability.canonical_cycle",
+      severity: "error",
+      confidence: "observed",
+      message: expect.any(String),
+      example_urls: ["https://example.com/a", "https://example.com/b", "https://example.com/c"],
+    }]);
+    expect(result.findings.filter((f) => f.code === "indexability.canonical_chain")
+      .map((f) => f.example_urls[0])).toEqual(["https://example.com/tail"]);
+  });
+
+  it("detects disjoint longer canonical cycles deterministically without inventing unsampled cycles", () => {
+    const ring = (prefix: string, size: number) => Array.from({ length: size }, (_, i) =>
+      page(`https://example.com/${prefix}${i}`, `<title>${prefix}${i}</title><link rel=canonical href="/${prefix}${(i + 1) % size}">`));
+    const sampled = [...ring("x", 4), ...ring("y", 3)];
+    const first = build(sampled);
+    expect(first.findings.filter((f) => f.code === "indexability.canonical_cycle")).toHaveLength(2);
+    expect(first.findings.filter((f) => f.code === "indexability.canonical_chain")).toHaveLength(0);
+    expect(first.findings).toEqual(build([...sampled].reverse()).findings);
+    const unsampled = ring("z", 3).slice(0, 2);
+    expect(build(unsampled, { discoveryComplete: false }).findings).toEqual([]);
+  });
+
+  it("retains observed canonical errors when 30 earlier sitemap warnings fill the bounded report", () => {
+    const warnings = Array.from({ length: 30 }, (_, i) =>
+      page(`https://example.com/noindex-${i}`, `<title>Noindex ${i}</title><meta name=robots content=noindex>`));
+    const a = page("https://example.com/a", '<title>A</title><link rel=canonical href="/b">');
+    const b = page("https://example.com/b", '<title>B</title><link rel=canonical href="/a">');
+    const sampled = [...warnings, a, b];
+    const result = build(sampled);
+    expect(result.findings_truncated).toBe(true);
+    expect(result.findings).toHaveLength(30);
+    expect(result.findings.filter((f) => f.code === "indexability.canonical_cycle")).toHaveLength(1);
+    expect(result.findings.filter((f) => f.code === "indexability.sitemap_noindex")).toHaveLength(29);
+    expect(result.findings).toEqual(build([...sampled].reverse()).findings);
+  });
+
+  it("caps large numbers of observed cycles and reports truncation without losing bounded ordering", () => {
+    const pages = Array.from({ length: 31 }, (_, cycle) => [0, 1, 2].map((member) =>
+      page(`https://example.com/c${cycle}-${member}`,
+        `<title>Cycle ${cycle}-${member}</title><link rel=canonical href="/c${cycle}-${(member + 1) % 3}">`))).flat();
+    const first = build(pages);
+    expect(first.findings).toHaveLength(30);
+    expect(first.findings_truncated).toBe(true);
+    expect(first.findings.every((f) => f.code === "indexability.canonical_cycle" && f.severity === "error")).toBe(true);
+    expect(first.findings).toEqual(build([...pages].reverse()).findings);
   });
 
   it("is deterministic and leaves source page summaries untouched", () => {

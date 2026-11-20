@@ -43,6 +43,8 @@ function compact(value: string, max: number): string {
 // explicitly rejects them, and they can contain secrets or sensitive identifiers.
 // Skipping such URLs is evidence loss, not evidence that a target is broken.
 function safeObservedUrl(raw: string, baseUrl: string): string | undefined {
+  // URL("", base) resolves to the current page, not a declared destination.
+  if (!raw.trim()) return undefined;
   try {
     const url = new URL(raw, baseUrl);
     if (!["http:", "https:"].includes(url.protocol) || url.username || url.password
@@ -161,6 +163,14 @@ function severityOrder(value: IndexabilityGraphFinding["severity"]): number {
   return value === "error" ? 0 : value === "warning" ? 1 : 2;
 }
 
+function compareFindings(a: IndexabilityGraphFinding, b: IndexabilityGraphFinding): number {
+  return severityOrder(a.severity) - severityOrder(b.severity)
+    || a.code.localeCompare(b.code)
+    || (a.example_urls[0] ?? "").localeCompare(b.example_urls[0] ?? "")
+    || JSON.stringify(a.example_urls).localeCompare(JSON.stringify(b.example_urls))
+    || a.message.localeCompare(b.message);
+}
+
 export function buildSiteIndexabilityGraph(
   pages: SiteAuditPageSummary[],
   options: GraphOptions,
@@ -175,8 +185,17 @@ export function buildSiteIndexabilityGraph(
     || observed.some((page) => page.indexability.hreflang_truncated);
 
   function report(finding: IndexabilityGraphFinding) {
-    if (findings.length < MAX_GRAPH_FINDINGS) findings.push(finding);
-    else findingsTruncated = true;
+    if (findings.length < MAX_GRAPH_FINDINGS) {
+      findings.push(finding);
+      return;
+    }
+    findingsTruncated = true;
+    // Retain the most actionable findings, even when earlier warnings fill the cap.
+    let worst = 0;
+    for (let i = 1; i < findings.length; i++) {
+      if (compareFindings(findings[i], findings[worst]) > 0) worst = i;
+    }
+    if (compareFindings(finding, findings[worst]) < 0) findings[worst] = finding;
   }
   let findingsTruncated = false;
 
@@ -194,9 +213,40 @@ export function buildSiteIndexabilityGraph(
     }
   }
 
+  // Each sampled page has at most one usable canonical target. Walk these
+  // edges once to distinguish actual cycles from chains leading into cycles.
+  const cycleMembers = new Set<string>();
+  const visited = new Set<string>();
+  for (const start of [...byUrl.keys()].sort()) {
+    if (visited.has(start)) continue;
+    const path: string[] = [];
+    const pathPosition = new Map<string, number>();
+    let current: string | undefined = start;
+    while (current && !visited.has(current) && !pathPosition.has(current)) {
+      pathPosition.set(current, path.length);
+      path.push(current);
+      const canonical: string | undefined = byUrl.get(current)?.indexability.canonical_url;
+      current = canonical && canonical !== current && byUrl.has(canonical) ? canonical : undefined;
+    }
+    const cycleStart = current ? pathPosition.get(current) : undefined;
+    if (cycleStart !== undefined) {
+      const cycle = path.slice(cycleStart).sort();
+      if (cycle.length >= 2) {
+        for (const member of cycle) cycleMembers.add(member);
+        report({
+          code: "indexability.canonical_cycle",
+          severity: "error",
+          confidence: "observed",
+          message: "Sampled pages form a cycle of canonical declarations; select a consistent canonical target.",
+          example_urls: cycle.slice(0, MAX_EXAMPLE_URLS),
+        });
+      }
+    }
+    for (const member of path) visited.add(member);
+  }
+
   // Diagnose only sampled targets. A canonical pointing to an unseen URL is
   // neither a broken link nor a definite canonical error.
-  const reportedCycles = new Set<string>();
   for (const page of observed) {
     const canonical = page.indexability.canonical_url;
     const ownUrl = auditUrl(page);
@@ -214,20 +264,7 @@ export function buildSiteIndexabilityGraph(
       });
     }
     const back = target.indexability.canonical_url;
-    if (back === ownUrl && canonical !== ownUrl) {
-      const pair = [ownUrl, canonical].sort();
-      const key = JSON.stringify(pair);
-      if (!reportedCycles.has(key)) {
-        reportedCycles.add(key);
-        report({
-          code: "indexability.canonical_cycle",
-          severity: "error",
-          confidence: "observed",
-          message: "Two sampled pages point their canonical declarations to one another; select a consistent canonical target.",
-          example_urls: pair,
-        });
-      }
-    } else if (back && back !== canonical) {
+    if (!cycleMembers.has(ownUrl) && back && back !== canonical) {
       const another = byUrl.get(back);
       if (another && back !== ownUrl) {
         report({
@@ -261,7 +298,7 @@ export function buildSiteIndexabilityGraph(
         severity: "warning",
         confidence: "potential",
         message: "Different sampled canonical destinations share the same page title; check whether the pages are distinguishable in search.",
-        example_urls: matches.map(auditUrl).slice(0, MAX_EXAMPLE_URLS),
+        example_urls: matches.map(auditUrl).sort().slice(0, MAX_EXAMPLE_URLS),
       });
     }
   }
@@ -269,9 +306,43 @@ export function buildSiteIndexabilityGraph(
   const seenHreflang = new Set<string>();
   for (const page of observed) {
     const ownUrl = auditUrl(page);
+    // Only infer a missing self-reference from complete, explicit HTML language
+    // declarations. An x-default-only fallback is not enough evidence.
+    if (!page.indexability.hreflang_truncated
+      && page.indexability.hreflang.some((link) => link.language !== "x-default" && link.url !== ownUrl)
+      && !page.indexability.hreflang.some((link) => link.url === ownUrl)) {
+      report({
+        code: "indexability.hreflang_missing_self",
+        severity: "warning",
+        confidence: "observed",
+        message: "Sampled HTML declares alternate languages without including this page in its hreflang set; review the missing self-reference.",
+        example_urls: [ownUrl],
+      });
+    }
+    // Multiple distinct destinations for the same locale make a declaration
+    // ambiguous even when all pages are otherwise valid and reachable.
+    const targetsByLanguage = new Map<string, Set<string>>();
+    for (const alternative of page.indexability.hreflang) {
+      const targets = targetsByLanguage.get(alternative.language) ?? new Set<string>();
+      targets.add(alternative.url);
+      targetsByLanguage.set(alternative.language, targets);
+    }
+    for (const targets of targetsByLanguage.values()) {
+      if (targets.size < 2) continue;
+      report({
+        code: "indexability.hreflang_conflicting_targets",
+        severity: "warning",
+        confidence: "observed",
+        message: "Sampled HTML assigns different destinations to the same hreflang language; review the conflicting declarations.",
+        example_urls: [ownUrl, ...[...targets].sort()].slice(0, MAX_EXAMPLE_URLS),
+      });
+    }
     for (const alternative of page.indexability.hreflang) {
       const target = byUrl.get(alternative.url);
       if (!target || target.indexability.hreflang_truncated) continue;
+      // An x-default language selector may not be a localized page and need
+      // not declare the originating page as a language variant.
+      if (alternative.language === "x-default" && target.indexability.hreflang.length === 0) continue;
       const reciprocal = target.indexability.hreflang.some((link) => link.url === ownUrl);
       if (reciprocal) continue;
       const key = JSON.stringify([ownUrl, alternative.url]);
@@ -287,11 +358,7 @@ export function buildSiteIndexabilityGraph(
     }
   }
 
-  findings.sort((a, b) =>
-    severityOrder(a.severity) - severityOrder(b.severity)
-    || a.code.localeCompare(b.code)
-    || a.example_urls[0].localeCompare(b.example_urls[0]),
-  );
+  findings.sort(compareFindings);
 
   const limitations = [
     "Findings concern only static HTML and sampled fetched pages; they do not establish Google's selected canonical, indexing, or rankings.",

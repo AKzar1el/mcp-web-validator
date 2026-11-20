@@ -12,3 +12,10 @@ P1-11 now provides a bounded **offline HTTP response-observation analyzer** in
 parses supplied headers only; no binary download, URL probing or crawler
 verification. See `docs/p1-11-non-html-http-directives.md`. Live non-HTML
 probes, variant tests and other M01 features require separate work.
+
+P1-13 adds local `http.security` using the same shared pure
+`https-security.ts` analyzer as hosted `review_https_security`. It examines
+bounded, supplied HTTP/HTTPS status, Location/HSTS/CSP/referrer/nosniff/framing
+headers and static mixed-content, CSS and form-action declarations. There is
+**no network fetch, browser, TLS handshake, certificate validation or
+security verdict**. See `docs/p1-13-https-security.md` for contracts and limits.

@@ -314,7 +314,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers sixteen accurately annotated tools", async () => {
+  it("discovers seventeen accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -332,6 +332,7 @@ describe("hosted tool contract", () => {
       "validate_supported_schema",
       "review_internal_links",
       "review_metadata_consistency",
+      "review_https_security",
       "review_http_directives",
     ]);
     const noAuthSecuritySchemes = [{ type: "noauth" }];
@@ -1589,6 +1590,90 @@ describe("P1-09 metadata consistency through hosted MCP HTTP", () => {
       const result = await callTool("review_metadata_consistency", { pages });
       expect(result.isError).toBe(true);
       expect(JSON.stringify(result)).not.toContain("FAKE_SECRET");
+    }
+  });
+});
+
+describe("P1-13 HTTPS security evidence MCP contract", () => {
+  const securePage = {
+    url: "https://example.com/private/response",
+    status_code: 200,
+    strict_transport_security: ["max-age=31536000; includeSubDomains"],
+    content_security_policy: ["default-src 'self'; frame-ancestors 'none'"],
+    x_content_type_options: "nosniff",
+    htmlContent: '<html><body><script src="http://cdn.example/app.js"></script>' +
+      '<img src="http://cdn.example/image.jpg">' +
+      '<form action="http://example.com/submit"></form></body></html>',
+  };
+
+  it("discovers and invokes hosted read-only shared security analyzer without network", async () => {
+    const fetching = vi.fn();
+    vi.stubGlobal("fetch", fetching);
+    const tools = await listTools();
+    expect(tools.find((tool) => tool.name === "review_https_security")?.annotations)
+      .toMatchObject({ readOnlyHint: true, openWorldHint: false, destructiveHint: false });
+    const result = await callTool("review_https_security", { pages: [securePage] });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      scope: "caller_supplied_https_security_evidence_only",
+      pages_sampled: 1, https_observations: 1,
+      mixed_blockable_declarations: 1,
+      mixed_upgradable_declarations: 1,
+      insecure_form_actions: 1,
+      coverage_limited: true,
+    });
+    expect(result.structuredContent.pages[0]).toMatchObject({
+      hsts_state: "enabled", csp_state: "enforced", frame_protection_observed: true,
+    });
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(fetching).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("/private/response");
+    expect(JSON.stringify(result)).not.toContain("/submit");
+  });
+
+  it("distinguishes HTTP upgrade declaration from actual verified redirect", async () => {
+    const result = await callTool("review_https_security", { pages: [
+      { url: "http://example.com/", status_code: 301, location: "https://example.com/" },
+      { url: "http://example.com/unsafe", status_code: 200 },
+    ] });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.http_observations).toBe(2);
+    expect(result.structuredContent.https_redirect_declarations).toBe(1);
+    expect(result.structuredContent.http_without_secure_redirect).toBe(1);
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+  });
+
+  it("report-only CSP, HSTS=0 and secret header values are not mistaken for secure enforcement", async () => {
+    const secret = "FAKE_SECURITY_SECRET_P113";
+    const result = await callTool("review_https_security", {
+      pages: [{
+        ...securePage,
+        strict_transport_security: ["max-age=0"],
+        content_security_policy: [],
+        content_security_policy_report_only: ["upgrade-insecure-requests; report-uri /" + secret],
+        htmlContent: '<form action="http://example.com/submit?token=' + secret + '"></form>',
+      }],
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.pages[0].hsts_state).toBe("disabled");
+    expect(result.structuredContent.pages[0].csp_state).toBe("report_only");
+    expect(result.structuredContent.pages[0].csp_upgrade_insecure_requests).toBe(false);
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
+  it("fails closed with no secrets for unsafe URL, differing host, duplicates, oversized HTML and header injection", async () => {
+    const marker = "FAKE_SECRET_SECURITY_INVALID";
+    for (const pages of [
+      [{ ...securePage, url: "https://example.com/?key=" + marker }],
+      [securePage, securePage],
+      [securePage, { ...securePage, url: "https://other.example.com/" }],
+      [{ ...securePage, htmlContent: "é".repeat(60_001) }],
+      [{ ...securePage, strict_transport_security: ["max-age=0\r\nCookie: " + marker] }],
+    ]) {
+      const result = await callTool("review_https_security", { pages });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).not.toContain(marker);
     }
   });
 });

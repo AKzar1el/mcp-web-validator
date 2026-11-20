@@ -5,6 +5,7 @@ import {
 } from "@modelcontextprotocol/ext-apps/server";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { load as loadCheerio } from "cheerio";
 import { auditSeoMetadata, checkBrokenLinksDetailed, isHttpRedirectStatus, isUnverifiedLinkStatus, validateSchemaMarkup } from "./audits";
 import {
   CSS_MAX_LENGTH,
@@ -95,6 +96,18 @@ import {
   HTTP_CANONICAL_STATES,
   HTTP_FINDING_CODES,
 } from "./modules/http-crawl/non-html-directives";
+import {
+  analyzeHttpsSecurity,
+  emptyHttpsSecurityReview,
+  MAX_SECURITY_PAGES,
+  MAX_SECURITY_FINDINGS,
+  MAX_SECURITY_HEADER_BYTES,
+  MAX_SECURITY_HEADER_VALUES,
+  MAX_SECURITY_HTML_BYTES,
+  SECURITY_HSTS_STATES,
+  SECURITY_CSP_STATES,
+  SECURITY_FINDING_CODES,
+} from "./modules/http-crawl/https-security";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -529,6 +542,89 @@ const metadataConsistencyOutputSchema = z.object({
     related_pages: z.array(z.number().int().min(1).max(8)).max(7).optional(),
     message: z.string().max(340),
   })).max(MAX_METADATA_FINDINGS),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+});
+
+const securityHeaderInputSchema = z.string().max(MAX_SECURITY_HEADER_BYTES)
+  .refine((value) => !/[\r\n\u0000]/u.test(value)
+    && new TextEncoder().encode(value).byteLength <= MAX_SECURITY_HEADER_BYTES,
+  "Header observations must not contain CR/LF/NUL or exceed 2,048 UTF-8 bytes.");
+const securityPagesInputSchema = z.array(z.object({
+  url: z.string().url().max(512)
+    .refine((value) => Boolean(safeHttpResourceUrl(value)),
+      "Use a query-free HTTP(S) URL label without credentials, fragment or custom port.")
+    .describe("Safe caller-observed HTTP or HTTPS page label, not fetched or returned."),
+  status_code: z.number().int().min(100).max(599)
+    .describe("Observed HTTP response code; no live fetch or redirect following."),
+  location: securityHeaderInputSchema.optional()
+    .describe("Optional actual Location header from HTTP response, not returned."),
+  strict_transport_security: z.array(securityHeaderInputSchema).max(MAX_SECURITY_HEADER_VALUES).optional()
+    .describe("Up to four observed Strict-Transport-Security response header values."),
+  content_security_policy: z.array(securityHeaderInputSchema).max(MAX_SECURITY_HEADER_VALUES).optional()
+    .describe("Up to four enforcing Content-Security-Policy response header values."),
+  content_security_policy_report_only: z.array(securityHeaderInputSchema).max(MAX_SECURITY_HEADER_VALUES).optional()
+    .describe("Up to four Content-Security-Policy-Report-Only headers, not enforced by the browser."),
+  referrer_policy: securityHeaderInputSchema.optional()
+    .describe("Optional observed Referrer-Policy response header."),
+  x_content_type_options: securityHeaderInputSchema.optional()
+    .describe("Optional observed X-Content-Type-Options response header."),
+  x_frame_options: securityHeaderInputSchema.optional()
+    .describe("Optional observed X-Frame-Options response header."),
+  htmlContent: z.string().min(1).max(MAX_SECURITY_HTML_BYTES).optional()
+    .refine((value) => value === undefined || new TextEncoder().encode(value).byteLength <= MAX_SECURITY_HTML_BYTES,
+      "Each supplied HTML document must fit 120,000 UTF-8 bytes.")
+    .describe("Optional supplied static HTML, max 120 KB/page and 300 KB combined; no resources fetched or executed."),
+})).min(1).max(MAX_SECURITY_PAGES);
+const securityOutputSchema = z.object({
+  scope: z.literal("caller_supplied_https_security_evidence_only"),
+  pages_sampled: z.number().int().nonnegative().max(MAX_SECURITY_PAGES),
+  http_observations: z.number().int().nonnegative().max(MAX_SECURITY_PAGES),
+  https_observations: z.number().int().nonnegative().max(MAX_SECURITY_PAGES),
+  https_redirect_declarations: z.number().int().nonnegative(),
+  http_without_secure_redirect: z.number().int().nonnegative(),
+  https_without_hsts_observation: z.number().int().nonnegative(),
+  hsts_disabled_or_invalid: z.number().int().nonnegative(),
+  enforced_csp_observations: z.number().int().nonnegative(),
+  report_only_csp_observations: z.number().int().nonnegative(),
+  mixed_blockable_declarations: z.number().int().nonnegative(),
+  mixed_upgradable_declarations: z.number().int().nonnegative(),
+  insecure_form_actions: z.number().int().nonnegative(),
+  pages_with_truncated_html: z.number().int().nonnegative(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(380)).max(4),
+  pages: z.array(z.object({
+    page: z.number().int().min(1).max(MAX_SECURITY_PAGES),
+    scheme: z.enum(["http", "https"]),
+    status_code: z.number().int().min(100).max(599),
+    https_redirect_declared: z.boolean(),
+    insecure_redirect_declared: z.boolean(),
+    unresolved_redirect: z.boolean(),
+    hsts_state: z.enum(SECURITY_HSTS_STATES),
+    hsts_include_subdomains: z.boolean(),
+    hsts_preload_declared: z.boolean(),
+    csp_state: z.enum(SECURITY_CSP_STATES),
+    csp_upgrade_insecure_requests: z.boolean(),
+    referrer_policy_observed: z.boolean(),
+    weak_referrer_policy: z.boolean(),
+    nosniff_observed: z.boolean(),
+    frame_protection_observed: z.boolean(),
+    html_supplied: z.boolean(),
+    mixed_blockable_declarations: z.number().int().nonnegative(),
+    mixed_upgradable_declarations: z.number().int().nonnegative(),
+    insecure_form_actions: z.number().int().nonnegative(),
+    mixed_ip_host_declarations: z.number().int().nonnegative(),
+    insecure_base_href: z.boolean(),
+    declarations_truncated: z.boolean(),
+  })).max(MAX_SECURITY_PAGES),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    page: z.number().int().min(1).max(MAX_SECURITY_PAGES),
+    code: z.enum(SECURITY_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(320),
+  })).max(MAX_SECURITY_FINDINGS),
   findings_truncated: z.boolean(),
   overview: overviewSchema,
   error: z.string().optional(),
@@ -2587,6 +2683,72 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           "The supplied metadata sample could not be compared.", error);
         return {
           structuredContent: { ...emptyMetadataReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "review_https_security",
+    {
+      title: "Review supplied HTTPS, mixed-content and HTTP security evidence",
+      description:
+        "Offline bounded security-header and static HTML review across 1–8 same-host HTTP/HTTPS caller observations. HTTP→HTTPS Location declarations, HSTS status, enforcing versus report-only CSP, referrer/nosniff/frame protections and potential mixed-content/script/style/media/form declarations. No site fetch, TLS/certificate verification, browser execution, resource requests or leakage of raw URLs/headers/HTML. Not a production security verdict.",
+      inputSchema: {
+        pages: securityPagesInputSchema
+          .describe("One to eight same-host HTTP/HTTPS supplied observations with response codes, optional headers and HTML; max 24 KB header and 300 KB HTML budgets."),
+      },
+      outputSchema: securityOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthWidget({
+        invoking: "Reviewing observed HTTPS and security signals...",
+        invoked: "Security evidence review complete.",
+      }),
+    },
+    async ({ pages }) => {
+      try {
+        const review = analyzeHttpsSecurity(pages, loadCheerio);
+        const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
+        const overview: ResultOverview = {
+          kind: "report",
+          status: warnings ? "needs_attention" : "partial",
+          title: "Sampled HTTPS and HTTP security signals",
+          headline: review.pages_sampled + " supplied same-host response observations; " +
+            review.https_observations + " HTTPS and " + review.http_observations + " HTTP.",
+          detail: review.https_redirect_declarations + " declared HTTPS redirects; " +
+            review.https_without_hsts_observation + " HTTPS responses without supplied HSTS; " +
+            review.mixed_blockable_declarations + " potentially blockable mixed resource declarations, " +
+            review.mixed_upgradable_declarations + " upgradable candidates and " +
+            review.insecure_form_actions + " insecure form action declarations. No network or TLS verification.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("https", "HTTPS observations", review.https_observations, "info"),
+            metric("https_redirects", "Declared HTTPS redirects", review.https_redirect_declarations, "info"),
+            metric("missing_hsts", "HTTPS missing supplied HSTS", review.https_without_hsts_observation, "info"),
+            metric("mixed_blockable", "Potentially blockable HTTP resources", review.mixed_blockable_declarations, "warning"),
+            metric("insecure_forms", "HTTP form action declarations", review.insecure_form_actions, "warning"),
+          ],
+          next_action: "Verify against authorized live HTTP/HTTPS requests, TLS certificates and browser DevTools. Static header/HTML samples do not prove security policy enforcement or actual mixed-content loading.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview, review.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code + " (page " + finding.page + ")",
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "The supplied HTTPS security observations exceeded URL, same-host, header or HTML evidence limits.";
+        const overview = failedOverview("report", "HTTPS and HTTP security signals",
+          "The supplied response/HTML evidence could not be reviewed.", error);
+        return {
+          structuredContent: { ...emptyHttpsSecurityReview(), overview, error },
           content: contentForOverview(overview),
           isError: true,
         };

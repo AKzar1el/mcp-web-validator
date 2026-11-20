@@ -6,6 +6,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { boundedMcpArray, boundedMcpIssues, boundedMcpReport } from "./mcp-bounds.js";
 import { z } from "zod";
+import { load as loadCheerio } from "cheerio";
 import { captureScreenshots, PartialScreenshotCaptureError } from "./screenshot.js";
 import {
   reviewMediaHtml,
@@ -37,6 +38,18 @@ import {
   HTTP_FINDING_CODES,
 } from "./modules/http-crawl/non-html-directives.js";
 import {
+  analyzeHttpsSecurity,
+  emptyHttpsSecurityReview,
+  MAX_SECURITY_PAGES,
+  MAX_SECURITY_FINDINGS,
+  MAX_SECURITY_HEADER_BYTES,
+  MAX_SECURITY_HEADER_VALUES,
+  MAX_SECURITY_HTML_BYTES,
+  SECURITY_HSTS_STATES,
+  SECURITY_CSP_STATES,
+  SECURITY_FINDING_CODES,
+} from "./modules/http-crawl/https-security.js";
+import {
   auditSeoMetadata,
   auditSeoMetadataDetailed,
   checkBrokenLinks,
@@ -63,6 +76,7 @@ import {
   mediaDiagnosticsContent,
   wcagInteractionsContent,
   httpDirectivesContent,
+  httpsSecurityContent,
   multilingualClusterContent,
   failureContent,
   htmlValidationContent,
@@ -664,6 +678,88 @@ const mediaReviewOutputSchema = {
     element: z.number().int().min(1).max(MAX_MEDIA_ELEMENTS),
     message: z.string().max(240),
   })).max(MAX_MEDIA_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const securityHeaderInputSchema = z.string().max(MAX_SECURITY_HEADER_BYTES)
+  .refine((value) => !/[\r\n\u0000]/u.test(value)
+    && Buffer.byteLength(value, "utf8") <= MAX_SECURITY_HEADER_BYTES,
+  "Header observations must not contain CR/LF/NUL or exceed 2,048 UTF-8 bytes.");
+const securityPagesInputSchema = z.array(z.object({
+  url: z.string().url().max(512)
+    .refine((value) => Boolean(safeHttpResourceUrl(value)),
+      "Use a query-free HTTP(S) URL label without credentials, fragment or custom port.")
+    .describe("Safe supplied HTTP or HTTPS page URL label, used for scheme/host comparisons only; never fetched/returned."),
+  status_code: z.number().int().min(100).max(599)
+    .describe("Actual observed HTTP status code; no live fetch or redirect following."),
+  location: securityHeaderInputSchema.optional()
+    .describe("Optional raw Location header of a 3xx HTTP(S) response; never returned."),
+  strict_transport_security: z.array(securityHeaderInputSchema).max(MAX_SECURITY_HEADER_VALUES).optional()
+    .describe("Up to four observed Strict-Transport-Security headers, in received order."),
+  content_security_policy: z.array(securityHeaderInputSchema).max(MAX_SECURITY_HEADER_VALUES).optional()
+    .describe("Up to four enforcing Content-Security-Policy response headers."),
+  content_security_policy_report_only: z.array(securityHeaderInputSchema).max(MAX_SECURITY_HEADER_VALUES).optional()
+    .describe("Up to four Content-Security-Policy-Report-Only response headers; these do not enforce rules."),
+  referrer_policy: securityHeaderInputSchema.optional()
+    .describe("Optional raw Referrer-Policy response header."),
+  x_content_type_options: securityHeaderInputSchema.optional()
+    .describe("Optional observed X-Content-Type-Options response header."),
+  x_frame_options: securityHeaderInputSchema.optional()
+    .describe("Optional observed X-Frame-Options response header."),
+  htmlContent: z.string().min(1).max(MAX_SECURITY_HTML_BYTES).optional()
+    .refine((value) => value === undefined || Buffer.byteLength(value, "utf8") <= MAX_SECURITY_HTML_BYTES,
+      "Each supplied HTML document must fit 120,000 UTF-8 bytes.")
+    .describe("Optional caller-supplied static HTML only; max 120 KB/page, 300 KB total; no CSS/JS fetched or executed."),
+})).min(1).max(MAX_SECURITY_PAGES);
+const securityOutputSchema = {
+  scope: z.literal("caller_supplied_https_security_evidence_only"),
+  pages_sampled: z.number().int().nonnegative().max(MAX_SECURITY_PAGES),
+  http_observations: z.number().int().nonnegative().max(MAX_SECURITY_PAGES),
+  https_observations: z.number().int().nonnegative().max(MAX_SECURITY_PAGES),
+  https_redirect_declarations: z.number().int().nonnegative(),
+  http_without_secure_redirect: z.number().int().nonnegative(),
+  https_without_hsts_observation: z.number().int().nonnegative(),
+  hsts_disabled_or_invalid: z.number().int().nonnegative(),
+  enforced_csp_observations: z.number().int().nonnegative(),
+  report_only_csp_observations: z.number().int().nonnegative(),
+  mixed_blockable_declarations: z.number().int().nonnegative(),
+  mixed_upgradable_declarations: z.number().int().nonnegative(),
+  insecure_form_actions: z.number().int().nonnegative(),
+  pages_with_truncated_html: z.number().int().nonnegative(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(380)).max(4),
+  pages: z.array(z.object({
+    page: z.number().int().min(1).max(MAX_SECURITY_PAGES),
+    scheme: z.enum(["http", "https"]),
+    status_code: z.number().int().min(100).max(599),
+    https_redirect_declared: z.boolean(),
+    insecure_redirect_declared: z.boolean(),
+    unresolved_redirect: z.boolean(),
+    hsts_state: z.enum(SECURITY_HSTS_STATES),
+    hsts_include_subdomains: z.boolean(),
+    hsts_preload_declared: z.boolean(),
+    csp_state: z.enum(SECURITY_CSP_STATES),
+    csp_upgrade_insecure_requests: z.boolean(),
+    referrer_policy_observed: z.boolean(),
+    weak_referrer_policy: z.boolean(),
+    nosniff_observed: z.boolean(),
+    frame_protection_observed: z.boolean(),
+    html_supplied: z.boolean(),
+    mixed_blockable_declarations: z.number().int().nonnegative(),
+    mixed_upgradable_declarations: z.number().int().nonnegative(),
+    insecure_form_actions: z.number().int().nonnegative(),
+    mixed_ip_host_declarations: z.number().int().nonnegative(),
+    insecure_base_href: z.boolean(),
+    declarations_truncated: z.boolean(),
+  })).max(MAX_SECURITY_PAGES),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    page: z.number().int().min(1).max(MAX_SECURITY_PAGES),
+    code: z.enum(SECURITY_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(320),
+  })).max(MAX_SECURITY_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
 };
@@ -1592,6 +1688,33 @@ export function createServer(): McpServer {
         return result({ ...emptyMediaDiagnostics(), error }, failureContent(
           "Static media diagnostics", error,
           "Supply nonempty HTML markup within the declared UTF-8 byte limit.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "http.security",
+    {
+      title: "Review supplied HTTPS, mixed-content and HTTP security evidence",
+      description:
+        "Offline, bounded security-header/static-HTML observation review across 1–8 same-host HTTP/HTTPS pages. Distinguishes declared HTTP→HTTPS redirects, HSTS status, enforced vs report-only CSP, safe/weak referrer and framing policies, nosniff and static mixed-content/form/CSS declarations. No traffic, TLS certificate verification, browser execution, security certification or sensitive raw URL/header/HTML output.",
+      inputSchema: {
+        pages: securityPagesInputSchema
+          .describe("One to eight authorized, same-host supplied HTTP(S) observations; both schemes permitted for redirect comparison; max 24 KB headers and 300 KB HTML combined."),
+      },
+      outputSchema: securityOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ pages }) => {
+      try {
+        const review = analyzeHttpsSecurity(pages, loadCheerio);
+        return result(review, httpsSecurityContent(review));
+      } catch {
+        const error = "Supplied HTTPS security evidence could not be reviewed within URL, same-host, header or HTML safety limits.";
+        return result({ ...emptyHttpsSecurityReview(), error }, failureContent(
+          "HTTPS and HTTP security signals", error,
+          "Supply bounded same-host HTTP(S) page labels, observed status/headers and optional HTML; no network requests are performed.",
         ), true);
       }
     },

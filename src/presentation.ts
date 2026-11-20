@@ -11,6 +11,7 @@ import type { MetadataReview } from "./modules/content-schema/metadata-consisten
 import type { MediaDiagnostics } from "./modules/browser-ux/media-diagnostics.js";
 import type { WcagInteractionReview } from "./modules/browser-ux/wcag-interactions.js";
 import type { HttpDirectiveReview } from "./modules/http-crawl/non-html-directives.js";
+import type { HttpsSecurityReview } from "./modules/http-crawl/https-security.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
@@ -570,6 +571,26 @@ export function mediaDiagnosticsContent(review: MediaDiagnostics): string {
       message: `${finding.code}: ${finding.message}`,
     })),
     nextStep: "Inspect the flagged elements and verify their rendered behavior separately. Static metadata cannot prove actual resource availability, accessibility compliance, loading speed or video caption accuracy.",
+  });
+}
+
+export function httpsSecurityContent(review: HttpsSecurityReview): string {
+  const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
+  return toolContent({
+    title: "Sampled HTTPS and HTTP security signals",
+    status: warnings ? "attention needed" : "partial",
+    outcome: `${review.pages_sampled} supplied same-host observations: ${review.http_observations} HTTP, ` +
+      `${review.https_observations} HTTPS; ${review.https_redirect_declarations} declared HTTPS redirects, ` +
+      `${review.https_without_hsts_observation} without supplied HTTPS HSTS, ` +
+      `${review.mixed_blockable_declarations} potentially blockable mixed resources, ` +
+      `${review.mixed_upgradable_declarations} upgrade candidates, ` +
+      `${review.insecure_form_actions} HTTP form-action declarations.`,
+    actions: review.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: `Supplied page ${finding.page}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Verify observations against authorized live HTTPS/HTTP GET responses, redirect chains, browser DevTools, CSP enforcement and TLS certificates. Supplied headers or static markup do not establish production security, certificate validity or actual browser mixed-content blocking.",
   });
 }
 

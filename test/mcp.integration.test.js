@@ -36,6 +36,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "css.local",
       "html.local",
       "html.url",
+      "http.directives",
       "links.broken",
       "media.diagnostics",
       "product.claims",
@@ -118,6 +119,39 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       arguments: { htmlContent: "é".repeat(90_001) },
     });
     assert.equal(invalidMedia.isError, true);
+
+    const httpEvidence = await client.callTool({
+      name: "http.directives",
+      arguments: { resources: [{
+        url: "https://example.test/files/report.pdf",
+        status_code: 200, method: "HEAD",
+        content_type: "application/pdf",
+        x_robots_tag: ["googlebot: noindex"],
+        link: ['<https://example.test/reports>; rel="canonical"'],
+      }] },
+    });
+    assert.equal(httpEvidence.isError, undefined);
+    assert.equal(httpEvidence.structuredContent?.scope, "caller_supplied_http_headers_only");
+    assert.equal(httpEvidence.structuredContent?.non_html_resources, 1);
+    assert.equal(httpEvidence.structuredContent?.googlebot_noindex_resources, 1);
+    assert.equal(httpEvidence.structuredContent?.explicit_noindex_resources, 0);
+    assert.equal(httpEvidence.structuredContent?.canonical_header_resources, 1);
+    assert.equal(httpEvidence.structuredContent?.resources?.[0]?.canonical_state, "one");
+    assert.equal(httpEvidence.structuredContent?.coverage_limited, true);
+    assert.match(textContent(httpEvidence), /Sampled non-HTML HTTP directive review/);
+    assert(!JSON.stringify(httpEvidence).includes("/files/report.pdf"));
+    const httpTool = tools.find((tool) => tool.name === "http.directives");
+    assert.equal(httpTool?.annotations?.readOnlyHint, true);
+    assert.equal(httpTool?.annotations?.openWorldHint, false);
+    const unsafeHttp = await client.callTool({
+      name: "http.directives",
+      arguments: { resources: [{
+        url: "https://example.test/report.pdf?token=FAKE_SECRET",
+        status_code: 200, content_type: "application/pdf",
+      }] },
+    });
+    assert.equal(unsafeHttp.isError, true);
+    assert(!JSON.stringify(unsafeHttp).includes("FAKE_SECRET"));
 
     const duplicateWords = Array.from({ length: 130 }, (_, i) => `safetopic${i}`).join(" ");
     const duplicatePages = ["a", "b"].map((name) => ({

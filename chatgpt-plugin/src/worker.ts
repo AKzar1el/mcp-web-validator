@@ -83,6 +83,18 @@ import {
   MAX_METADATA_FINDINGS,
 } from "./modules/content-schema/metadata-consistency";
 import { METADATA_FIELDS } from "../../src/modules/content-schema/metadata-consistency";
+import {
+  analyzeHttpDirectives,
+  emptyHttpDirectiveReview,
+  safeHttpResourceUrl,
+  MAX_HTTP_RESOURCES,
+  MAX_HTTP_FINDINGS,
+  MAX_HTTP_HEADER_VALUES,
+  MAX_HTTP_HEADER_BYTES,
+  HTTP_MIME_CATEGORIES,
+  HTTP_CANONICAL_STATES,
+  HTTP_FINDING_CODES,
+} from "./modules/http-crawl/non-html-directives";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -517,6 +529,74 @@ const metadataConsistencyOutputSchema = z.object({
     related_pages: z.array(z.number().int().min(1).max(8)).max(7).optional(),
     message: z.string().max(340),
   })).max(MAX_METADATA_FINDINGS),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+});
+
+const httpHeaderInputSchema = z.string().max(MAX_HTTP_HEADER_BYTES)
+  .refine((value) => !/[\r\n\u0000]/u.test(value)
+    && new TextEncoder().encode(value).byteLength <= MAX_HTTP_HEADER_BYTES,
+  "Observed header values must not contain CR/LF/NUL and must be at most 2,048 UTF-8 bytes.");
+const httpObservationInputSchema = z.object({
+  url: z.string().url().max(512)
+    .refine((value) => Boolean(safeHttpResourceUrl(value)),
+      "Use a query-free HTTP(S) resource label without credentials, fragment or custom port.")
+    .describe("Safe HTTP(S) URL label for this response, not fetched or echoed."),
+  status_code: z.number().int().min(100).max(599)
+    .describe("HTTP status observed by the caller, not a crawler/indexing verdict."),
+  method: z.enum(["HEAD", "GET"]).optional()
+    .describe("Actual method used for the supplied header observation when known."),
+  content_type: httpHeaderInputSchema.optional()
+    .describe("Optional raw Content-Type response header value."),
+  content_disposition: httpHeaderInputSchema.optional()
+    .describe("Optional raw Content-Disposition header; filenames will not be returned."),
+  x_robots_tag: z.array(httpHeaderInputSchema).max(MAX_HTTP_HEADER_VALUES).optional()
+    .describe("Up to eight X-Robots-Tag HTTP header values, supplied in order."),
+  link: z.array(httpHeaderInputSchema).max(MAX_HTTP_HEADER_VALUES).optional()
+    .describe("Up to eight Link HTTP header values, including rel=canonical declarations."),
+});
+const httpDirectivesOutputSchema = z.object({
+  scope: z.literal("caller_supplied_http_headers_only"),
+  resources_sampled: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  non_html_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  html_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  unknown_mime_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  non_success_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  explicit_noindex_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  googlebot_noindex_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  googlebot_noimageindex_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  conflicting_robots_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  canonical_header_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  conflicting_canonical_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  unresolved_canonical_references: z.number().int().nonnegative(),
+  attachment_resources: z.number().int().nonnegative().max(MAX_HTTP_RESOURCES),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(340)).max(4),
+  resources: z.array(z.object({
+    resource: z.number().int().min(1).max(MAX_HTTP_RESOURCES),
+    status_code: z.number().int().min(100).max(599),
+    method: z.enum(["HEAD", "GET", "unspecified"]),
+    mime_category: z.enum(HTTP_MIME_CATEGORIES),
+    non_html: z.boolean(),
+    x_robots_observed: z.boolean(),
+    explicit_noindex: z.boolean(),
+    googlebot_noindex: z.boolean(),
+    googlebot_noimageindex: z.boolean(),
+    conflicting_robots: z.boolean(),
+    canonical_declarations: z.number().int().nonnegative(),
+    canonical_valid_targets: z.number().int().nonnegative(),
+    canonical_state: z.enum(HTTP_CANONICAL_STATES),
+    attachment_declared: z.boolean(),
+    header_coverage_limited: z.boolean(),
+  })).max(MAX_HTTP_RESOURCES),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(HTTP_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    resource: z.number().int().min(1).max(MAX_HTTP_RESOURCES),
+    message: z.string().max(300),
+  })).max(MAX_HTTP_FINDINGS),
   findings_truncated: z.boolean(),
   overview: overviewSchema,
   error: z.string().optional(),
@@ -2507,6 +2587,72 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           "The supplied metadata sample could not be compared.", error);
         return {
           structuredContent: { ...emptyMetadataReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "review_http_directives",
+    {
+      title: "Review observed non-HTML HTTP indexing directives",
+      description:
+        "Offline, bounded analysis of one to eight caller-supplied same-origin HTTP response header observations for PDFs and media: MIME, X-Robots-Tag scopes and conflicts, HTTP Link rel=canonical, attachment disposition and response status. No binary fetch, robots.txt request, storage, Google indexing assertion or raw URL/header leakage.",
+      inputSchema: {
+        resources: z.array(httpObservationInputSchema).min(1).max(MAX_HTTP_RESOURCES)
+          .describe("One to eight authorized same-origin supplied HTTP response observations, up to 30 KB combined header values; no network requests are made."),
+      },
+      outputSchema: httpDirectivesOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthWidget({
+        invoking: "Reviewing non-HTML HTTP directives...",
+        invoked: "HTTP directive review complete.",
+      }),
+    },
+    async ({ resources }) => {
+      try {
+        const review = analyzeHttpDirectives(resources);
+        const contradictory = review.conflicting_robots_resources + review.conflicting_canonical_resources;
+        const overview: ResultOverview = {
+          kind: "report",
+          status: contradictory ? "needs_attention" : "partial",
+          title: "Sampled non-HTML HTTP directive review",
+          headline: review.non_html_resources + " non-HTML response observations in " +
+            review.resources_sampled + " supplied HTTP metadata records.",
+          detail: review.googlebot_noindex_resources + " Googlebot-applicable noindex declarations, " +
+            review.canonical_header_resources + " HTTP canonical header records, " +
+            review.googlebot_noimageindex_resources + " image-specific noindex declarations and " +
+            contradictory + " contradictory directive groups. No resource fetched or indexing inferred.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("non_html", "Non-HTML resources", review.non_html_resources, "info"),
+            metric("googlebot_noindex", "Declared Googlebot noindex", review.googlebot_noindex_resources, "warning"),
+            metric("googlebot_noimageindex", "Declared image noindex", review.googlebot_noimageindex_resources, "info"),
+            metric("canonical_headers", "Canonical header records", review.canonical_header_resources, "info"),
+            metric("directive_conflicts", "Contradictory declarations", contradictory, "warning"),
+          ],
+          next_action: "Compare supplied HEAD/GET headers against authorized live responses, robots.txt and Search Console. Absent noindex is not proof of indexing; Link canonicals are not Google selections.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview,
+            review.findings.map((finding) => ({
+              severity: finding.severity,
+              label: finding.code + " (resource " + finding.resource + ")",
+              message: finding.message,
+            }))),
+        };
+      } catch {
+        const error = "HTTP response metadata could not be reviewed within the supplied URL, origin, status or header limits.";
+        const overview = failedOverview("report", "Non-HTML HTTP directives",
+          "The supplied HTTP response observations could not be compared.", error);
+        return {
+          structuredContent: { ...emptyHttpDirectiveReview(), overview, error },
           content: contentForOverview(overview),
           isError: true,
         };

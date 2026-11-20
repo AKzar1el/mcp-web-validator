@@ -9,6 +9,7 @@ import type { SupportedSchemaReview } from "./modules/content-schema/structured-
 import type { InternalLinkReview } from "./modules/site-architecture/internal-link-quality.js";
 import type { MetadataReview } from "./modules/content-schema/metadata-consistency.js";
 import type { MediaDiagnostics } from "./modules/browser-ux/media-diagnostics.js";
+import type { HttpDirectiveReview } from "./modules/http-crawl/non-html-directives.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
@@ -548,6 +549,24 @@ export function mediaDiagnosticsContent(review: MediaDiagnostics): string {
       message: `${finding.code}: ${finding.message}`,
     })),
     nextStep: "Inspect the flagged elements and verify their rendered behavior separately. Static metadata cannot prove actual resource availability, accessibility compliance, loading speed or video caption accuracy.",
+  });
+}
+
+export function httpDirectivesContent(review: HttpDirectiveReview): string {
+  return toolContent({
+    title: "Sampled non-HTML HTTP directive review",
+    status: review.conflicting_robots_resources + review.conflicting_canonical_resources > 0
+      ? "attention needed" : "partial",
+    outcome: `${review.non_html_resources} non-HTML declarations in ${review.resources_sampled} supplied HTTP observations: ` +
+      `${review.googlebot_noindex_resources} with a Googlebot-applicable noindex declaration, ` +
+      `${review.canonical_header_resources} with HTTP canonical declarations, ` +
+      `${review.conflicting_robots_resources + review.conflicting_canonical_resources} conflicting groups.`,
+    actions: review.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: `Supplied response ${finding.resource}`,
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Compare these supplied headers against live authorized GET/HEAD observations, robots.txt and Search Console. No resource was fetched; missing X-Robots-Tag does not prove indexability, and Link canonicals are not Google selections.",
   });
 }
 

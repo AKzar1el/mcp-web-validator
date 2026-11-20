@@ -306,6 +306,19 @@ export function buildSiteIndexabilityGraph(
   const seenHreflang = new Set<string>();
   for (const page of observed) {
     const ownUrl = auditUrl(page);
+    // Only infer a missing self-reference from complete, explicit HTML language
+    // declarations. An x-default-only fallback is not enough evidence.
+    if (!page.indexability.hreflang_truncated
+      && page.indexability.hreflang.some((link) => link.language !== "x-default" && link.url !== ownUrl)
+      && !page.indexability.hreflang.some((link) => link.url === ownUrl)) {
+      report({
+        code: "indexability.hreflang_missing_self",
+        severity: "warning",
+        confidence: "observed",
+        message: "Sampled HTML declares alternate languages without including this page in its hreflang set; review the missing self-reference.",
+        example_urls: [ownUrl],
+      });
+    }
     for (const alternative of page.indexability.hreflang) {
       const target = byUrl.get(alternative.url);
       if (!target || target.indexability.hreflang_truncated) continue;

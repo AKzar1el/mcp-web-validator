@@ -203,6 +203,32 @@ describe("indexability graph: sampled-only corroboration", () => {
     expect(build([a, reciprocal]).findings.map((f) => f.code)).not.toContain("indexability.hreflang_missing_return");
   });
 
+  it("reports a missing HTML hreflang self-link only when the sampled declarations are complete", () => {
+    const sourceUrl = "https://example.com/en";
+    const source = page(sourceUrl, '<title>English</title><link rel=alternate hreflang=de href="/de">');
+    const target = page("https://example.com/de",
+      '<title>Deutsch</title><link rel=alternate hreflang=de href="/de"><link rel=alternate hreflang=en href="/en">');
+    expect(build([source, target]).findings.filter((f) => f.code === "indexability.hreflang_missing_self"))
+      .toEqual([{
+        code: "indexability.hreflang_missing_self",
+        severity: "warning",
+        confidence: "observed",
+        message: expect.any(String),
+        example_urls: [sourceUrl],
+      }]);
+
+    const withSelf = page(sourceUrl,
+      '<title>English</title><link rel=alternate hreflang=en href="/en"><link rel=alternate hreflang=de href="/de">');
+    const xDefaultOnly = page("https://example.com/selector",
+      '<link rel=alternate hreflang=x-default href="/en">');
+    const partial = page(sourceUrl,
+      '<link rel=alternate hreflang=de href="/de"><link rel=alternate hreflang=fr href="/fr?token=secret">');
+    for (const sampled of [[withSelf, target], [xDefaultOnly], [partial]]) {
+      expect(build(sampled).findings.filter((f) => f.code === "indexability.hreflang_missing_self"))
+        .toEqual([]);
+    }
+  });
+
   it("does not claim missing pages passed, or noindex seed URLs are included in sitemaps", () => {
     const root = page("https://example.com/", '<title>Home</title><meta name=robots content=noindex>');
     const failed = { ...page("https://example.com/private", '<title>Private</title>'), page_fetched: false, indexability: undefined };

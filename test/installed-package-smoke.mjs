@@ -61,7 +61,7 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "audit.monitor", "audit.trends", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "http.delivery", "http.directives", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
+      "audit.history", "audit.monitor", "audit.trends", "availability.history", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links",
     ],
   );
@@ -79,6 +79,26 @@ try {
   assert.equal(delivery.structuredContent?.errors_observed, 1);
   assert.equal(delivery.structuredContent?.challenges_observed, 1);
   assert(!JSON.stringify(delivery).includes("private-package-test-id"));
+  phase = "v02_availability";
+  const availability = await client.callTool({
+    name: "http.availability",
+    arguments: { observations: [
+      { observed_at: "2026-11-20T09:00:00Z", status_code: 200 },
+      { observed_at: "2026-11-20T09:01:00Z", status_code: 503 },
+      { observed_at: "2026-11-20T09:02:00Z", status_code: 200 },
+    ] },
+  });
+  assert.notEqual(availability.isError, true);
+  assert.equal(availability.structuredContent?.observed_success_percent, 67);
+  assert.equal(availability.structuredContent?.intermittent_non_success, true);
+  const availabilityList = await client.callTool({
+    name: "availability.history",
+    arguments: { action: "list", url: "https://example.com/" },
+  });
+  assert.notEqual(availabilityList.isError, true);
+  assert.equal(availabilityList.structuredContent?.count, 0);
+  await assert.rejects(stat(path.join(scratch, ".mcp-validator", "availability-history.json")),
+    { code: "ENOENT" });
 
   phase = "history_trend";
   const historySnapshot = (count) => JSON.stringify({

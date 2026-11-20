@@ -3406,6 +3406,773 @@
       }
     },
     {
+      "name": "http.availability",
+      "title": "Analyze observed availability changes and short repeat-fetch reliability",
+      "description": "V02: compare two to 48 ordered, caller-supplied timestamped HTTP/transport outcomes, or make two to three bounded sequential public GET probes. Flags intermittent non-2xx, status transitions, 429/5xx, explicit challenge and network failures, and sampling gaps. The percentages are only ratios of sampled responses, never guaranteed uptime or actual outage duration. No scheduler, history storage, Googlebot verification or response bodies; use availability.history separately to opt into local storage.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "description": "Authorized public query-free HTTP(S) URL for a short live repeat-fetch sample; omit for offline analysis.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "checks": {
+            "description": "Live checks per call, two or three (default three); ignored for neither/invalid modes.",
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 3
+          },
+          "observations": {
+            "description": "Two to 48 real timestamped HTTP or transport outcomes, ordered oldest to newest; offline.",
+            "minItems": 2,
+            "maxItems": 48,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "observed_at": {
+                  "type": "string",
+                  "maxLength": 40,
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                  "description": "Real observation timestamp with explicit UTC offset, in strictly increasing order."
+                },
+                "status_code": {
+                  "description": "Actual HTTP response code, mutually exclusive with failure.",
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "failure": {
+                  "description": "Explicit no-response failure class, mutually exclusive with status_code.",
+                  "type": "string",
+                  "enum": [
+                    "timeout",
+                    "dns_error",
+                    "network_error",
+                    "fetch_error",
+                    "policy_blocked"
+                  ]
+                },
+                "cf_challenge": {
+                  "description": "Whether this HTTP response explicitly reported a Cloudflare challenge header.",
+                  "type": "boolean"
+                },
+                "elapsed_ms": {
+                  "description": "Elapsed duration of this observed request in integer milliseconds, if measured.",
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 120000
+                }
+              },
+              "required": [
+                "observed_at"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "caller_supplied_history",
+              "live_bounded_burst",
+              "local_saved_history"
+            ]
+          },
+          "observations_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 48
+          },
+          "first_observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "last_observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "sampled_window_minutes": {
+            "type": "number",
+            "minimum": 0
+          },
+          "max_observation_gap_minutes": {
+            "type": "number",
+            "minimum": 0
+          },
+          "observed_successes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_redirects": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_http_4xx": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_http_5xx": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_timeouts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_transport_failures": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_rate_limits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_challenges": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_success_percent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "http_status_changes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "outcome_changes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "intermittent_non_success": {
+            "type": "boolean"
+          },
+          "longest_non_success_streak": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "current_non_success_streak": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "latest_observed_state": {
+            "type": "string",
+            "enum": [
+              "success",
+              "challenge",
+              "redirect",
+              "forbidden",
+              "rate_limited",
+              "client_error",
+              "server_error",
+              "timeout",
+              "transport_error",
+              "policy_blocked",
+              "other"
+            ]
+          },
+          "latest_http_status": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 260
+            }
+          },
+          "samples": {
+            "maxItems": 48,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "observation": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 48
+                },
+                "observed_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "success",
+                    "challenge",
+                    "redirect",
+                    "forbidden",
+                    "rate_limited",
+                    "client_error",
+                    "server_error",
+                    "timeout",
+                    "transport_error",
+                    "policy_blocked",
+                    "other"
+                  ]
+                },
+                "cf_challenge": {
+                  "type": "boolean"
+                },
+                "elapsed_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 120000
+                }
+              },
+              "required": [
+                "observation",
+                "observed_at",
+                "state",
+                "cf_challenge"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "intermittent_non_success",
+                    "latest_non_success",
+                    "rate_limiting",
+                    "server_failures",
+                    "transport_failures",
+                    "challenge_observed",
+                    "status_transitions",
+                    "sparse_samples",
+                    "large_sampling_gap"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 260
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "observations_count",
+          "sampled_window_minutes",
+          "max_observation_gap_minutes",
+          "observed_successes",
+          "observed_redirects",
+          "observed_http_4xx",
+          "observed_http_5xx",
+          "observed_timeouts",
+          "observed_transport_failures",
+          "observed_rate_limits",
+          "observed_challenges",
+          "observed_success_percent",
+          "http_status_changes",
+          "outcome_changes",
+          "intermittent_non_success",
+          "longest_non_success_streak",
+          "current_non_success_streak",
+          "coverage_limited",
+          "limitations",
+          "samples",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "availability.history",
+      "title": "Capture and compare local availability history (ten records maximum)",
+      "description": "V02 local-only opt-in compact availability archive. 'capture' makes one public HTTP GET and saves only its HTTP/transport outcome and timestamp. 'list' and 'compare' read existing outcomes for exactly one authorized URL. A single 24 KB JSON archive retains a maximum of ten total observations and automatically evicts the oldest; no scheduler, Cloudflare/Google access, cloud storage, secret headers or response bodies. Capture writes local state and may evict old data.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "capture",
+              "list",
+              "compare"
+            ],
+            "description": "Explicitly capture one HTTP observation into local storage, list saved outcomes, or compare at least two saved outcomes."
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri",
+            "description": "Exact safe query-free URL whose local observations should be captured or read."
+          }
+        },
+        "required": [
+          "action",
+          "url"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "capture",
+              "list",
+              "compare"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "records": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "saved_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "observation": {
+                  "type": "object",
+                  "properties": {
+                    "observed_at": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                      "description": "Real observation timestamp with explicit UTC offset, in strictly increasing order."
+                    },
+                    "status_code": {
+                      "description": "Actual HTTP response code, mutually exclusive with failure.",
+                      "type": "integer",
+                      "minimum": 100,
+                      "maximum": 599
+                    },
+                    "failure": {
+                      "description": "Explicit no-response failure class, mutually exclusive with status_code.",
+                      "type": "string",
+                      "enum": [
+                        "timeout",
+                        "dns_error",
+                        "network_error",
+                        "fetch_error",
+                        "policy_blocked"
+                      ]
+                    },
+                    "cf_challenge": {
+                      "description": "Whether this HTTP response explicitly reported a Cloudflare challenge header.",
+                      "type": "boolean"
+                    },
+                    "elapsed_ms": {
+                      "description": "Elapsed duration of this observed request in integer milliseconds, if measured.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 120000
+                    }
+                  },
+                  "required": [
+                    "observed_at"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "id",
+                "saved_at",
+                "observation"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "saved_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "evicted_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "review": {
+            "type": "object",
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "caller_supplied_history",
+                  "live_bounded_burst",
+                  "local_saved_history"
+                ]
+              },
+              "observations_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 48
+              },
+              "first_observed_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "last_observed_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "sampled_window_minutes": {
+                "type": "number",
+                "minimum": 0
+              },
+              "max_observation_gap_minutes": {
+                "type": "number",
+                "minimum": 0
+              },
+              "observed_successes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_redirects": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_http_4xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_http_5xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_timeouts": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_transport_failures": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_rate_limits": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_challenges": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_success_percent": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "http_status_changes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "outcome_changes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "intermittent_non_success": {
+                "type": "boolean"
+              },
+              "longest_non_success_streak": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "current_non_success_streak": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "latest_observed_state": {
+                "type": "string",
+                "enum": [
+                  "success",
+                  "challenge",
+                  "redirect",
+                  "forbidden",
+                  "rate_limited",
+                  "client_error",
+                  "server_error",
+                  "timeout",
+                  "transport_error",
+                  "policy_blocked",
+                  "other"
+                ]
+              },
+              "latest_http_status": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 599
+              },
+              "coverage_limited": {
+                "type": "boolean",
+                "const": true
+              },
+              "limitations": {
+                "maxItems": 4,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 260
+                }
+              },
+              "samples": {
+                "maxItems": 48,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "observation": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 48
+                    },
+                    "observed_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    "status_code": {
+                      "type": "integer",
+                      "minimum": 100,
+                      "maximum": 599
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "success",
+                        "challenge",
+                        "redirect",
+                        "forbidden",
+                        "rate_limited",
+                        "client_error",
+                        "server_error",
+                        "timeout",
+                        "transport_error",
+                        "policy_blocked",
+                        "other"
+                      ]
+                    },
+                    "cf_challenge": {
+                      "type": "boolean"
+                    },
+                    "elapsed_ms": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 120000
+                    }
+                  },
+                  "required": [
+                    "observation",
+                    "observed_at",
+                    "state",
+                    "cf_challenge"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "total_findings": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "findings": {
+                "maxItems": 12,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "intermittent_non_success",
+                        "latest_non_success",
+                        "rate_limiting",
+                        "server_failures",
+                        "transport_failures",
+                        "challenge_observed",
+                        "status_transitions",
+                        "sparse_samples",
+                        "large_sampling_gap"
+                      ]
+                    },
+                    "severity": {
+                      "type": "string",
+                      "enum": [
+                        "warning",
+                        "info"
+                      ]
+                    },
+                    "message": {
+                      "type": "string",
+                      "maxLength": 260
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "severity",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "findings_truncated": {
+                "type": "boolean"
+              },
+              "error": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "scope",
+              "observations_count",
+              "sampled_window_minutes",
+              "max_observation_gap_minutes",
+              "observed_successes",
+              "observed_redirects",
+              "observed_http_4xx",
+              "observed_http_5xx",
+              "observed_timeouts",
+              "observed_transport_failures",
+              "observed_rate_limits",
+              "observed_challenges",
+              "observed_success_percent",
+              "http_status_changes",
+              "outcome_changes",
+              "intermittent_non_success",
+              "longest_non_success_streak",
+              "current_non_success_streak",
+              "coverage_limited",
+              "limitations",
+              "samples",
+              "total_findings",
+              "findings",
+              "findings_truncated"
+            ],
+            "additionalProperties": false
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "count",
+          "records"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "http.delivery",
       "title": "Diagnose live or supplied HTTP delivery and edge responses",
       "description": "V01: one bounded public HTTP GET probe (up to three same-origin redirects), or one to four ordered caller-supplied response observations. Diagnose 403/429/5xx, redirect completeness, HTTP cache flags, Retry-After and Cloudflare challenge evidence. No body download, JS execution, Googlebot identity verification, monitoring, raw header values or query-bearing URL output. Supply exactly one of url or observations.",

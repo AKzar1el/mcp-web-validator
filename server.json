@@ -2932,6 +2932,404 @@
       }
     },
     {
+      "name": "browser.resource_failures",
+      "title": "Inspect bounded browser resource responses and loading failures",
+      "description": "V08 local-only: analyze up to 64 observed browser HTTP/network outcomes or navigate one robots-allowed public URL in fresh sandboxed Chromium with DNS-pinned proxy. Distinguishes real HTTP 4xx/5xx resource responses from transport failures, pending requests, and explicit tool-policy blocks. Groups script/CSS/document/API/image/font issues without returning URLs, headers, error text, response bodies or credentials. Browser allows same-origin assets by default, never private IPs; optional public third-party resource access is capped. Does not impersonate Google WRS or establish actual indexing, user experience, performance guarantees or causation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "analyze_observations",
+              "live_browser"
+            ],
+            "description": "Choose offline caller-supplied resource observations or a guarded public browser network sample."
+          },
+          "url": {
+            "description": "Only live_browser: one safe public query-free page URL; robots.txt is checked before browser navigation.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "include_third_party": {
+            "description": "Only live_browser: explicitly permit public third-party assets from up to three additional origins; default false blocks them without calling them website failures.",
+            "type": "boolean"
+          },
+          "observations": {
+            "description": "Only analyze_observations: 1–64 fixed-shape browser outcomes; no raw URLs or headers.",
+            "minItems": 1,
+            "maxItems": 64,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "resource_type": {
+                  "type": "string",
+                  "enum": [
+                    "document",
+                    "script",
+                    "stylesheet",
+                    "image",
+                    "font",
+                    "xhr",
+                    "fetch",
+                    "media",
+                    "other"
+                  ],
+                  "description": "Browser observed resource class, such as script, stylesheet, image or fetch."
+                },
+                "origin": {
+                  "type": "string",
+                  "enum": [
+                    "same_origin",
+                    "third_party",
+                    "unknown"
+                  ],
+                  "description": "Same-origin, third-party or unknown request classification; do not supply a URL."
+                },
+                "outcome": {
+                  "type": "string",
+                  "enum": [
+                    "http",
+                    "transport_failed",
+                    "tool_blocked",
+                    "pending"
+                  ],
+                  "description": "Observed HTTP response, transport failure, explicit tool block, or still-pending request."
+                },
+                "status_code": {
+                  "description": "Only for outcome=http: actual HTTP response status including 4xx/5xx.",
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "failure_reason": {
+                  "description": "Only for transport_failed: redacted DNS/timeout/TLS/connection/cancel/other category.",
+                  "type": "string",
+                  "enum": [
+                    "dns",
+                    "timeout",
+                    "tls",
+                    "connection",
+                    "canceled",
+                    "other"
+                  ]
+                },
+                "duration_ms": {
+                  "description": "Optional observed elapsed request time in milliseconds.",
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 600000
+                }
+              },
+              "required": [
+                "resource_type",
+                "origin",
+                "outcome"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additional_budget_blocked": {
+            "description": "Offline only: number of extra requests explicitly blocked when the browser observation limit was exceeded.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "navigation_completed": {
+            "description": "Offline only: whether an independently observed navigation completed before the sampling deadline.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "caller_supplied_resource_observations",
+              "guarded_public_browser_resources"
+            ]
+          },
+          "browser_executed": {
+            "type": "boolean"
+          },
+          "requests_recorded": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 64
+          },
+          "http_responses": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "http_2xx_3xx": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "http_4xx": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "http_5xx": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "http_429": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "transport_failures": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "tool_blocked_requests": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pending_requests": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "additional_budget_blocked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "critical_resource_failures": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "api_failures": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "image_failures": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "third_party_failures": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "slow_requests": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "navigation_completed": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "resource_types": {
+            "minItems": 9,
+            "maxItems": 9,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "resource_type": {
+                  "type": "string",
+                  "enum": [
+                    "document",
+                    "script",
+                    "stylesheet",
+                    "image",
+                    "font",
+                    "xhr",
+                    "fetch",
+                    "media",
+                    "other"
+                  ]
+                },
+                "attempted": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "http_responses": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "http_4xx": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "http_5xx": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "transport_failures": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "blocked_by_tool": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "still_pending": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "resource_type",
+                "attempted",
+                "http_responses",
+                "http_4xx",
+                "http_5xx",
+                "transport_failures",
+                "blocked_by_tool",
+                "still_pending"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 340
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "document_http_error",
+                    "document_transport_failed",
+                    "script_http_error",
+                    "script_transport_failed",
+                    "stylesheet_http_error",
+                    "stylesheet_transport_failed",
+                    "api_http_error",
+                    "api_transport_failed",
+                    "image_http_error",
+                    "font_http_error",
+                    "other_http_error",
+                    "other_transport_failed",
+                    "third_party_failures",
+                    "slow_resource_sample",
+                    "resource_budget_reached",
+                    "tool_blocked_resources",
+                    "pending_resources",
+                    "navigation_incomplete"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "count": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 310
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "count",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "browser_executed",
+          "requests_recorded",
+          "http_responses",
+          "http_2xx_3xx",
+          "http_4xx",
+          "http_5xx",
+          "http_429",
+          "transport_failures",
+          "tool_blocked_requests",
+          "pending_requests",
+          "additional_budget_blocked",
+          "critical_resource_failures",
+          "api_failures",
+          "image_failures",
+          "third_party_failures",
+          "slow_requests",
+          "navigation_completed",
+          "resource_types",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "browser.dom_diff",
       "title": "Compare HTTP source HTML and sandboxed rendered DOM SEO signals",
       "description": "V07 local-only: compare two caller-supplied raw/rendered HTML snapshots offline, or render caller-supplied HTML in fresh network-denied Chromium with inline scripts only, or fetch one robots-allowed public HTML page and sample its inline-script DOM. Detects changed/missing title, description, H1, text, same-origin anchor links, canonical, noindex and JSON-LD declarations using bounded redacted evidence. Does not load external JS/CSS/assets, impersonate Google WRS, access GSC/GA4, claim indexing or save content. Inline modes execute untrusted JS only inside fresh browser sandbox; external requests are denied.",
@@ -8138,7 +8536,7 @@
                 "status_code": {
                   "description": "Optional independently observed HTTP response status.",
                   "type": "integer",
-                  "minimum": 100,
+                  "minimum": 200,
                   "maximum": 599
                 },
                 "robots_allowed": {

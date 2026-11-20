@@ -13,3 +13,12 @@ contract from the local M01 module; hosted MCP `review_http_directives` runs
 binary fetch, additional storage or permission is introduced. See
 `docs/p1-11-non-html-http-directives.md`. Live non-HTML HTTP probing remains
 future M01 work.
+
+P1-13's Worker-safe `https-security.ts` adapter reexports the same shared,
+offline pure analyzer used by the local M01 `http.security` tool. Hosted
+`review_https_security` inspects only caller-supplied same-host HTTP/HTTPS
+response headers and static HTML. It does not introduce network permissions,
+TLS probing, browser execution or persistent storage. Exact limits,
+security caveats and the difference between static insecure declarations and
+browser-enforced mixed-content decisions are in
+`docs/p1-13-https-security.md`.

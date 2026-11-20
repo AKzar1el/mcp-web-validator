@@ -38,6 +38,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "html.local",
       "html.url",
       "http.directives",
+      "http.security",
       "links.broken",
       "media.diagnostics",
       "product.claims",
@@ -154,6 +155,40 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.equal(httpEvidence.structuredContent?.coverage_limited, true);
     assert.match(textContent(httpEvidence), /Sampled non-HTML HTTP directive review/);
     assert(!JSON.stringify(httpEvidence).includes("/files/report.pdf"));
+    const securityEvidence = await client.callTool({
+      name: "http.security",
+      arguments: { pages: [{
+        url: "https://example.test/private/security",
+        status_code: 200,
+        strict_transport_security: ["max-age=31536000; includeSubDomains"],
+        content_security_policy: ["default-src 'self'; frame-ancestors 'none'"],
+        referrer_policy: "strict-origin-when-cross-origin",
+        x_content_type_options: "nosniff",
+        htmlContent: '<html><body><script src="http://cdn.test/app.js"></script>' +
+          '<img src="http://cdn.test/photo.jpg">' +
+          '<form action="http://example.test/submit"></form></body></html>',
+      }] },
+    });
+    assert.equal(securityEvidence.isError, undefined);
+    assert.equal(securityEvidence.structuredContent?.scope, "caller_supplied_https_security_evidence_only");
+    assert.equal(securityEvidence.structuredContent?.pages_sampled, 1);
+    assert.equal(securityEvidence.structuredContent?.mixed_blockable_declarations, 1);
+    assert.equal(securityEvidence.structuredContent?.mixed_upgradable_declarations, 1);
+    assert.equal(securityEvidence.structuredContent?.insecure_form_actions, 1);
+    assert.equal(securityEvidence.structuredContent?.pages?.[0]?.hsts_state, "enabled");
+    assert.equal(securityEvidence.structuredContent?.coverage_limited, true);
+    assert.match(textContent(securityEvidence), /Sampled HTTPS and HTTP security signals/);
+    assert(!JSON.stringify(securityEvidence).includes("/private/security"));
+    assert(!JSON.stringify(securityEvidence).includes("/submit"));
+    const securityTool = tools.find((tool) => tool.name === "http.security");
+    assert.equal(securityTool?.annotations?.readOnlyHint, true);
+    assert.equal(securityTool?.annotations?.openWorldHint, false);
+    const unsafeSecurity = await client.callTool({
+      name: "http.security",
+      arguments: { pages: [{ url: "https://example.test/?token=FAKE_SECRET", status_code: 200 }] },
+    });
+    assert.equal(unsafeSecurity.isError, true);
+    assert(!JSON.stringify(unsafeSecurity).includes("FAKE_SECRET"));
     const httpTool = tools.find((tool) => tool.name === "http.directives");
     assert.equal(httpTool?.annotations?.readOnlyHint, true);
     assert.equal(httpTool?.annotations?.openWorldHint, false);

@@ -58,7 +58,7 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "http.directives", "links.broken", "media.diagnostics", "product.claims",
+      "audit.history", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "http.directives", "http.security", "links.broken", "media.diagnostics", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links",
     ],
   );
@@ -105,6 +105,26 @@ try {
   assert.equal(responseHeaders.structuredContent?.resources?.[0]?.canonical_state, "one");
   assert.equal(responseHeaders.structuredContent?.coverage_limited, true);
   assert.ok(!JSON.stringify(responseHeaders).includes("/documents/report.pdf"));
+
+  phase = "https_security";
+  const httpsEvidence = await client.callTool({
+    name: "http.security",
+    arguments: { pages: [{
+      url: "https://example.test/private/headers", status_code: 200,
+      strict_transport_security: ["max-age=31536000"],
+      content_security_policy: ["default-src 'self'"],
+      x_content_type_options: "nosniff",
+      htmlContent: '<img src="http://cdn.test/image.jpg">' +
+        '<script src="http://cdn.test/app.js"></script>',
+    }] },
+  });
+  assert.notEqual(httpsEvidence.isError, true);
+  assert.equal(httpsEvidence.structuredContent?.pages_sampled, 1);
+  assert.equal(httpsEvidence.structuredContent?.mixed_blockable_declarations, 1);
+  assert.equal(httpsEvidence.structuredContent?.mixed_upgradable_declarations, 1);
+  assert.equal(httpsEvidence.structuredContent?.pages?.[0]?.hsts_state, "enabled");
+  assert.equal(httpsEvidence.structuredContent?.coverage_limited, true);
+  assert.ok(!JSON.stringify(httpsEvidence).includes("/private/headers"));
 
   const sampleWords = Array.from({ length: 120 }, (_, i) => `installedtestword${i}`).join(" ");
   phase = "content_duplicates";

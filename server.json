@@ -2445,6 +2445,417 @@
       }
     },
     {
+      "name": "http.security",
+      "title": "Review supplied HTTPS, mixed-content and HTTP security evidence",
+      "description": "Offline, bounded security-header/static-HTML observation review across 1–8 same-host HTTP/HTTPS pages. Distinguishes declared HTTP→HTTPS redirects, HSTS status, enforced vs report-only CSP, safe/weak referrer and framing policies, nosniff and static mixed-content/form/CSS declarations. No traffic, TLS certificate verification, browser execution, security certification or sensitive raw URL/header/HTML output.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pages": {
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Safe supplied HTTP or HTTPS page URL label, used for scheme/host comparisons only; never fetched/returned."
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599,
+                  "description": "Actual observed HTTP status code; no live fetch or redirect following."
+                },
+                "location": {
+                  "description": "Optional raw Location header of a 3xx HTTP(S) response; never returned.",
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "strict_transport_security": {
+                  "description": "Up to four observed Strict-Transport-Security headers, in received order.",
+                  "maxItems": 4,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "content_security_policy": {
+                  "description": "Up to four enforcing Content-Security-Policy response headers.",
+                  "maxItems": 4,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "content_security_policy_report_only": {
+                  "description": "Up to four Content-Security-Policy-Report-Only response headers; these do not enforce rules.",
+                  "maxItems": 4,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "referrer_policy": {
+                  "description": "Optional raw Referrer-Policy response header.",
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "x_content_type_options": {
+                  "description": "Optional observed X-Content-Type-Options response header.",
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "x_frame_options": {
+                  "description": "Optional observed X-Frame-Options response header.",
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "htmlContent": {
+                  "description": "Optional caller-supplied static HTML only; max 120 KB/page, 300 KB total; no CSS/JS fetched or executed.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120000
+                }
+              },
+              "required": [
+                "url",
+                "status_code"
+              ]
+            },
+            "description": "One to eight authorized, same-host supplied HTTP(S) observations; both schemes permitted for redirect comparison; max 24 KB headers and 300 KB HTML combined."
+          }
+        },
+        "required": [
+          "pages"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "caller_supplied_https_security_evidence_only"
+          },
+          "pages_sampled": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "http_observations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "https_observations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "https_redirect_declarations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "http_without_secure_redirect": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "https_without_hsts_observation": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "hsts_disabled_or_invalid": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "enforced_csp_observations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "report_only_csp_observations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "mixed_blockable_declarations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "mixed_upgradable_declarations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "insecure_form_actions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pages_with_truncated_html": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 380
+            }
+          },
+          "pages": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "scheme": {
+                  "type": "string",
+                  "enum": [
+                    "http",
+                    "https"
+                  ]
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "https_redirect_declared": {
+                  "type": "boolean"
+                },
+                "insecure_redirect_declared": {
+                  "type": "boolean"
+                },
+                "unresolved_redirect": {
+                  "type": "boolean"
+                },
+                "hsts_state": {
+                  "type": "string",
+                  "enum": [
+                    "absent",
+                    "enabled",
+                    "disabled",
+                    "invalid",
+                    "conflicting",
+                    "http_ignored"
+                  ]
+                },
+                "hsts_include_subdomains": {
+                  "type": "boolean"
+                },
+                "hsts_preload_declared": {
+                  "type": "boolean"
+                },
+                "csp_state": {
+                  "type": "string",
+                  "enum": [
+                    "absent",
+                    "enforced",
+                    "report_only",
+                    "both",
+                    "meta_only"
+                  ]
+                },
+                "csp_upgrade_insecure_requests": {
+                  "type": "boolean"
+                },
+                "referrer_policy_observed": {
+                  "type": "boolean"
+                },
+                "weak_referrer_policy": {
+                  "type": "boolean"
+                },
+                "nosniff_observed": {
+                  "type": "boolean"
+                },
+                "frame_protection_observed": {
+                  "type": "boolean"
+                },
+                "html_supplied": {
+                  "type": "boolean"
+                },
+                "mixed_blockable_declarations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "mixed_upgradable_declarations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "insecure_form_actions": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "mixed_ip_host_declarations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "insecure_base_href": {
+                  "type": "boolean"
+                },
+                "declarations_truncated": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "page",
+                "scheme",
+                "status_code",
+                "https_redirect_declared",
+                "insecure_redirect_declared",
+                "unresolved_redirect",
+                "hsts_state",
+                "hsts_include_subdomains",
+                "hsts_preload_declared",
+                "csp_state",
+                "csp_upgrade_insecure_requests",
+                "referrer_policy_observed",
+                "weak_referrer_policy",
+                "nosniff_observed",
+                "frame_protection_observed",
+                "html_supplied",
+                "mixed_blockable_declarations",
+                "mixed_upgradable_declarations",
+                "insecure_form_actions",
+                "mixed_ip_host_declarations",
+                "insecure_base_href",
+                "declarations_truncated"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "http_success_without_redirect",
+                    "http_redirect_not_https",
+                    "http_redirect_unresolved",
+                    "hsts_missing_observation",
+                    "hsts_disabled",
+                    "hsts_invalid",
+                    "hsts_conflicting",
+                    "hsts_http_ignored",
+                    "csp_report_only",
+                    "csp_unobserved",
+                    "weak_referrer_policy",
+                    "nosniff_unobserved",
+                    "frame_protection_unobserved",
+                    "mixed_blockable",
+                    "mixed_upgradable_candidate",
+                    "insecure_form_action",
+                    "insecure_base_href",
+                    "html_sampling_limited",
+                    "non_success_response"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                }
+              },
+              "required": [
+                "page",
+                "code",
+                "severity",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "pages_sampled",
+          "http_observations",
+          "https_observations",
+          "https_redirect_declarations",
+          "http_without_secure_redirect",
+          "https_without_hsts_observation",
+          "hsts_disabled_or_invalid",
+          "enforced_csp_observations",
+          "report_only_csp_observations",
+          "mixed_blockable_declarations",
+          "mixed_upgradable_declarations",
+          "insecure_form_actions",
+          "pages_with_truncated_html",
+          "coverage_limited",
+          "limitations",
+          "pages",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "http.directives",
       "title": "Review observed non-HTML HTTP indexing directives",
       "description": "Offline, bounded analysis of one to eight caller-supplied same-origin HTTP response header observations, including PDF/media MIME types, X-Robots-Tag (scoped Googlebot directives and contradictions), Link rel=canonical declarations, Content-Disposition and response status. No URL fetch, binary download, robots.txt inspection, Google indexing assertion, or storage. Sensitive raw URLs, headers, filenames and query tokens are not returned.",

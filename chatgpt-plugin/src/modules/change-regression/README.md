@@ -7,4 +7,9 @@
 - **Reuse:** `chatgpt-plugin/src/site-comparison.ts` provides pure audit comparison; no Worker snapshot storage.
 - **Guardrail:** Do not add storage or scheduler. Crawler-log correlation requires separately authorized, bounded, redacted evidence; hosted support requires privacy review.
 
-This directory is documentation-only; do not import local Node/browser modules or register new MCP tools during initialization.
+P2-01's `historical-comparisons.ts` reexports the exact local M05 pure analyzer
+without Node imports. Hosted `compare_historical_audits` accepts 2–10 **caller-
+supplied** timestamped bounded compact audit snapshots; unlike local
+`audit.trends`, it **cannot** access local history IDs and does not retain data.
+No schedules, alerts, browser, filesystem or new HTTP fetches were added. See
+`docs/p2-01-historical-comparisons.md`. P2-02 monitoring remains planned.

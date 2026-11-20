@@ -1874,6 +1874,626 @@
       }
     },
     {
+      "name": "audit.trends",
+      "title": "Compare two to ten locally saved site-audit history versions",
+      "description": "Read-only, offline longitudinal comparison of 2–10 previously saved local audit.history version IDs (oldest first). Uses only the existing compact audit archive, compares adjacent and first/last snapshots plus an exact fully-checked all-version cohort, separates coverage loss from real changes and gates issue-group disappearance on identical complete selected samples. No new site requests, archive mutations, scheduled checks or Google-indexing claims. Returns only redacted numeric evidence, never page URLs, issue messages or stored snapshots.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "minItems": 2,
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "description": "Two to ten distinct IDs of already-saved audit.history versions in oldest-to-newest storage order. An evicted or missing version fails closed without changing the archive."
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "historical_compact_audit_versions_only"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "local_saved_ids",
+              "caller_supplied_snapshots"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "comparable_sample",
+              "partial",
+              "not_comparable"
+            ]
+          },
+          "versions_compared": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "comparisons_made": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9
+          },
+          "comparable_transitions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "partial_transitions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "not_comparable_transitions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "stable_cohort_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "complete_stable_cohort_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "cohort_metrics_available": {
+            "type": "boolean"
+          },
+          "time_order_ambiguous": {
+            "type": "boolean"
+          },
+          "total_regressed_page_transitions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "total_improved_page_transitions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "total_coverage_lost_transitions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "historical_points": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "sampled_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "completed_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "sample_limited": {
+                  "type": "boolean"
+                },
+                "cohort_completed_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "cohort_errors": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "cohort_warnings": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "cohort_mean_health_score": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "version",
+                "sampled_pages",
+                "completed_pages",
+                "sample_limited",
+                "cohort_completed_pages",
+                "cohort_errors",
+                "cohort_warnings",
+                "cohort_mean_health_score"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "consecutive_changes": {
+            "maxItems": 9,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "baseline_version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "current_version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "comparable_sample",
+                    "partial",
+                    "not_comparable"
+                  ]
+                },
+                "shared_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "completely_checked_pairs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "regressed_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "improved_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "mixed_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "unchanged_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "coverage_lost_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "coverage_recovered_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "unverified_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "errors_delta_checked": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "warnings_delta_checked": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "changed_sample": {
+                  "type": "boolean"
+                },
+                "sitemap_changed": {
+                  "type": "boolean"
+                },
+                "issue_group_comparison_available": {
+                  "type": "boolean"
+                },
+                "newly_observed_groups": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "no_longer_observed_groups": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "expanding_groups": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "shrinking_groups": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "baseline_version",
+                "current_version",
+                "status",
+                "shared_pages",
+                "completely_checked_pairs",
+                "regressed_pages",
+                "improved_pages",
+                "mixed_pages",
+                "unchanged_pages",
+                "coverage_lost_pages",
+                "coverage_recovered_pages",
+                "unverified_pages",
+                "errors_delta_checked",
+                "warnings_delta_checked",
+                "changed_sample",
+                "sitemap_changed",
+                "issue_group_comparison_available",
+                "newly_observed_groups",
+                "no_longer_observed_groups",
+                "expanding_groups",
+                "shrinking_groups"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "first_last_change": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "baseline_version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10
+                  },
+                  "current_version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "comparable_sample",
+                      "partial",
+                      "not_comparable"
+                    ]
+                  },
+                  "shared_pages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "completely_checked_pairs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "regressed_pages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "improved_pages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "mixed_pages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "unchanged_pages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "coverage_lost_pages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "coverage_recovered_pages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "unverified_pages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "errors_delta_checked": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "warnings_delta_checked": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "changed_sample": {
+                    "type": "boolean"
+                  },
+                  "sitemap_changed": {
+                    "type": "boolean"
+                  },
+                  "issue_group_comparison_available": {
+                    "type": "boolean"
+                  },
+                  "newly_observed_groups": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "no_longer_observed_groups": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "expanding_groups": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "shrinking_groups": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "baseline_version",
+                  "current_version",
+                  "status",
+                  "shared_pages",
+                  "completely_checked_pairs",
+                  "regressed_pages",
+                  "improved_pages",
+                  "mixed_pages",
+                  "unchanged_pages",
+                  "coverage_lost_pages",
+                  "coverage_recovered_pages",
+                  "unverified_pages",
+                  "errors_delta_checked",
+                  "warnings_delta_checked",
+                  "changed_sample",
+                  "sitemap_changed",
+                  "issue_group_comparison_available",
+                  "newly_observed_groups",
+                  "no_longer_observed_groups",
+                  "expanding_groups",
+                  "shrinking_groups"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 360
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "equal_timestamps",
+                    "changed_sitemap_fingerprint",
+                    "changed_sample",
+                    "incomplete_coverage",
+                    "nonoverlapping_versions",
+                    "regressed_pages",
+                    "mixed_page_changes",
+                    "coverage_lost",
+                    "group_changes_unavailable",
+                    "all_versions_incomplete",
+                    "historical_sample_only"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 330
+                }
+              },
+              "required": [
+                "version",
+                "code",
+                "severity",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "source",
+          "status",
+          "versions_compared",
+          "comparisons_made",
+          "comparable_transitions",
+          "partial_transitions",
+          "not_comparable_transitions",
+          "stable_cohort_pages",
+          "complete_stable_cohort_pages",
+          "cohort_metrics_available",
+          "time_order_ambiguous",
+          "total_regressed_page_transitions",
+          "total_improved_page_transitions",
+          "total_coverage_lost_transitions",
+          "historical_points",
+          "consecutive_changes",
+          "first_last_change",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "audit.history",
       "title": "Manage local audit history",
       "description": "Opt-in local-only site-audit snapshot history. Save a previous hosted audit_public_site structured result as JSON, list saved IDs, or retrieve an exact version. A single compact local JSON file retains at most 10 versions; saving the 11th removes the oldest. No database, background task, or network request.",

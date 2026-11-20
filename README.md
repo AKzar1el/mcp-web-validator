@@ -73,6 +73,7 @@ The npm package exposes these exact runtime tool names:
 | `schema.supported` | Review explicit JSON-LD structures for a limited set of Article, Product, BreadcrumbList, FAQPage, Organization and WebSite profiles. | Fully offline; checks bounded property shapes and review recommendations, **not** complete Schema.org validity, Google rich-result eligibility, content correctness or external contexts. The original syntax checker remains unchanged. |
 | `report.validation` | Combine HTML/XHTML, optional CSS, SEO, JSON-LD, and bounded link checks in a Markdown report. | Reads selected files, contacts the validators, and checks eligible public links found in the markup; `.xhtml` inputs use XHTML parsing semantics for Nu validation. |
 | `audit.history` | Opt-in local site-audit snapshot history: `save`, `list`, or `get` by ID. | Stores comparison-relevant fields only in one local JSON file, with a hard cap of 10 versions (oldest automatically evicted). No database or network access. |
+| `audit.trends` | Compare 2–10 existing `audit.history` saved version IDs (oldest first): adjacent changes, first-to-last checks, completed all-version page-cohort error/warning/health trends and carefully gated issue-group counts. | **Read-only local history** with no saves, evictions, missing-version reconstruction or network fetches. Fixed redacted numeric results only; missing checks are not fixes, and trends never imply website-wide or Google ranking outcomes. |
 | `screenshot.capture` | Capture desktop, tablet, mobile, or custom viewport screenshots. | Opens a selected local file or eligible public URL and writes PNG files to the selected output directory; existing matching files may be replaced. |
 
 Different links that differ only by query parameters may therefore appear under the same displayed URL. Do not submit private tokens in HTML or URL inputs.
@@ -85,13 +86,14 @@ fetches headers; the MCP `seo.metadata` tool still analyzes supplied HTML only.
 
 ## Hosted app tools
 
-The hosted app exposes eighteen tools in the proposed source code (deployed catalog may differ):
+The hosted app exposes nineteen tools in the proposed source code (deployed catalog may differ):
 
 | Tool | Purpose |
 | --- | --- |
 | `audit_public_webpage` | Fetch one authorized public HTML page and run the combined HTML, SEO/accessibility-signal, and JSON-LD syntax audit. Link checks are optional. |
 | `audit_public_site` | Run a bounded sitemap-first audit of up to eight authorized, same-origin public pages. It respects `robots.txt`, returns compact page coverage and deduplicated findings, **plus a sampled cross-page indexability evidence graph**, **same-language exact/near-duplicate main-content pairs**, **static empty/short/boilerplate content-quality review**, and **hreflang/canonical cluster evidence**. Full 16-page reciprocal coverage requires the local offline tool with supplied page HTML. No site-wide link checks. |
 | `compare_site_audits` | Offline before/after comparison of two saved `audit_public_site` structured results. Flags per-page regressions, coverage loss, and sitemap drift; reports newly observed or no-longer observed grouped findings only for an identical, fully checked page sample; partial sitemap coverage never proves a site-wide fix. No network calls or retained history. |
+| `compare_historical_audits` | Offline 2–10-version timeline of **caller-supplied timestamped** audit snapshots. Adjacent and first/last comparisons, exact consistently checked page-cohort metrics, and gated issue-group presence counts; no hosted storage, saved-ID access, background checks, requests, raw page/issue text or Google indexing claims. |
 | `verify_product_claims` | Check visible explicit hosted tool names, an advertised site batch limit, and selected read-only/screenshot-scope statements against the hosted MCP's registered tool names, schemas and annotations. Accepts supplied static HTML or one authorized public HTML URL; unknown statements remain unverified. |
 | `verify_content_provenance` | Offline comparison of explicit citation URLs, dataset metadata, published/modified dates and methodology references in up to eight caller-supplied HTML pages against optional supplied evidence. No citation URLs are fetched, and unsupported factual/freshness claims remain unverified. |
 | `compare_competitor_intent` | Offline comparison of one primary and up to six user-supplied competitor HTML pages for static informational, commercial, transactional or navigational signals and optional exact query/heading lexical overlap; no competitor crawling, SERP or ranking inference. |
@@ -129,6 +131,8 @@ The comparison never fetches pages or keeps audit history. It separately reports
 ### Optional local history: maximum 10 versions
 
 The hosted app deliberately retains **nothing**. If you use the local npm/stdio MCP, `audit.history` can save the JSON `structuredContent` from `audit_public_site` on your own computer. Choose `action: "save"` and supply `snapshotJson` as a JSON string; use `list` to see saved version IDs and `get` with an ID to retrieve its compact JSON. You can then pass two retrieved snapshots to `compare_site_audits`. Saving is always opt-in; audits do not silently create history.
+
+For **multi-version** comparisons use local `audit.trends` with 2–10 existing saved `ids` in oldest-to-newest order. It reads the current local archive once and never changes it. The hosted `compare_historical_audits` accepts 2–10 `{saved_at, snapshot}` objects supplied by the caller instead (the Worker has no persisted history). Both use the same M05 pure analyzer, limit conclusions to identically observed completed pages, and report coverage gaps separately. See `docs/p2-01-historical-comparisons.md`.
 
 One compact `audit-history.json` file lives at `~/.mcp-validator/audit-history.json`; when `MCP_WEB_VALIDATOR_WORKSPACE_ROOT` is configured, the file instead lives in that root's `.mcp-validator/` directory. It stores **up to 10 total versions**, newest first when listed. Saving the eleventh automatically deletes the oldest. Each source snapshot is limited to 60 KB and is reduced to comparison-relevant fields (no raw HTML, browser screenshots, widget state, or full indexability graph). The history file has a 660 KB cap. There are no database services, background processes, or network calls. Files stay on the user's computer and are readable only with local filesystem access.
 

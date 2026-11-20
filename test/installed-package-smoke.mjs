@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,6 +48,9 @@ try {
     command: process.execPath,
     args: [installedEntry],
     stderr: "pipe",
+    // Never read or modify the user's actual local audit history during a
+    // distributable smoke: keep this check in the existing isolated scratch.
+    env: { ...process.env, MCP_WEB_VALIDATOR_WORKSPACE_ROOT: scratch },
   });
   client = new Client({ name: "installed-package-smoke", version: "1.0.0" });
   phase = "mcp_initialize";
@@ -58,10 +61,51 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "http.directives", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
+      "audit.history", "audit.trends", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "css.local", "html.local", "html.url", "http.directives", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.links",
     ],
   );
+
+  phase = "history_trend";
+  const historySnapshot = (count) => JSON.stringify({
+    site_url: "https://example.test/", discovery: "sitemap",
+    discovery_fingerprint: "a".repeat(64),
+    pages_discovered: 1, pages_selected: 1, pages_audited: 1,
+    pages_partial: 0, pages_failed: 0, pages_skipped_robots: 0,
+    truncated: false, score_coverage_percent: 100,
+    pages: [{
+      url: "https://example.test/", fetched_url: "https://example.test/",
+      status: count ? "needs_attention" : "passed",
+      page_fetched: true, html_validation_status: "completed",
+      html_errors: 0, html_warnings: 0, seo_errors: count,
+      seo_warnings: 0, schema_errors: 0, schema_warnings: 0,
+      notes: 0, health_score: 100 - count * 10, top_findings: [],
+    }],
+    issue_groups: [], issue_groups_truncated: false,
+  });
+  const storedHistoryIds = [];
+  for (const count of [0, 2]) {
+    const savedHistory = await client.callTool({
+      name: "audit.history", arguments: { action: "save", snapshotJson: historySnapshot(count) },
+    });
+    assert.notEqual(savedHistory.isError, true);
+    storedHistoryIds.push(savedHistory.structuredContent.items[0].id);
+  }
+  const historyFile = path.join(scratch, ".mcp-validator", "audit-history.json");
+  const historyBytesBefore = await readFile(historyFile);
+  const historyTrend = await client.callTool({
+    name: "audit.trends", arguments: { ids: storedHistoryIds },
+  });
+  assert.notEqual(historyTrend.isError, true);
+  assert.equal(historyTrend.structuredContent?.scope, "historical_compact_audit_versions_only");
+  assert.equal(historyTrend.structuredContent?.source, "local_saved_ids");
+  assert.equal(historyTrend.structuredContent?.versions_compared, 2);
+  assert.equal(historyTrend.structuredContent?.total_regressed_page_transitions, 1);
+  assert.equal(historyTrend.structuredContent?.complete_stable_cohort_pages, 1);
+  assert.equal(historyTrend.structuredContent?.coverage_limited, true);
+  assert.ok(!JSON.stringify(historyTrend).includes("https://example.test/"));
+  assert.ok(!JSON.stringify(historyTrend).includes(storedHistoryIds[0]));
+  assert.deepEqual(await readFile(historyFile), historyBytesBefore);
 
   // No external validator or third-party website is contacted by this tool.
   phase = "seo_metadata";

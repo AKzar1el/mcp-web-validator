@@ -92,6 +92,7 @@ import {
   httpDirectivesContent,
   httpsSecurityContent,
   urlVariantsContent,
+  historicalComparisonContent,
   multilingualClusterContent,
   failureContent,
   htmlValidationContent,
@@ -166,9 +167,18 @@ import {
   MAX_AUDIT_HISTORY,
   MAX_AUDIT_SNAPSHOT_BYTES,
   getAuditHistorySnapshot,
+  getAuditHistoryVersions,
   listAuditHistory,
   saveAuditHistorySnapshot,
 } from "./audit-history.js";
+import {
+  analyzeHistoricalAudits,
+  emptyHistoricalReview,
+  MAX_HISTORICAL_VERSIONS,
+  MAX_HISTORICAL_FINDINGS,
+  HISTORICAL_STATUSES,
+  HISTORICAL_FINDING_CODES,
+} from "./modules/change-regression/historical-comparisons.js";
 import {
   getW3CMessageSeverity,
   type HtmlValidationMediaType,
@@ -693,6 +703,69 @@ const mediaReviewOutputSchema = {
     element: z.number().int().min(1).max(MAX_MEDIA_ELEMENTS),
     message: z.string().max(240),
   })).max(MAX_MEDIA_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const historicalStepSchema = z.object({
+  baseline_version: z.number().int().min(1).max(MAX_HISTORICAL_VERSIONS),
+  current_version: z.number().int().min(1).max(MAX_HISTORICAL_VERSIONS),
+  status: z.enum(HISTORICAL_STATUSES),
+  shared_pages: z.number().int().nonnegative().max(8),
+  completely_checked_pairs: z.number().int().nonnegative().max(8),
+  regressed_pages: z.number().int().nonnegative().max(8),
+  improved_pages: z.number().int().nonnegative().max(8),
+  mixed_pages: z.number().int().nonnegative().max(8),
+  unchanged_pages: z.number().int().nonnegative().max(8),
+  coverage_lost_pages: z.number().int().nonnegative().max(8),
+  coverage_recovered_pages: z.number().int().nonnegative().max(8),
+  unverified_pages: z.number().int().nonnegative().max(8),
+  errors_delta_checked: z.number().int(),
+  warnings_delta_checked: z.number().int(),
+  changed_sample: z.boolean(), sitemap_changed: z.boolean(),
+  issue_group_comparison_available: z.boolean(),
+  newly_observed_groups: z.number().int().nonnegative().nullable(),
+  no_longer_observed_groups: z.number().int().nonnegative().nullable(),
+  expanding_groups: z.number().int().nonnegative().nullable(),
+  shrinking_groups: z.number().int().nonnegative().nullable(),
+});
+const historicalOutputSchema = {
+  scope: z.literal("historical_compact_audit_versions_only"),
+  source: z.enum(["local_saved_ids", "caller_supplied_snapshots"]),
+  status: z.enum(HISTORICAL_STATUSES),
+  versions_compared: z.number().int().nonnegative().max(MAX_HISTORICAL_VERSIONS),
+  comparisons_made: z.number().int().nonnegative().max(MAX_HISTORICAL_VERSIONS - 1),
+  comparable_transitions: z.number().int().nonnegative(),
+  partial_transitions: z.number().int().nonnegative(),
+  not_comparable_transitions: z.number().int().nonnegative(),
+  stable_cohort_pages: z.number().int().nonnegative().max(8),
+  complete_stable_cohort_pages: z.number().int().nonnegative().max(8),
+  cohort_metrics_available: z.boolean(),
+  time_order_ambiguous: z.boolean(),
+  total_regressed_page_transitions: z.number().int().nonnegative(),
+  total_improved_page_transitions: z.number().int().nonnegative(),
+  total_coverage_lost_transitions: z.number().int().nonnegative(),
+  historical_points: z.array(z.object({
+    version: z.number().int().min(1).max(MAX_HISTORICAL_VERSIONS),
+    sampled_pages: z.number().int().nonnegative().max(8),
+    completed_pages: z.number().int().nonnegative().max(8),
+    sample_limited: z.boolean(),
+    cohort_completed_pages: z.number().int().nonnegative().max(8),
+    cohort_errors: z.number().int().nonnegative().nullable(),
+    cohort_warnings: z.number().int().nonnegative().nullable(),
+    cohort_mean_health_score: z.number().min(0).max(100).nullable(),
+  })).max(MAX_HISTORICAL_VERSIONS),
+  consecutive_changes: z.array(historicalStepSchema).max(MAX_HISTORICAL_VERSIONS - 1),
+  first_last_change: historicalStepSchema.nullable(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(360)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    version: z.number().int().min(1).max(MAX_HISTORICAL_VERSIONS),
+    code: z.enum(HISTORICAL_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(330),
+  })).max(MAX_HISTORICAL_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
 };
@@ -1650,6 +1723,34 @@ export function createServer(): McpServer {
           ),
           true,
         );
+      }
+    },
+  );
+
+  server.registerTool(
+    "audit.trends",
+    {
+      title: "Compare two to ten locally saved site-audit history versions",
+      description:
+        "Read-only, offline longitudinal comparison of 2–10 previously saved local audit.history version IDs (oldest first). Uses only the existing compact audit archive, compares adjacent and first/last snapshots plus an exact fully-checked all-version cohort, separates coverage loss from real changes and gates issue-group disappearance on identical complete selected samples. No new site requests, archive mutations, scheduled checks or Google-indexing claims. Returns only redacted numeric evidence, never page URLs, issue messages or stored snapshots.",
+      inputSchema: {
+        ids: z.array(z.string().uuid()).min(2).max(MAX_HISTORICAL_VERSIONS)
+          .describe("Two to ten distinct IDs of already-saved audit.history versions in oldest-to-newest storage order. An evicted or missing version fails closed without changing the archive."),
+      },
+      outputSchema: historicalOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ ids }) => {
+      try {
+        const versions = await getAuditHistoryVersions(ids);
+        const review = analyzeHistoricalAudits(versions, "local_saved_ids");
+        return result(review, historicalComparisonContent(review));
+      } catch {
+        const error = "Saved audit versions cannot be safely compared: check the IDs, stored chronology, site origin, snapshot completeness and evidence limits. No stored data were changed.";
+        return result({ ...emptyHistoricalReview("local_saved_ids"), error }, failureContent(
+          "Historical saved audit versions", error,
+          "Use audit.history list to find two to ten existing IDs and supply them in oldest-to-newest order; missing or evicted versions are not reconstructed.",
+        ), true);
       }
     },
   );

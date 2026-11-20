@@ -30,6 +30,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "audit.history",
       "audit.monitor",
       "audit.trends",
+      "availability.history",
       "browser.wcag",
       "content.competitors",
       "content.duplicates",
@@ -39,6 +40,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "css.local",
       "html.local",
       "html.url",
+      "http.availability",
       "http.delivery",
       "http.directives",
       "http.security",
@@ -71,6 +73,31 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.equal(edgeSample.structuredContent?.challenges_observed, 1);
     assert.equal(edgeSample.structuredContent?.hops?.[0]?.retry_after_seconds, 20);
     assert(!JSON.stringify(edgeSample).includes("confidential-edge-ID"));
+    const availabilityTool = tools.find((tool) => tool.name === "http.availability");
+    assert.equal(availabilityTool?.annotations?.readOnlyHint, true);
+    assert.equal(availabilityTool?.outputSchema?.properties?.observations_count?.maximum, 48);
+    const availabilitySample = await client.callTool({
+      name: "http.availability",
+      arguments: { observations: [
+        { observed_at: "2026-11-20T09:00:00Z", status_code: 200 },
+        { observed_at: "2026-11-20T09:01:00Z", status_code: 503 },
+        { observed_at: "2026-11-20T09:02:00Z", status_code: 200 },
+      ] },
+    });
+    assert.equal(availabilitySample.isError, undefined);
+    assert.equal(availabilitySample.structuredContent?.observed_success_percent, 67);
+    assert.equal(availabilitySample.structuredContent?.intermittent_non_success, true);
+    assert.equal(availabilitySample.structuredContent?.observed_http_5xx, 1);
+    assert.equal(availabilitySample.structuredContent?.coverage_limited, true);
+    const historyTool = tools.find((tool) => tool.name === "availability.history");
+    assert.equal(historyTool?.annotations?.readOnlyHint, false);
+    assert.equal(historyTool?.annotations?.destructiveHint, true);
+    const localHistory = await client.callTool({
+      name: "availability.history",
+      arguments: { action: "list", url: "https://example.com/" },
+    });
+    assert.equal(localHistory.isError, undefined);
+    assert.equal(Array.isArray(localHistory.structuredContent?.records), true);
 
     const seoTool = tools.find((tool) => tool.name === "seo.metadata");
     assert.ok((seoTool?.description ?? "").includes("Use for a quick on-page check"));

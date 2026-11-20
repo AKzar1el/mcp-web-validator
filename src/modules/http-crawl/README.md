@@ -7,6 +7,14 @@
 - **Reuse:** `src/network.ts`, `src/seo-auditor.ts`; registrations remain in `src/index.ts`.
 - **Guardrail:** Preserve public-IP/SSRF, redirects, robots, byte/time/concurrency caps. V02 history is owned by M05.
 
+V01 adds the bounded point-in-time `http.delivery` response probe.
+V02 adds shared `http.availability` sampled outcome analysis (2–48 supplied
+observations or two/three live HTTP probes). The optional local ten-record
+`availability.history` archive lives in M05 at
+`src/modules/change-regression/availability-history-store.ts`. Hosted
+`review_availability_history` has **no** persisted state, background scheduler
+or uptime-certification claim. See `docs/v02-availability-history.md`.
+
 P1-11 now provides a bounded **offline HTTP response-observation analyzer** in
 `non-html-directives.ts`, exposed through local MCP `http.directives`. It
 parses supplied headers only; no binary download, URL probing or crawler

@@ -144,6 +144,72 @@ describe("V01 real hosted MCP tool diagnostics", () => {
   });
 });
 
+describe("V02 hosted MCP availability history and bounded repeat probes", () => {
+  it("lists a stateless, read-only tool and compares offline observations", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    const registered = (await listTools()).find((tool) => tool.name === "review_availability_history");
+    expect(registered?.annotations).toMatchObject({
+      readOnlyHint: true, destructiveHint: false, openWorldHint: true,
+    });
+    const r = await callTool("review_availability_history", { observations: [
+      { observed_at: "2026-11-20T09:00:00Z", status_code: 200 },
+      { observed_at: "2026-11-20T09:01:00Z", status_code: 503 },
+      { observed_at: "2026-11-20T09:02:00Z", status_code: 200 },
+    ] });
+    expect(r.isError).not.toBe(true);
+    expect(r.structuredContent).toMatchObject({
+      observations_count: 3, observed_success_percent: 67,
+      observed_http_5xx: 1, intermittent_non_success: true,
+      scope: "caller_supplied_history", overview: { status: "needs_attention" },
+    });
+    expect(mock).not.toHaveBeenCalled();
+  });
+
+  it("calls the genuine hosted MCP tool for three bounded sequential GET outcomes", async () => {
+    let ordinal = 0;
+    const mock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => {
+      ordinal++;
+      return new Response(null, { status: ordinal === 2 ? 429 : 200,
+        headers: ordinal === 2 ? { "cf-mitigated": "challenge" } : {},
+      });
+    });
+    vi.stubGlobal("fetch", mock);
+    const r = await callTool("review_availability_history",
+      { url: "https://example.com/", checks: 3 });
+    expect(r.isError).not.toBe(true);
+    expect(r.structuredContent).toMatchObject({
+      scope: "live_bounded_burst", observations_count: 3,
+      observed_success_percent: 67, observed_rate_limits: 1, observed_challenges: 1,
+    });
+    expect(mock).toHaveBeenCalledTimes(3);
+  });
+
+  it("refuses URL secrets, invalid sample chronology and impossible input combinations", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    const cases = [
+      { url: "https://example.com/?secret=V02HIDDEN" },
+      { url: "https://example.com/", checks: 4 },
+      { observations: [{ observed_at: "2026-11-20T09:00:00Z", status_code: 200 }] },
+      { observations: [
+        { observed_at: "2026-11-20T09:02:00Z", status_code: 200 },
+        { observed_at: "2026-11-20T09:00:00Z", status_code: 200 },
+      ] },
+      { url: "https://example.com/", observations: [
+        { observed_at: "2026-11-20T09:00:00Z", status_code: 200 },
+        { observed_at: "2026-11-20T09:01:00Z", status_code: 200 },
+      ] },
+    ];
+    for (const input of cases) {
+      const r = await callTool("review_availability_history", input);
+      expect(r.isError).toBe(true);
+      expect(JSON.stringify(r)).not.toContain("V02HIDDEN");
+    }
+    expect(mock).not.toHaveBeenCalled();
+  });
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -363,7 +429,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers twenty-one accurately annotated tools", async () => {
+  it("discovers twenty-two accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -383,6 +449,7 @@ describe("hosted tool contract", () => {
       "validate_supported_schema",
       "review_internal_links",
       "review_metadata_consistency",
+      "review_availability_history",
       "diagnose_http_delivery",
       "review_url_variants",
       "review_https_security",

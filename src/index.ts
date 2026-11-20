@@ -74,6 +74,20 @@ import {
 } from "./modules/http-crawl/http-delivery.js";
 import { probeHttpDelivery } from "./modules/http-crawl/http-delivery-probe.js";
 import {
+  analyzeAvailabilityHistory,
+  emptyAvailabilityReview,
+  MAX_AVAILABILITY_OBSERVATIONS,
+  MAX_AVAILABILITY_FINDINGS,
+  AVAILABILITY_FAILURE_CODES,
+  AVAILABILITY_STATES,
+  AVAILABILITY_FINDING_CODES,
+} from "./modules/http-crawl/availability-observations.js";
+import { collectPublicAvailability } from "./modules/http-crawl/availability-probe.js";
+import {
+  getAvailabilityHistory, saveAvailabilityObservation,
+  MAX_AVAILABILITY_HISTORY,
+} from "./modules/change-regression/availability-history-store.js";
+import {
   auditSeoMetadata,
   auditSeoMetadataDetailed,
   checkBrokenLinks,
@@ -1114,6 +1128,74 @@ const deliveryOutputSchema = {
   error: z.string().optional(),
 };
 
+const availabilityObservationSchema = z.object({
+  observed_at: z.string().datetime({ offset: true }).max(40)
+    .describe("Real observation timestamp with explicit UTC offset, in strictly increasing order."),
+  status_code: z.number().int().min(100).max(599).optional()
+    .describe("Actual HTTP response code, mutually exclusive with failure."),
+  failure: z.enum(AVAILABILITY_FAILURE_CODES).optional()
+    .describe("Explicit no-response failure class, mutually exclusive with status_code."),
+  cf_challenge: z.boolean().optional()
+    .describe("Whether this HTTP response explicitly reported a Cloudflare challenge header."),
+  elapsed_ms: z.number().int().min(0).max(120_000).optional()
+    .describe("Elapsed duration of this observed request in integer milliseconds, if measured."),
+}).strict();
+const availabilityReviewOutputShape = {
+  scope: z.enum(["caller_supplied_history", "live_bounded_burst", "local_saved_history"]),
+  observations_count: z.number().int().min(0).max(MAX_AVAILABILITY_OBSERVATIONS),
+  first_observed_at: z.string().datetime({ offset: true }).optional(),
+  last_observed_at: z.string().datetime({ offset: true }).optional(),
+  sampled_window_minutes: z.number().nonnegative(),
+  max_observation_gap_minutes: z.number().nonnegative(),
+  observed_successes: z.number().int().nonnegative(),
+  observed_redirects: z.number().int().nonnegative(),
+  observed_http_4xx: z.number().int().nonnegative(),
+  observed_http_5xx: z.number().int().nonnegative(),
+  observed_timeouts: z.number().int().nonnegative(),
+  observed_transport_failures: z.number().int().nonnegative(),
+  observed_rate_limits: z.number().int().nonnegative(),
+  observed_challenges: z.number().int().nonnegative(),
+  observed_success_percent: z.number().int().min(0).max(100),
+  http_status_changes: z.number().int().nonnegative(),
+  outcome_changes: z.number().int().nonnegative(),
+  intermittent_non_success: z.boolean(),
+  longest_non_success_streak: z.number().int().nonnegative(),
+  current_non_success_streak: z.number().int().nonnegative(),
+  latest_observed_state: z.enum(AVAILABILITY_STATES).optional(),
+  latest_http_status: z.number().int().min(100).max(599).optional(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(260)).max(4),
+  samples: z.array(z.object({
+    observation: z.number().int().min(1).max(MAX_AVAILABILITY_OBSERVATIONS),
+    observed_at: z.string().datetime({ offset: true }),
+    status_code: z.number().int().min(100).max(599).optional(),
+    state: z.enum(AVAILABILITY_STATES),
+    cf_challenge: z.boolean(),
+    elapsed_ms: z.number().int().min(0).max(120_000).optional(),
+  })).max(MAX_AVAILABILITY_OBSERVATIONS),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(AVAILABILITY_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(260),
+  })).max(MAX_AVAILABILITY_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+const availabilityHistoryOutputShape = {
+  action: z.enum(["capture", "list", "compare"]),
+  count: z.number().int().nonnegative().max(MAX_AVAILABILITY_HISTORY),
+  records: z.array(z.object({
+    id: z.string().uuid(),
+    saved_at: z.string().datetime({ offset: true }),
+    observation: availabilityObservationSchema,
+  })).max(MAX_AVAILABILITY_HISTORY),
+  saved_id: z.string().uuid().optional(),
+  evicted_id: z.string().uuid().optional(),
+  review: z.object(availabilityReviewOutputShape).optional(),
+  error: z.string().optional(),
+};
+
 const reportSummarySchema = z.object({
   overallScore: z.number().int().min(0).max(100).nullable(),
   htmlScore: z.number().int().min(0).max(100).nullable(),
@@ -2032,6 +2114,107 @@ export function createServer(): McpServer {
         return result({ ...emptyMediaDiagnostics(), error }, failureContent(
           "Static media diagnostics", error,
           "Supply nonempty HTML markup within the declared UTF-8 byte limit.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "http.availability",
+    {
+      title: "Analyze observed availability changes and short repeat-fetch reliability",
+      description:
+        "V02: compare two to 48 ordered, caller-supplied timestamped HTTP/transport outcomes, or make two to three bounded sequential public GET probes. Flags intermittent non-2xx, status transitions, 429/5xx, explicit challenge and network failures, and sampling gaps. The percentages are only ratios of sampled responses, never guaranteed uptime or actual outage duration. No scheduler, history storage, Googlebot verification or response bodies; use availability.history separately to opt into local storage.",
+      inputSchema: {
+        url: deliveryInputUrl.optional()
+          .describe("Authorized public query-free HTTP(S) URL for a short live repeat-fetch sample; omit for offline analysis."),
+        checks: z.number().int().min(2).max(3).optional()
+          .describe("Live checks per call, two or three (default three); ignored for neither/invalid modes."),
+        observations: z.array(availabilityObservationSchema).min(2).max(MAX_AVAILABILITY_OBSERVATIONS).optional()
+          .describe("Two to 48 real timestamped HTTP or transport outcomes, ordered oldest to newest; offline."),
+      },
+      outputSchema: availabilityReviewOutputShape,
+      annotations: externalReadOnlyAnnotations,
+    },
+    async ({ url, checks, observations }) => {
+      try {
+        if (Boolean(url) === Boolean(observations) || (observations && checks !== undefined)) {
+          throw new Error("Select either live URL checks or supplied observations, not both.");
+        }
+        const review = analyzeAvailabilityHistory(
+          observations ?? await collectPublicAvailability(url!, checks ?? 3),
+          url ? "live_bounded_burst" : "caller_supplied_history",
+        );
+        return result(review,
+          "Availability observations: " + review.observed_successes + "/" + review.observations_count
+          + " sampled HTTP 2xx responses (" + review.observed_success_percent + "% of samples), "
+          + review.observed_http_5xx + " HTTP 5xx, "
+          + review.observed_rate_limits + " HTTP 429, "
+          + review.observed_transport_failures + " no-response results and "
+          + review.http_status_changes + " status transition(s). "
+          + (review.intermittent_non_success ? "Intermittent responses observed. " : "")
+          + "This is a sampled result, not measured continuous uptime or Googlebot history.");
+      } catch {
+        const error = "Availability cannot be evaluated within the public URL, chronology, sample and network safety limits.";
+        return result({ ...emptyAvailabilityReview(), error }, failureContent(
+          "Availability observations", error,
+          "Supply two to 48 chronologically ordered observations, or one authorized URL for two to three live checks.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "availability.history",
+    {
+      title: "Capture and compare local availability history (ten records maximum)",
+      description:
+        "V02 local-only opt-in compact availability archive. 'capture' makes one public HTTP GET and saves only its HTTP/transport outcome and timestamp. 'list' and 'compare' read existing outcomes for exactly one authorized URL. A single 24 KB JSON archive retains a maximum of ten total observations and automatically evicts the oldest; no scheduler, Cloudflare/Google access, cloud storage, secret headers or response bodies. Capture writes local state and may evict old data.",
+      inputSchema: {
+        action: z.enum(["capture", "list", "compare"])
+          .describe("Explicitly capture one HTTP observation into local storage, list saved outcomes, or compare at least two saved outcomes."),
+        url: deliveryInputUrl
+          .describe("Exact safe query-free URL whose local observations should be captured or read."),
+      },
+      outputSchema: availabilityHistoryOutputShape,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ action, url }) => {
+      try {
+        const archive = action === "capture"
+          ? await saveAvailabilityObservation(url, (await collectPublicAvailability(url, 1))[0])
+          : await getAvailabilityHistory(url);
+        const review = archive.records.length >= 2 && action !== "list"
+          ? analyzeAvailabilityHistory(archive.records.map((record) => record.observation),
+            "local_saved_history")
+          : undefined;
+        const output = {
+          action, count: archive.count, records: archive.records,
+          ...(archive.saved_id ? { saved_id: archive.saved_id } : {}),
+          ...(archive.evicted_id ? { evicted_id: archive.evicted_id } : {}),
+          ...(review ? { review } : {}),
+        };
+        return result(output,
+          "Local availability history: " + archive.count + "/" + MAX_AVAILABILITY_HISTORY
+          + " outcomes retained for this URL. "
+          + (action === "capture" ? "One point-in-time GET outcome was saved. " : "")
+          + (archive.evicted_id ? "The oldest stored observation was evicted. " : "")
+          + (review
+            ? "Observed 2xx on " + review.observed_successes + "/" + review.observations_count
+              + " sampled requests; this is not continuous uptime."
+            : "At least two observations are needed before a comparison can be made."));
+      } catch {
+        const error = "Local availability capture/history cannot be completed within the guarded URL, file and chronological limits.";
+        return result({
+          action, count: 0, records: [], error,
+        }, failureContent(
+          "Local availability history", error,
+          "Check the authorized URL and writable workspace; corrupt or symlinked history files are never overwritten.",
         ), true);
       }
     },

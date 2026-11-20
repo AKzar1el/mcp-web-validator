@@ -149,6 +149,16 @@ import {
   DELIVERY_HEADER_NAMES,
   DELIVERY_FINDING_CODES,
 } from "./modules/http-crawl/http-delivery";
+import {
+  analyzeAvailabilityHistory,
+  emptyAvailabilityReview,
+  MAX_AVAILABILITY_OBSERVATIONS,
+  MAX_AVAILABILITY_FINDINGS,
+  AVAILABILITY_FAILURE_CODES,
+  AVAILABILITY_STATES,
+  AVAILABILITY_FINDING_CODES,
+} from "./modules/http-crawl/availability-observations";
+import { collectPublicAvailability } from "./modules/http-crawl/availability-probe";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -225,6 +235,57 @@ const deliveryOutputSchema = z.object({
     severity: z.enum(["warning", "info"]),
     message: z.string().max(260),
   })).max(MAX_DELIVERY_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+  overview: overviewSchema,
+});
+
+const availabilityObservationSchema = z.object({
+  observed_at: z.string().datetime({ offset: true }).max(40),
+  status_code: z.number().int().min(100).max(599).optional(),
+  failure: z.enum(AVAILABILITY_FAILURE_CODES).optional(),
+  cf_challenge: z.boolean().optional(),
+  elapsed_ms: z.number().int().min(0).max(120_000).optional(),
+}).strict();
+const availabilityOutputSchema = z.object({
+  scope: z.enum(["caller_supplied_history", "live_bounded_burst", "local_saved_history"]),
+  observations_count: z.number().int().min(0).max(MAX_AVAILABILITY_OBSERVATIONS),
+  first_observed_at: z.string().datetime({ offset: true }).optional(),
+  last_observed_at: z.string().datetime({ offset: true }).optional(),
+  sampled_window_minutes: z.number().nonnegative(),
+  max_observation_gap_minutes: z.number().nonnegative(),
+  observed_successes: z.number().int().nonnegative(),
+  observed_redirects: z.number().int().nonnegative(),
+  observed_http_4xx: z.number().int().nonnegative(),
+  observed_http_5xx: z.number().int().nonnegative(),
+  observed_timeouts: z.number().int().nonnegative(),
+  observed_transport_failures: z.number().int().nonnegative(),
+  observed_rate_limits: z.number().int().nonnegative(),
+  observed_challenges: z.number().int().nonnegative(),
+  observed_success_percent: z.number().int().min(0).max(100),
+  http_status_changes: z.number().int().nonnegative(),
+  outcome_changes: z.number().int().nonnegative(),
+  intermittent_non_success: z.boolean(),
+  longest_non_success_streak: z.number().int().nonnegative(),
+  current_non_success_streak: z.number().int().nonnegative(),
+  latest_observed_state: z.enum(AVAILABILITY_STATES).optional(),
+  latest_http_status: z.number().int().min(100).max(599).optional(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(260)).max(4),
+  samples: z.array(z.object({
+    observation: z.number().int().min(1).max(MAX_AVAILABILITY_OBSERVATIONS),
+    observed_at: z.string().datetime({ offset: true }),
+    status_code: z.number().int().min(100).max(599).optional(),
+    state: z.enum(AVAILABILITY_STATES),
+    cf_challenge: z.boolean(),
+    elapsed_ms: z.number().int().min(0).max(120_000).optional(),
+  })).max(MAX_AVAILABILITY_OBSERVATIONS),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(AVAILABILITY_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(260),
+  })).max(MAX_AVAILABILITY_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
   overview: overviewSchema,
@@ -3123,6 +3184,87 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           "The supplied metadata sample could not be compared.", error);
         return {
           structuredContent: { ...emptyMetadataReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "review_availability_history",
+    {
+      title: "Compare observed availability history and repeat HTTP delivery samples",
+      description:
+        "V02: compare two to 48 caller-supplied chronological HTTP/transport outcomes, or take two to three bounded live public GET observations. Counts intermittent success/non-success, HTTP 429/5xx, explicit challenges, timeouts and status transitions. Sample rate is not continuous uptime. No cloud persistence, scheduler, Googlebot verification, JavaScript, response bodies or raw URL/header output.",
+      inputSchema: {
+        url: deliveryInputUrl.optional()
+          .describe("One authorized public, query-free URL for a short live 2–3 GET burst."),
+        checks: z.number().int().min(2).max(3).optional()
+          .describe("Two or three live GET observations, default three; omit for offline input."),
+        observations: z.array(availabilityObservationSchema).min(2)
+          .max(MAX_AVAILABILITY_OBSERVATIONS).optional()
+          .describe("Previously collected chronological HTTP or transport outcomes; no network requests."),
+      },
+      outputSchema: availabilityOutputSchema.shape,
+      annotations: externalReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Comparing availability response observations...",
+        invoked: "Availability comparison complete.",
+      }),
+    },
+    async ({ url, checks, observations }) => {
+      try {
+        if (Boolean(url) === Boolean(observations) || (observations && checks !== undefined)) {
+          throw new Error("Exactly one input mode is required.");
+        }
+        const requestedChecks = checks ?? 3;
+        const review = analyzeAvailabilityHistory(
+          observations ?? await collectPublicAvailability(url!, requestedChecks,
+            async () => (await env.SITE_AUDIT_RATE_LIMITER.limit({
+              key: siteAuditRateLimitKey,
+            })).success),
+          url ? "live_bounded_burst" : "caller_supplied_history",
+        );
+        const warns = review.findings.filter((finding) => finding.severity === "warning");
+        const overview: ResultOverview = {
+          kind: "report",
+          status: warns.length > 0 ? "needs_attention" : "partial",
+          title: "Availability observations (V02)",
+          headline: review.observed_successes + "/" + review.observations_count
+            + " sampled requests returned HTTP 2xx (" + review.observed_success_percent + "% of samples).",
+          detail: review.observed_http_5xx + " HTTP 5xx, " + review.observed_rate_limits
+            + " HTTP 429, " + review.observed_transport_failures
+            + " no-response events, " + review.http_status_changes
+            + " response status changes. These samples do not establish continuous uptime or actual outage duration.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("non_2xx", "Non-2xx samples",
+              review.observations_count - review.observed_successes, "warning"),
+            metric("transport_errors", "No-response samples", review.observed_transport_failures, "warning"),
+            metric("status_transitions", "Status changes", review.http_status_changes, "info"),
+          ],
+          next_action: warns.length > 0
+            ? "Correlate the sampled timestamps with server/CDN logs and verified crawler records. Repeat at planned intervals for genuine history."
+            : "Store samples externally or locally with the separate local MCP; repeat observations to establish a useful time series.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview, review.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code,
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "Availability history could not be evaluated within the public URL, chronology, sample and rate limits.";
+        const overview = failedOverview("report", "Availability observations (V02)",
+          "The availability sample or comparison could not be completed.", error);
+        return {
+          structuredContent: { ...emptyAvailabilityReview(), overview, error },
           content: contentForOverview(overview),
           isError: true,
         };

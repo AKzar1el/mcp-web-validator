@@ -130,6 +130,15 @@ describe("indexability signal extraction", () => {
     expect(result.hreflang_truncated).toBe(true);
     expect(JSON.stringify(result)).not.toContain("secret");
   });
+
+  it("does not treat blank hreflang href attributes as links back to the current page", () => {
+    const result = extractPageIndexabilitySignals(html(
+      '<link rel="alternate" hreflang="en" href="">'
+      + '<link rel="alternate" hreflang="fr" href="   ">',
+    ), "https://example.com/en");
+    expect(result.hreflang).toEqual([]);
+    expect(result.hreflang_truncated).toBe(true);
+  });
 });
 
 describe("indexability graph: sampled-only corroboration", () => {

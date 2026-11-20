@@ -43,6 +43,8 @@ function compact(value: string, max: number): string {
 // explicitly rejects them, and they can contain secrets or sensitive identifiers.
 // Skipping such URLs is evidence loss, not evidence that a target is broken.
 function safeObservedUrl(raw: string, baseUrl: string): string | undefined {
+  // URL("", base) resolves to the current page, not a declared destination.
+  if (!raw.trim()) return undefined;
   try {
     const url = new URL(raw, baseUrl);
     if (!["http:", "https:"].includes(url.protocol) || url.username || url.password

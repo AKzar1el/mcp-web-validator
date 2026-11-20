@@ -14,6 +14,7 @@ import type { HttpDirectiveReview } from "./modules/http-crawl/non-html-directiv
 import type { HttpsSecurityReview } from "./modules/http-crawl/https-security.js";
 import type { UrlVariantReview } from "./modules/http-crawl/url-variants.js";
 import type { HistoricalReview } from "./modules/change-regression/historical-comparisons.js";
+import type { MonitorPreview } from "./modules/change-regression/regression-alerts.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
 import {
@@ -573,6 +574,26 @@ export function mediaDiagnosticsContent(review: MediaDiagnostics): string {
       message: `${finding.code}: ${finding.message}`,
     })),
     nextStep: "Inspect the flagged elements and verify their rendered behavior separately. Static metadata cannot prove actual resource availability, accessibility compliance, loading speed or video caption accuracy.",
+  });
+}
+
+export function regressionPreviewContent(preview: MonitorPreview): string {
+  return toolContent({
+    title: "Manual dry-run regression alert preview",
+    status: preview.candidate_count ? "attention needed" : "partial",
+    outcome: `${preview.candidate_count} unsent alert candidate(s), ` +
+      `${preview.review_only_count} coverage/discovery review observation(s) and ` +
+      `${preview.suppressed_count} suppressed defect rule(s) for the latest comparison of ` +
+      `${preview.latest_completed_pairs} completed matching page pairs. ` +
+      "Notifications sent: 0. No schedule, network or delivery was enabled.",
+    actions: preview.rules
+      .filter((rule) => rule.review_required)
+      .map((rule) => ({
+        priority: rule.decision === "preview_candidate" ? 1 : 2,
+        location: "Manual review only",
+        message: `${rule.rule}: ${rule.message}`,
+      })),
+    nextStep: "Inspect actual saved audit coverage and comparable page observations manually before any action. This is a simulation only; no alerts are sent or monitored automatically. A clean preview does not establish sitewide health or Google outcomes.",
   });
 }
 

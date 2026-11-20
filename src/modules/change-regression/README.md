@@ -14,5 +14,12 @@ single guarded 10-snapshot archive, evictions and symlink protections. There
 are no history writes, new captures, scheduled checks, remote requests or
 site-wide conclusions. See `docs/p2-01-historical-comparisons.md`.
 
-P2-02 remains planned: configurable regression monitoring/alerts are **not**
-implemented as part of P2-01.
+P2-02 now implements an **offline, manual-only** `regression-alerts.ts`
+evaluator with read-only `audit.monitor`. It compares the latest adjacent
+sample from existing `audit.history` saved IDs using the shared P2-01
+historical analyzer, with bounded per-call thresholds and 1–4-step optional
+regression persistence. It previews alert candidates but **never sends any
+notification, starts a scheduler, edits saved history, fetches URLs, or connects
+GSC/GA4**. Coverage loss and sitemap drift are review-only; source gaps
+suppress defect candidates. See `docs/p2-02-manual-regression-alert-preview.md`.
+External alert delivery/automated checks remain explicitly out of scope.

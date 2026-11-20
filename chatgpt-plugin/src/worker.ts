@@ -39,6 +39,14 @@ import {
   HISTORICAL_FINDING_CODES,
 } from "./modules/change-regression/historical-comparisons";
 import {
+  previewRegressionAlerts,
+  emptyMonitorPreview,
+  MONITOR_RULES,
+  MONITOR_DECISIONS,
+  MONITOR_STATUSES,
+  MONITOR_REASON_CODES,
+} from "./modules/change-regression/regression-alerts";
+import {
   compareProductClaims,
   observeProductClaims,
   registeredToolEvidence,
@@ -845,6 +853,56 @@ const siteAuditSnapshotSchema = z.object({
   pages: z.array(sitePageSchema).max(SITE_AUDIT_MAX_PAGES),
   issue_groups: z.array(siteIssueGroupSchema).max(50),
   overview: overviewSchema.optional(),
+  error: z.string().optional(),
+});
+
+const monitorPolicyInputSchema = z.object({
+  min_regressed_pages: z.number().int().min(1).max(8).optional()
+    .describe("Minimum regressed pages for an unsent preview in the latest fully comparable sampled pair (default 1)."),
+  min_net_error_increase: z.number().int().min(1).max(10_000).optional()
+    .describe("Minimum positive net error-count increase across matched completed pages (default 1)."),
+  min_net_warning_increase: z.number().int().min(1).max(10_000).optional()
+    .describe("Minimum positive net warning-count increase across matched completed pages (default 1)."),
+  min_coverage_lost_pages: z.number().int().min(1).max(8).optional()
+    .describe("Minimum completed pages losing coverage to trigger a review-only observation (default 1)."),
+  consecutive_regressing_steps: z.number().int().min(1).max(4).optional()
+    .describe("How many fully comparable consecutive regressing samples are required for the page-regression rule (default 1)."),
+  review_coverage_loss: z.boolean().optional()
+    .describe("Whether to preview validator coverage loss as a review-only observation (default true)."),
+  review_sitemap_drift: z.boolean().optional()
+    .describe("Whether to preview sitemap fingerprint drift as a review-only observation (default true)."),
+}).strict();
+const monitorOutputSchema = z.object({
+  scope: z.literal("manual_sampled_regression_alert_preview_only"),
+  source: z.enum(["local_saved_ids", "caller_supplied_snapshots"]),
+  status: z.enum(MONITOR_STATUSES),
+  dry_run: z.literal(true),
+  manually_invoked: z.literal(true),
+  scheduler_enabled: z.literal(false),
+  delivery_enabled: z.literal(false),
+  notifications_sent: z.literal(0),
+  external_integrations_used: z.literal(false),
+  latest_baseline_version: z.number().int().min(0).max(MAX_HISTORICAL_VERSIONS),
+  latest_current_version: z.number().int().min(0).max(MAX_HISTORICAL_VERSIONS),
+  latest_comparability: z.enum(HISTORICAL_STATUSES),
+  latest_compared_pages: z.number().int().nonnegative().max(8),
+  latest_completed_pairs: z.number().int().nonnegative().max(8),
+  candidate_count: z.number().int().nonnegative().max(MONITOR_RULES.length),
+  review_only_count: z.number().int().nonnegative().max(MONITOR_RULES.length),
+  suppressed_count: z.number().int().nonnegative().max(MONITOR_RULES.length),
+  coverage_limited: z.literal(true),
+  policy: monitorPolicyInputSchema.required(),
+  rules: z.array(z.object({
+    rule: z.enum(MONITOR_RULES),
+    decision: z.enum(MONITOR_DECISIONS),
+    reason_code: z.enum(MONITOR_REASON_CODES),
+    latest_observed_value: z.number().int(),
+    threshold: z.number().int().min(1).max(10_000),
+    review_required: z.boolean(),
+    message: z.string().max(290),
+  })).max(MONITOR_RULES.length),
+  limitations: z.array(z.string().max(360)).max(4),
+  overview: overviewSchema,
   error: z.string().optional(),
 });
 
@@ -2350,6 +2408,77 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           code: cause instanceof PublicHtmlFetchError ? cause.code : "audit_failed",
         }));
         return failedPublicSiteAudit(error);
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "preview_regression_alerts",
+    {
+      title: "Preview configurable regression alerts (manual dry-run only)",
+      description:
+        "Fully offline P2-02 MANUAL alert preview for two to ten caller-supplied historical audit snapshots. Configurable sampled-page regression, net error/warning thresholds and up to four consecutive comparable regression steps. Incomplete coverage and changed sitemap are review-only; incomplete or ambiguous defect evidence is suppressed. Output is a preview, NOT a sent notification. No scheduler, network fetch, stored state, webhook, email, Google Search Console or Analytics integration.",
+      inputSchema: {
+        versions: historicalVersionsInputSchema
+          .describe("Two to ten already-observed timestamped compact site-audit snapshots, oldest first; no URLs are fetched and no history is stored."),
+        dry_run: z.literal(true).default(true)
+          .describe("Must remain true; no delivery, automatic polling or schedules exist."),
+        policy: monitorPolicyInputSchema.optional()
+          .describe("Bounded manual-only rule thresholds; no destination addresses or automation settings are accepted."),
+      },
+      outputSchema: monitorOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Simulating regression alert rules without sending...",
+        invoked: "Dry-run regression preview complete; no alerts sent.",
+      }),
+    },
+    async ({ versions, policy }) => {
+      try {
+        const history = analyzeHistoricalAudits(versions, "caller_supplied_snapshots");
+        const preview = previewRegressionAlerts(history, policy);
+        const overview: ResultOverview = {
+          kind: "site",
+          status: preview.candidate_count > 0 ? "needs_attention" : "partial",
+          title: "Unsent manual regression alert preview",
+          headline: preview.candidate_count + " unsent alert candidate(s), " +
+            preview.review_only_count + " review-only observation(s), " +
+            preview.suppressed_count + " suppressed rule(s) from the latest " +
+            preview.latest_completed_pairs + " completed matched page pair(s).",
+          detail: "Manual dry-run only. No notifications, email/webhook, background scheduler, " +
+            "source fetch, storage or external analytics. A zero-candidate result is not a full-site health verdict.",
+          total: preview.rules.length,
+          shown: preview.rules.length,
+          truncated: false,
+          counts: [
+            metric("candidates", "Unsent candidate alerts", preview.candidate_count, "warning"),
+            metric("review_only", "Coverage/discovery reviews", preview.review_only_count, "info"),
+            metric("suppressed", "Suppressed uncertain rules", preview.suppressed_count, "info"),
+            metric("complete_pages", "Comparable latest page pairs", preview.latest_completed_pairs, "info"),
+          ],
+          next_action: "Manually verify matched fully checked source pages and policy thresholds. " +
+            "No automated notifications or live monitoring are enabled; do not infer traffic, rankings or sitewide results.",
+        };
+        return {
+          structuredContent: { ...preview, overview },
+          content: contentForOverview(overview, preview.rules
+            .filter((rule) => rule.review_required)
+            .map((rule) => ({
+              severity: rule.decision === "preview_candidate" ? "warning" as const : "info" as const,
+              label: rule.rule + " (not sent)",
+              message: rule.message,
+            }))),
+        };
+      } catch {
+        const error = "Manual monitoring preview could not safely evaluate the supplied historical versions, chronology or bounded policy; no messages were sent.";
+        const overview = failedOverview("site", "Regression alert dry-run",
+          "The manual-only preview could not be evaluated.", error);
+        return {
+          structuredContent: { ...emptyMonitorPreview("caller_supplied_snapshots"), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
       }
     },
   );

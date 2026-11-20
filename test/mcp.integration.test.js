@@ -28,6 +28,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     const names = tools.map((tool) => tool.name).sort();
     assert.deepEqual(names, [
       "audit.history",
+      "audit.monitor",
       "audit.trends",
       "browser.wcag",
       "content.competitors",

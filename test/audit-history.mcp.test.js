@@ -240,3 +240,66 @@ test("P2-01: real local MCP compares saved history IDs with no writes, leaks, or
     await client.close();
   }
 });
+
+test("P2-02: real stdio manual regression preview reads saved history without changing a byte or sending alerts", {
+  timeout: 90_000,
+}, async (t) => {
+  const root = await temporaryRoot(t);
+  const client = await connect(root, "manual-regression-preview-no-send");
+  try {
+    const { tools } = await client.listTools();
+    const tool = tools.find((entry) => entry.name === "audit.monitor");
+    assert.ok(tool, "P2-02 audit.monitor must be discoverable");
+    assert.equal(tool.annotations?.readOnlyHint, true);
+    assert.equal(tool.annotations?.destructiveHint, false);
+    assert.equal(tool.annotations?.openWorldHint, false);
+    const ids = [];
+    for (const errors of [0, 2]) {
+      const data = JSON.parse(snapshot(1));
+      data.pages[0].seo_errors = errors;
+      data.pages[0].health_score = 98 - errors * 10;
+      const result = await history(client, "save", { snapshotJson: JSON.stringify(data) });
+      assert.notEqual(result.isError, true);
+      ids.push(result.structuredContent.items[0].id);
+    }
+    const archive = path.join(root, ".mcp-validator", "audit-history.json");
+    const before = await fs.readFile(archive);
+    const result = await client.callTool({
+      name: "audit.monitor",
+      arguments: { ids, dry_run: true },
+    });
+    assert.notEqual(result.isError, true);
+    assert.equal(result.structuredContent?.scope, "manual_sampled_regression_alert_preview_only");
+    assert.equal(result.structuredContent?.source, "local_saved_ids");
+    assert.equal(result.structuredContent?.status, "preview_ready");
+    assert.equal(result.structuredContent?.candidate_count, 2);
+    assert.equal(result.structuredContent?.notifications_sent, 0);
+    assert.equal(result.structuredContent?.scheduler_enabled, false);
+    assert.equal(result.structuredContent?.delivery_enabled, false);
+    assert.equal(result.structuredContent?.external_integrations_used, false);
+    assert.equal(result.structuredContent?.dry_run, true);
+    assert(!JSON.stringify(result).includes(ids[0]));
+    assert(!JSON.stringify(result).includes("https://example.com/"));
+    assert.deepEqual(await fs.readFile(archive), before);
+    const custom = await client.callTool({
+      name: "audit.monitor",
+      arguments: {
+        ids, policy: { min_regressed_pages: 2, min_net_error_increase: 3 },
+      },
+    });
+    assert.equal(custom.isError, undefined);
+    assert.equal(custom.structuredContent?.status, "no_candidate");
+    assert.equal(custom.structuredContent?.notifications_sent, 0);
+    const denied = await client.callTool({
+      name: "audit.monitor", arguments: { ids, dry_run: false },
+    });
+    assert.equal(denied.isError, true);
+    const reversed = await client.callTool({
+      name: "audit.monitor", arguments: { ids: [...ids].reverse() },
+    });
+    assert.equal(reversed.isError, true);
+    assert.deepEqual(await fs.readFile(archive), before);
+  } finally {
+    await client.close();
+  }
+});

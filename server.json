@@ -2445,6 +2445,401 @@
       }
     },
     {
+      "name": "http.variants",
+      "title": "Review supplied HTTP/HTTPS, www, slash, case and query URL variants",
+      "description": "Offline, bounded comparison of one explicit query-free reference URL and 1–12 caller-observed same-path candidate responses across HTTP/HTTPS, apex/www, trailing slash, ASCII path case and query parameters. Reviews one-step Location, up to three canonical declarations and optional caller-computed 200-response SHA-256 fingerprints. No URL fetch, redirect following, Google canonical selection, query-value leakage or content equivalence assumptions.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "reference_url": {
+            "type": "string",
+            "maxLength": 1024,
+            "format": "uri",
+            "description": "Explicit query-free HTTP(S) preferred URL to compare against; must also be present as one supplied response."
+          },
+          "observations": {
+            "minItems": 1,
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 1024,
+                  "format": "uri",
+                  "description": "Exact observed URL variant; query values are permitted for comparison but never fetched or returned."
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599,
+                  "description": "Observed HTTP status, not a request result obtained by this tool."
+                },
+                "method": {
+                  "description": "Observed request method, if known; HEAD cannot supply a body fingerprint.",
+                  "type": "string",
+                  "enum": [
+                    "GET",
+                    "HEAD"
+                  ]
+                },
+                "location": {
+                  "description": "Optional one-step HTTP Location header value for redirects; may be relative; no redirect is followed.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                },
+                "canonicals": {
+                  "description": "Zero to three actual observed canonical URL declarations, absolute or relative; not Google-selected canonicals.",
+                  "maxItems": 3,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "content_sha256": {
+                  "description": "Optional caller-computed SHA-256 hex of the exact HTTP 200 response body; never returned or independently verified.",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "url",
+                "status_code"
+              ]
+            },
+            "description": "One to twelve already-observed URL response records in the exact reference path family; do not cause fetches."
+          }
+        },
+        "required": [
+          "reference_url",
+          "observations"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "caller_supplied_url_variant_evidence_only"
+          },
+          "pages_sampled": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 12
+          },
+          "reference_observed": {
+            "type": "boolean"
+          },
+          "reference_http_200": {
+            "type": "boolean"
+          },
+          "scheme_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "www_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "slash_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "case_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "query_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "http_200_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "redirects_to_reference": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "redirects_outside_family": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unresolved_redirects": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "canonical_to_reference": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "conflicting_canonical_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "matching_content_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "different_content_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "content_not_comparable_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 420
+            }
+          },
+          "pages": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 12
+                },
+                "is_reference": {
+                  "type": "boolean"
+                },
+                "dimensions": {
+                  "maxItems": 5,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "scheme",
+                      "www",
+                      "slash",
+                      "case",
+                      "query"
+                    ]
+                  }
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "GET",
+                    "HEAD",
+                    "unspecified"
+                  ]
+                },
+                "response_state": {
+                  "type": "string",
+                  "enum": [
+                    "ok",
+                    "other_success",
+                    "redirect",
+                    "not_modified",
+                    "other"
+                  ]
+                },
+                "redirect_state": {
+                  "type": "string",
+                  "enum": [
+                    "absent",
+                    "to_reference",
+                    "to_sampled_variant",
+                    "to_unobserved_family",
+                    "external",
+                    "unresolved"
+                  ]
+                },
+                "redirect_to_https": {
+                  "type": "boolean"
+                },
+                "canonical_state": {
+                  "type": "string",
+                  "enum": [
+                    "absent",
+                    "self",
+                    "to_reference",
+                    "to_sampled_variant",
+                    "to_unobserved_family",
+                    "external",
+                    "unresolved",
+                    "conflicting"
+                  ]
+                },
+                "canonical_declarations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 3
+                },
+                "fingerprint_supplied": {
+                  "type": "boolean"
+                },
+                "content_matches_reference": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "has_query": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "page",
+                "is_reference",
+                "dimensions",
+                "status_code",
+                "method",
+                "response_state",
+                "redirect_state",
+                "redirect_to_https",
+                "canonical_state",
+                "canonical_declarations",
+                "fingerprint_supplied",
+                "content_matches_reference",
+                "has_query"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 12
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "reference_not_ok",
+                    "variant_ok_without_redirect",
+                    "matching_content_at_variant",
+                    "different_content_at_variant",
+                    "content_unverified",
+                    "query_semantics_unverified",
+                    "redirect_to_other_variant",
+                    "redirect_outside_family",
+                    "redirect_unresolved",
+                    "canonical_conflicting_on_page",
+                    "canonical_outside_family",
+                    "canonical_unresolved",
+                    "self_canonical_on_matching_variant",
+                    "canonical_disagrees_with_reference",
+                    "reference_observation_only",
+                    "partial_or_other_success",
+                    "non_success_variant"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 330
+                }
+              },
+              "required": [
+                "page",
+                "severity",
+                "code",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "pages_sampled",
+          "reference_observed",
+          "reference_http_200",
+          "scheme_variants",
+          "www_variants",
+          "slash_variants",
+          "case_variants",
+          "query_variants",
+          "http_200_variants",
+          "redirects_to_reference",
+          "redirects_outside_family",
+          "unresolved_redirects",
+          "canonical_to_reference",
+          "conflicting_canonical_pages",
+          "matching_content_variants",
+          "different_content_variants",
+          "content_not_comparable_variants",
+          "coverage_limited",
+          "limitations",
+          "pages",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "http.security",
       "title": "Review supplied HTTPS, mixed-content and HTTP security evidence",
       "description": "Offline, bounded security-header/static-HTML observation review across 1–8 same-host HTTP/HTTPS pages. Distinguishes declared HTTP→HTTPS redirects, HSTS status, enforced vs report-only CSP, safe/weak referrer and framing policies, nosniff and static mixed-content/form/CSS declarations. No traffic, TLS certificate verification, browser execution, security certification or sensitive raw URL/header/HTML output.",

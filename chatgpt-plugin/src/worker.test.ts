@@ -314,7 +314,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers seventeen accurately annotated tools", async () => {
+  it("discovers eighteen accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -332,6 +332,7 @@ describe("hosted tool contract", () => {
       "validate_supported_schema",
       "review_internal_links",
       "review_metadata_consistency",
+      "review_url_variants",
       "review_https_security",
       "review_http_directives",
     ]);
@@ -1591,6 +1592,108 @@ describe("P1-09 metadata consistency through hosted MCP HTTP", () => {
       expect(result.isError).toBe(true);
       expect(JSON.stringify(result)).not.toContain("FAKE_SECRET");
     }
+  });
+});
+
+describe("P1-14 observed URL variant MCP contract", () => {
+  const reference = "https://example.com/Products/Widget";
+  const baseObservation = {
+    url: reference, status_code: 200, method: "GET" as const,
+    content_sha256: "a".repeat(64), canonicals: [reference],
+  };
+
+  it("discovers and invokes genuine read-only hosted MCP tool without network access", async () => {
+    const fetching = vi.fn();
+    vi.stubGlobal("fetch", fetching);
+    const tools = await listTools();
+    expect(tools.find((tool) => tool.name === "review_url_variants")?.annotations)
+      .toMatchObject({ readOnlyHint: true, openWorldHint: false, destructiveHint: false });
+    const result = await callTool("review_url_variants", {
+      reference_url: reference,
+      observations: [
+        baseObservation,
+        { url: "http://example.com/Products/Widget", status_code: 301,
+          location: reference },
+        { url: reference + "?session=FAKE_SECRET_QUERY_TOKEN", status_code: 200,
+          content_sha256: "a".repeat(64), canonicals: [reference] },
+      ],
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      scope: "caller_supplied_url_variant_evidence_only",
+      pages_sampled: 3, reference_observed: true,
+      scheme_variants: 1, query_variants: 1,
+      redirects_to_reference: 1, matching_content_variants: 1,
+      coverage_limited: true,
+    });
+    expect(result.structuredContent.pages[1].response_state).toBe("redirect");
+    expect(result.structuredContent.pages[2].canonical_state).toBe("to_reference");
+    expect(result.structuredContent.overview.status).toBe("needs_attention");
+    expect(fetching).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("FAKE_SECRET_QUERY_TOKEN");
+    expect(JSON.stringify(result)).not.toContain("/Products/Widget");
+  });
+
+  it("distinguishes exact case and slash candidate dimensions without claiming equivalence", async () => {
+    const result = await callTool("review_url_variants", {
+      reference_url: reference,
+      observations: [
+        baseObservation,
+        { url: "https://www.example.com/products/widget/", status_code: 200 },
+      ],
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.www_variants).toBe(1);
+    expect(result.structuredContent.slash_variants).toBe(1);
+    expect(result.structuredContent.case_variants).toBe(1);
+    expect(result.structuredContent.content_not_comparable_variants).toBe(1);
+    expect(result.structuredContent.pages[1].content_matches_reference).toBe(null);
+    expect(result.structuredContent.overview.status).toBe("partial");
+  });
+
+  it("finds contradictory canonical hints for caller-hash-identical HTTP 200 variants", async () => {
+    const result = await callTool("review_url_variants", {
+      reference_url: reference,
+      observations: [
+        baseObservation,
+        { url: reference + "/", status_code: 200,
+          content_sha256: "a".repeat(64), canonicals: [reference + "/"] },
+      ],
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.findings.some(
+      (finding: { code: string }) => finding.code === "canonical_disagrees_with_reference")).toBe(true);
+    expect(result.structuredContent.conflicting_canonical_pages).toBe(0);
+  });
+
+  it("rejects mixed hosts, unknown reference and source fragment/query tokens without leaking them", async () => {
+    const secret = "FAKE_PRIVATE_INVALID_URL";
+    for (const payload of [
+      { reference_url: reference + "?token=" + secret, observations: [baseObservation] },
+      { reference_url: reference, observations: [
+        baseObservation, { url: "https://blog.example.com/Products/Widget", status_code: 200 }] },
+      { reference_url: reference, observations: [baseObservation, baseObservation] },
+      { reference_url: reference, observations: [
+        { url: reference + "#" + secret, status_code: 200 }] },
+    ]) {
+      const result = await callTool("review_url_variants", payload);
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).not.toContain(secret);
+    }
+  });
+
+  it("does not silently infer body equivalence from HEAD or non-200 response", async () => {
+    const result = await callTool("review_url_variants", {
+      reference_url: reference,
+      observations: [
+        { url: reference, status_code: 200, method: "HEAD" },
+        { url: reference + "?raw=1", status_code: 206 },
+      ],
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.reference_http_200).toBe(true);
+    expect(result.structuredContent.matching_content_variants).toBe(0);
+    expect(result.structuredContent.pages[1].response_state).toBe("other_success");
   });
 });
 

@@ -39,6 +39,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "html.url",
       "http.directives",
       "http.security",
+      "http.variants",
       "links.broken",
       "media.diagnostics",
       "product.claims",
@@ -189,6 +190,48 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     });
     assert.equal(unsafeSecurity.isError, true);
     assert(!JSON.stringify(unsafeSecurity).includes("FAKE_SECRET"));
+    const variantTool = tools.find((tool) => tool.name === "http.variants");
+    assert.ok(variantTool, "P1-14 local URL variant tool must be discoverable");
+    assert.equal(variantTool?.annotations?.readOnlyHint, true);
+    assert.equal(variantTool?.annotations?.openWorldHint, false);
+    const variantReference = "https://example.test/Products/Widget";
+    const variants = await client.callTool({
+      name: "http.variants",
+      arguments: {
+        reference_url: variantReference,
+        observations: [
+          { url: variantReference, status_code: 200, method: "GET",
+            content_sha256: "a".repeat(64), canonicals: [variantReference] },
+          { url: "http://example.test/Products/Widget", status_code: 301,
+            location: variantReference },
+          { url: variantReference + "?session=FAKE_QUERY_SECRET", status_code: 200,
+            method: "GET", content_sha256: "a".repeat(64),
+            canonicals: [variantReference] },
+        ],
+      },
+    });
+    assert.equal(variants.isError, undefined);
+    assert.equal(variants.structuredContent?.scope, "caller_supplied_url_variant_evidence_only");
+    assert.equal(variants.structuredContent?.pages_sampled, 3);
+    assert.equal(variants.structuredContent?.scheme_variants, 1);
+    assert.equal(variants.structuredContent?.query_variants, 1);
+    assert.equal(variants.structuredContent?.redirects_to_reference, 1);
+    assert.equal(variants.structuredContent?.matching_content_variants, 1);
+    assert.equal(variants.structuredContent?.coverage_limited, true);
+    assert.match(textContent(variants), /Supplied URL variant comparison/);
+    assert(!JSON.stringify(variants).includes("FAKE_QUERY_SECRET"));
+    assert(!JSON.stringify(variants).includes("/Products/Widget"));
+    const rejectedVariant = await client.callTool({
+      name: "http.variants",
+      arguments: {
+        reference_url: variantReference,
+        observations: [{
+          url: variantReference + "#FAKE_FRAGMENT_SECRET", status_code: 200,
+        }],
+      },
+    });
+    assert.equal(rejectedVariant.isError, true);
+    assert(!JSON.stringify(rejectedVariant).includes("FAKE_FRAGMENT_SECRET"));
     const httpTool = tools.find((tool) => tool.name === "http.directives");
     assert.equal(httpTool?.annotations?.readOnlyHint, true);
     assert.equal(httpTool?.annotations?.openWorldHint, false);

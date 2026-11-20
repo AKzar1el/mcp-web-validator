@@ -19,3 +19,11 @@ bounded, supplied HTTP/HTTPS status, Location/HSTS/CSP/referrer/nosniff/framing
 headers and static mixed-content, CSS and form-action declarations. There is
 **no network fetch, browser, TLS handshake, certificate validation or
 security verdict**. See `docs/p1-13-https-security.md` for contracts and limits.
+
+P1-14 adds local `http.variants` through a pure shared `url-variants.ts`
+analyzer. Its hosted adapter reexports the same implementation.
+Caller-supplied URL/status/Location/canonical/body-SHA observations are checked
+across explicit HTTP/HTTPS, apex/www, slash, ASCII path case and query candidate
+variants without any URL fetch, redirect following or SEO canonical-selection
+assertions. Case/query differences do **not** imply duplicate pages; see
+`docs/p1-14-url-variants.md` for bounds, sample input and caveats.

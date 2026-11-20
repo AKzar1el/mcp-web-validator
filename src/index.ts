@@ -50,6 +50,20 @@ import {
   SECURITY_FINDING_CODES,
 } from "./modules/http-crawl/https-security.js";
 import {
+  analyzeUrlVariants,
+  emptyUrlVariantReview,
+  safeVariantLabel,
+  MAX_VARIANT_OBSERVATIONS,
+  MAX_VARIANT_FINDINGS,
+  MAX_VARIANT_URL_BYTES,
+  MAX_VARIANT_CANONICALS,
+  VARIANT_DIMENSIONS,
+  VARIANT_RESPONSE_STATES,
+  VARIANT_TARGET_STATES,
+  VARIANT_CANONICAL_STATES,
+  VARIANT_FINDING_CODES,
+} from "./modules/http-crawl/url-variants.js";
+import {
   auditSeoMetadata,
   auditSeoMetadataDetailed,
   checkBrokenLinks,
@@ -77,6 +91,7 @@ import {
   wcagInteractionsContent,
   httpDirectivesContent,
   httpsSecurityContent,
+  urlVariantsContent,
   multilingualClusterContent,
   failureContent,
   htmlValidationContent,
@@ -678,6 +693,73 @@ const mediaReviewOutputSchema = {
     element: z.number().int().min(1).max(MAX_MEDIA_ELEMENTS),
     message: z.string().max(240),
   })).max(MAX_MEDIA_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const variantFieldInputSchema = z.string().min(1).max(MAX_VARIANT_URL_BYTES)
+  .refine((value) => !/[\r\n\u0000\u007f]/u.test(value) &&
+    Buffer.byteLength(value, "utf8") <= MAX_VARIANT_URL_BYTES,
+  "The caller-observed URL/Location/canonical field must fit 1,024 UTF-8 bytes and contain no CR/LF/NUL.");
+const variantObservationInputSchema = z.object({
+  url: z.string().url().max(MAX_VARIANT_URL_BYTES)
+    .refine((value) => Boolean(safeVariantLabel(value)),
+      "Supply an absolute HTTP(S) observation label without credentials, fragment, custom port or unsafe path.")
+    .describe("Exact observed URL variant; query values are permitted for comparison but never fetched or returned."),
+  status_code: z.number().int().min(100).max(599)
+    .describe("Observed HTTP status, not a request result obtained by this tool."),
+  method: z.enum(["GET", "HEAD"]).optional()
+    .describe("Observed request method, if known; HEAD cannot supply a body fingerprint."),
+  location: variantFieldInputSchema.optional()
+    .describe("Optional one-step HTTP Location header value for redirects; may be relative; no redirect is followed."),
+  canonicals: z.array(variantFieldInputSchema).max(MAX_VARIANT_CANONICALS).optional()
+    .describe("Zero to three actual observed canonical URL declarations, absolute or relative; not Google-selected canonicals."),
+  content_sha256: z.string().regex(/^[0-9a-f]{64}$/iu).optional()
+    .describe("Optional caller-computed SHA-256 hex of the exact HTTP 200 response body; never returned or independently verified."),
+});
+const variantOutputSchema = {
+  scope: z.literal("caller_supplied_url_variant_evidence_only"),
+  pages_sampled: z.number().int().nonnegative().max(MAX_VARIANT_OBSERVATIONS),
+  reference_observed: z.boolean(),
+  reference_http_200: z.boolean(),
+  scheme_variants: z.number().int().nonnegative(),
+  www_variants: z.number().int().nonnegative(),
+  slash_variants: z.number().int().nonnegative(),
+  case_variants: z.number().int().nonnegative(),
+  query_variants: z.number().int().nonnegative(),
+  http_200_variants: z.number().int().nonnegative(),
+  redirects_to_reference: z.number().int().nonnegative(),
+  redirects_outside_family: z.number().int().nonnegative(),
+  unresolved_redirects: z.number().int().nonnegative(),
+  canonical_to_reference: z.number().int().nonnegative(),
+  conflicting_canonical_pages: z.number().int().nonnegative(),
+  matching_content_variants: z.number().int().nonnegative(),
+  different_content_variants: z.number().int().nonnegative(),
+  content_not_comparable_variants: z.number().int().nonnegative(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(420)).max(4),
+  pages: z.array(z.object({
+    page: z.number().int().min(1).max(MAX_VARIANT_OBSERVATIONS),
+    is_reference: z.boolean(),
+    dimensions: z.array(z.enum(VARIANT_DIMENSIONS)).max(5),
+    status_code: z.number().int().min(100).max(599),
+    method: z.enum(["GET", "HEAD", "unspecified"]),
+    response_state: z.enum(VARIANT_RESPONSE_STATES),
+    redirect_state: z.enum(VARIANT_TARGET_STATES),
+    redirect_to_https: z.boolean(),
+    canonical_state: z.enum(VARIANT_CANONICAL_STATES),
+    canonical_declarations: z.number().int().nonnegative().max(MAX_VARIANT_CANONICALS),
+    fingerprint_supplied: z.boolean(),
+    content_matches_reference: z.boolean().nullable(),
+    has_query: z.boolean(),
+  })).max(MAX_VARIANT_OBSERVATIONS),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    page: z.number().int().min(1).max(MAX_VARIANT_OBSERVATIONS),
+    severity: z.enum(["warning", "info"]),
+    code: z.enum(VARIANT_FINDING_CODES),
+    message: z.string().max(330),
+  })).max(MAX_VARIANT_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
 };
@@ -1688,6 +1770,37 @@ export function createServer(): McpServer {
         return result({ ...emptyMediaDiagnostics(), error }, failureContent(
           "Static media diagnostics", error,
           "Supply nonempty HTML markup within the declared UTF-8 byte limit.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "http.variants",
+    {
+      title: "Review supplied HTTP/HTTPS, www, slash, case and query URL variants",
+      description:
+        "Offline, bounded comparison of one explicit query-free reference URL and 1–12 caller-observed same-path candidate responses across HTTP/HTTPS, apex/www, trailing slash, ASCII path case and query parameters. Reviews one-step Location, up to three canonical declarations and optional caller-computed 200-response SHA-256 fingerprints. No URL fetch, redirect following, Google canonical selection, query-value leakage or content equivalence assumptions.",
+      inputSchema: {
+        reference_url: z.string().url().max(MAX_VARIANT_URL_BYTES)
+          .refine((value) => Boolean(safeVariantLabel(value)) && !value.includes("?"),
+            "Use a safe query-free HTTP(S) reference URL label without credentials or fragments.")
+          .describe("Explicit query-free HTTP(S) preferred URL to compare against; must also be present as one supplied response."),
+        observations: z.array(variantObservationInputSchema).min(1).max(MAX_VARIANT_OBSERVATIONS)
+          .describe("One to twelve already-observed URL response records in the exact reference path family; do not cause fetches."),
+      },
+      outputSchema: variantOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ reference_url, observations }) => {
+      try {
+        const review = analyzeUrlVariants(reference_url, observations);
+        return result(review, urlVariantsContent(review));
+      } catch {
+        const error = "URL variant observations could not be compared within safe host, path, query, response or size limits.";
+        return result({ ...emptyUrlVariantReview(), error }, failureContent(
+          "Supplied URL variants", error,
+          "Supply a query-free reference and up to twelve distinct same-family response observations; no URLs will be fetched.",
         ), true);
       }
     },

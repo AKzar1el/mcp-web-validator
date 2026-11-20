@@ -3406,6 +3406,532 @@
       }
     },
     {
+      "name": "site.sitemaps",
+      "title": "Review sitemap inventory, lastmod consistency and indexability conflicts",
+      "description": "V05: compare up to eight previously observed XML/text sitemap documents with independent discovered URLs and page response/indexability evidence, or sample one authorized public sitemap plus up to two same-origin children. Finds malformed/duplicate/cross-origin URLs, missing child documents, invalid/future/inconsistent lastmod, independent discovery gaps and sampled redirect/noindex/canonical/robots conflicts. The bounded live sample never fetches listed pages, stores source documents, returns raw URLs, claims full search-engine inventory or guarantees Google indexing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "description": "Live mode: one authorized query-free public site URL; sitemap defaults to /sitemap.xml.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "sitemap_url": {
+            "description": "Live mode optional same-origin sitemap URL, otherwise uses /sitemap.xml.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "site_url": {
+            "description": "Offline mode: public site URL whose sitemap documents were observed.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "documents": {
+            "description": "Offline: 1–8 previously observed XML or plain-text sitemap bodies.",
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sitemap_url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Same-origin, query-free sitemap URL; never echoed."
+                },
+                "content": {
+                  "type": "string",
+                  "maxLength": 512000,
+                  "description": "Observed XML or plain-text sitemap document, UTF-8 byte bounded."
+                },
+                "content_type": {
+                  "description": "Observed document content type; defaults to XML.",
+                  "type": "string",
+                  "enum": [
+                    "application/xml",
+                    "text/xml",
+                    "text/plain"
+                  ]
+                },
+                "status_code": {
+                  "description": "Observed HTTP status for this sitemap, if known.",
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                }
+              },
+              "required": [
+                "sitemap_url",
+                "content"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "discovered_urls": {
+            "description": "Optional independently discovered same-origin URLs; no site crawl is performed.",
+            "maxItems": 500,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 1024,
+              "format": "uri"
+            }
+          },
+          "page_observations": {
+            "description": "Optional independent HTTP/indexability observations for up to 250 pages.",
+            "maxItems": 250,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 1024,
+                  "format": "uri",
+                  "description": "Independently observed same-origin page URL."
+                },
+                "status_code": {
+                  "description": "Observed page HTTP response status.",
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "canonical_url": {
+                  "description": "Observed page canonical preference, not Google-selected canonical.",
+                  "type": "string",
+                  "maxLength": 1024,
+                  "format": "uri"
+                },
+                "noindex": {
+                  "description": "Observed robots meta or X-Robots-Tag noindex declaration.",
+                  "type": "boolean"
+                },
+                "robots_allowed": {
+                  "description": "Independently observed crawler robots permission, not inferred.",
+                  "type": "boolean"
+                },
+                "modified_at": {
+                  "description": "Independently established significant modification date in W3C format.",
+                  "type": "string",
+                  "maxLength": 40
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "documents_complete": {
+            "description": "Caller-verified completeness of all linked sitemap documents.",
+            "type": "boolean"
+          },
+          "discovered_complete": {
+            "description": "Caller-verified completeness of independent site discovery.",
+            "type": "boolean"
+          },
+          "observed_at": {
+            "description": "Optional W3C date/datetime clock for lastmod verification, defaults to now.",
+            "type": "string",
+            "maxLength": 40
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "caller_supplied_sitemap_evidence",
+              "live_public_sitemap_sample"
+            ]
+          },
+          "documents_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "documents_complete": {
+            "type": "boolean"
+          },
+          "discovered_complete": {
+            "type": "boolean"
+          },
+          "inventory_complete": {
+            "type": "boolean"
+          },
+          "documents_truncated": {
+            "type": "boolean"
+          },
+          "total_entries_seen": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "distinct_sitemap_urls": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "distinct_page_urls": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "distinct_child_sitemaps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "missing_child_documents": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "duplicate_url_entries": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "invalid_url_entries": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "external_url_entries": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lastmod_values_seen": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lastmod_invalid_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lastmod_future_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lastmod_conflicting_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "independently_discovered_urls": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "discovered_in_sitemaps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "discovered_missing_from_sitemaps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "sitemap_urls_not_in_discovery": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "page_observations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "sitemap_urls_with_page_evidence": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "status_conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "noindex_conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "robots_conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "canonical_conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lastmod_observation_conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "known_indexability_conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unknown_page_indexability": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 260
+            }
+          },
+          "documents": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "document": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "urlset",
+                    "sitemapindex",
+                    "text",
+                    "invalid",
+                    "unsupported"
+                  ]
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "entries_seen": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "valid_url_entries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "child_sitemaps": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "invalid_entries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "external_entries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "duplicate_entries": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "lastmod_present": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "lastmod_invalid": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "lastmod_future": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "truncated": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "document",
+                "kind",
+                "entries_seen",
+                "valid_url_entries",
+                "child_sitemaps",
+                "invalid_entries",
+                "external_entries",
+                "duplicate_entries",
+                "lastmod_present",
+                "lastmod_invalid",
+                "lastmod_future",
+                "truncated"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "document": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "entry": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "sitemap_http_error",
+                    "xml_malformed",
+                    "unsupported_format",
+                    "missing_loc",
+                    "invalid_loc",
+                    "external_loc",
+                    "out_of_scope_loc",
+                    "duplicate_loc",
+                    "invalid_lastmod",
+                    "future_lastmod",
+                    "conflicting_lastmod",
+                    "lastmod_vs_observed_change",
+                    "sitemap_child_missing",
+                    "sitemap_unlisted_child",
+                    "sitemap_cycle",
+                    "sitemap_inventory_truncated",
+                    "sitemap_page_not_discovered",
+                    "discovered_page_not_sitemapped",
+                    "sitemap_url_http_error",
+                    "sitemap_url_redirect",
+                    "sitemap_url_noindex",
+                    "sitemap_url_robots_blocked",
+                    "sitemap_url_noncanonical",
+                    "observed_page_not_in_sitemap",
+                    "unverified_indexability",
+                    "unverified_coverage"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 260
+                }
+              },
+              "required": [
+                "document",
+                "severity",
+                "code",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "documents_observed",
+          "documents_complete",
+          "discovered_complete",
+          "inventory_complete",
+          "documents_truncated",
+          "total_entries_seen",
+          "distinct_sitemap_urls",
+          "distinct_page_urls",
+          "distinct_child_sitemaps",
+          "missing_child_documents",
+          "duplicate_url_entries",
+          "invalid_url_entries",
+          "external_url_entries",
+          "lastmod_values_seen",
+          "lastmod_invalid_count",
+          "lastmod_future_count",
+          "lastmod_conflicting_count",
+          "independently_discovered_urls",
+          "discovered_in_sitemaps",
+          "discovered_missing_from_sitemaps",
+          "sitemap_urls_not_in_discovery",
+          "page_observations",
+          "sitemap_urls_with_page_evidence",
+          "status_conflicts",
+          "noindex_conflicts",
+          "robots_conflicts",
+          "canonical_conflicts",
+          "lastmod_observation_conflicts",
+          "known_indexability_conflicts",
+          "unknown_page_indexability",
+          "coverage_limited",
+          "limitations",
+          "documents",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "http.redirect_chain",
       "title": "Analyze observed HTTP redirects and canonical destination chains",
       "description": "V04: review up to eight ordered HTTP response hops, Location redirects, static HTML/HTTP Link canonical declarations, and Googlebot-applicable noindex/robots observations, or probe a bounded public query-free HTTP(S) URL. Detects redirect loops, incomplete/mismatched chains, HTTP errors, canonical conflicts/cycles/chains and non-indexable sampled destinations. A destination is called wrong only relative to an explicitly supplied expected URL. Reports no raw URLs, HTML, headers, credentials, authenticated crawler observations or Google-selected canonical/indexing verdict.",

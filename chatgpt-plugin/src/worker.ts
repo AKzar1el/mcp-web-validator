@@ -173,6 +173,13 @@ import {
   CHAIN_CANONICAL_STATES, CHAIN_INDEXING_STATES, CHAIN_FINDING_CODES,
 } from "./modules/http-crawl/redirect-canonical-chains";
 import { probeRedirectCanonicalChain } from "./modules/http-crawl/redirect-canonical-probe";
+import {
+  analyzeSitemapInventory, emptySitemapInventoryReview,
+  MAX_SITEMAP_DOCUMENTS, MAX_SITEMAP_DOCUMENT_BYTES,
+  MAX_SITEMAP_DISCOVERED, MAX_SITEMAP_PAGE_OBSERVATIONS,
+  MAX_SITEMAP_FINDINGS, SITEMAP_DOCUMENT_KINDS, SITEMAP_FINDING_CODES,
+} from "./modules/http-crawl/sitemap-inventory";
+import { probeSitemapInventory } from "./modules/http-crawl/sitemap-inventory-probe";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -408,6 +415,82 @@ const chainOutputSchema = z.object({
     severity: z.enum(["warning", "info"]),
     message: z.string().max(260),
   })).max(MAX_CHAIN_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+  overview: overviewSchema,
+});
+
+const sitemapDocInputSchema = z.object({
+  sitemap_url: deliveryInputUrl,
+  content: z.string().max(MAX_SITEMAP_DOCUMENT_BYTES),
+  content_type: z.enum(["application/xml", "text/xml", "text/plain"]).optional(),
+  status_code: z.number().int().min(100).max(599).optional(),
+}).strict();
+const sitemapPageInputSchema = z.object({
+  url: chainLabelSchema,
+  status_code: z.number().int().min(100).max(599).optional(),
+  canonical_url: chainLabelSchema.optional(),
+  noindex: z.boolean().optional(),
+  robots_allowed: z.boolean().optional(),
+  modified_at: z.string().max(40).optional(),
+}).strict();
+const sitemapOutputSchema = z.object({
+  scope: z.enum(["caller_supplied_sitemap_evidence", "live_public_sitemap_sample"]),
+  documents_observed: z.number().int().min(0).max(MAX_SITEMAP_DOCUMENTS),
+  documents_complete: z.boolean(),
+  discovered_complete: z.boolean(),
+  inventory_complete: z.boolean(),
+  documents_truncated: z.boolean(),
+  total_entries_seen: z.number().int().nonnegative(),
+  distinct_sitemap_urls: z.number().int().nonnegative(),
+  distinct_page_urls: z.number().int().nonnegative(),
+  distinct_child_sitemaps: z.number().int().nonnegative(),
+  missing_child_documents: z.number().int().nonnegative(),
+  duplicate_url_entries: z.number().int().nonnegative(),
+  invalid_url_entries: z.number().int().nonnegative(),
+  external_url_entries: z.number().int().nonnegative(),
+  lastmod_values_seen: z.number().int().nonnegative(),
+  lastmod_invalid_count: z.number().int().nonnegative(),
+  lastmod_future_count: z.number().int().nonnegative(),
+  lastmod_conflicting_count: z.number().int().nonnegative(),
+  independently_discovered_urls: z.number().int().nonnegative(),
+  discovered_in_sitemaps: z.number().int().nonnegative(),
+  discovered_missing_from_sitemaps: z.number().int().nonnegative(),
+  sitemap_urls_not_in_discovery: z.number().int().nonnegative(),
+  page_observations: z.number().int().nonnegative(),
+  sitemap_urls_with_page_evidence: z.number().int().nonnegative(),
+  status_conflicts: z.number().int().nonnegative(),
+  noindex_conflicts: z.number().int().nonnegative(),
+  robots_conflicts: z.number().int().nonnegative(),
+  canonical_conflicts: z.number().int().nonnegative(),
+  lastmod_observation_conflicts: z.number().int().nonnegative(),
+  known_indexability_conflicts: z.number().int().nonnegative(),
+  unknown_page_indexability: z.number().int().nonnegative(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(260)).max(5),
+  documents: z.array(z.object({
+    document: z.number().int().min(1).max(MAX_SITEMAP_DOCUMENTS),
+    kind: z.enum(SITEMAP_DOCUMENT_KINDS),
+    status_code: z.number().int().min(100).max(599).optional(),
+    entries_seen: z.number().int().nonnegative(),
+    valid_url_entries: z.number().int().nonnegative(),
+    child_sitemaps: z.number().int().nonnegative(),
+    invalid_entries: z.number().int().nonnegative(),
+    external_entries: z.number().int().nonnegative(),
+    duplicate_entries: z.number().int().nonnegative(),
+    lastmod_present: z.number().int().nonnegative(),
+    lastmod_invalid: z.number().int().nonnegative(),
+    lastmod_future: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  })).max(MAX_SITEMAP_DOCUMENTS),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    document: z.number().int().min(0).max(MAX_SITEMAP_DOCUMENTS),
+    entry: z.number().int().positive().optional(),
+    severity: z.enum(["warning", "info"]),
+    code: z.enum(SITEMAP_FINDING_CODES),
+    message: z.string().max(260),
+  })).max(MAX_SITEMAP_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
   overview: overviewSchema,
@@ -3306,6 +3389,110 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           "The supplied metadata sample could not be compared.", error);
         return {
           structuredContent: { ...emptyMetadataReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "review_sitemap_inventory",
+    {
+      title: "Review sitemap inventory, coverage and indexability conflicts",
+      description:
+        "V05: compare up to eight caller-supplied XML/text sitemap documents, independently discovered URLs and page status/robots/noindex/canonical evidence; or fetch one safe public sitemap and up to two same-origin child sitemaps. Reports malformed, duplicated, missing or external entries, lastmod anomalies and observed indexability conflicts without pretending sampled URLs prove full coverage or Google indexing. No raw URLs, XML source, external storage, crawler impersonation, page crawling or production writes.",
+      inputSchema: {
+        url: deliveryInputUrl.optional()
+          .describe("Live: one authorized query-free public site URL; sitemap defaults to /sitemap.xml."),
+        sitemap_url: deliveryInputUrl.optional()
+          .describe("Live: optional same-origin query-free sitemap URL."),
+        site_url: deliveryInputUrl.optional()
+          .describe("Offline: public site whose sitemaps are provided."),
+        documents: z.array(sitemapDocInputSchema).min(1).max(MAX_SITEMAP_DOCUMENTS).optional()
+          .describe("Offline: 1–8 previously acquired XML or plain-text sitemap contents."),
+        discovered_urls: z.array(chainLabelSchema).max(MAX_SITEMAP_DISCOVERED).optional()
+          .describe("Optional independent discovered URLs, not fetched in this call."),
+        page_observations: z.array(sitemapPageInputSchema)
+          .max(MAX_SITEMAP_PAGE_OBSERVATIONS).optional()
+          .describe("Optional HTTP/indexing evidence for up to 250 known pages."),
+        documents_complete: z.boolean().optional(),
+        discovered_complete: z.boolean().optional(),
+        observed_at: z.string().max(40).optional(),
+      },
+      outputSchema: sitemapOutputSchema.shape,
+      annotations: externalReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Reviewing sitemap documents and sampled page evidence...",
+        invoked: "Sitemap inventory review complete.",
+      }),
+    },
+    async ({ url, sitemap_url, site_url, documents, discovered_urls, page_observations,
+      documents_complete, discovered_complete, observed_at }) => {
+      try {
+        if (url
+          ? Boolean(site_url || documents || discovered_urls || page_observations
+            || documents_complete !== undefined || discovered_complete !== undefined
+            || observed_at !== undefined)
+          : !(site_url && documents) || sitemap_url !== undefined) {
+          throw new Error("Select one live URL or complete offline sitemap evidence.");
+        }
+        const review = url
+          ? await probeSitemapInventory(url, sitemap_url, async () => {
+            const allowed = await env.SITE_AUDIT_RATE_LIMITER.limit({ key: siteAuditRateLimitKey });
+            if (!allowed.success) throw new PublicHttpProbeBudgetError("Sitemap public HTTP budget exceeded.");
+          })
+          : analyzeSitemapInventory({
+            site_url: site_url!, documents: documents!,
+            ...(discovered_urls ? { discovered_urls } : {}),
+            ...(page_observations ? { page_observations } : {}),
+            ...(documents_complete === undefined ? {} : { documents_complete }),
+            ...(discovered_complete === undefined ? {} : { discovered_complete }),
+            ...(observed_at ? { observed_at } : {}),
+          });
+        const attention = review.known_indexability_conflicts > 0
+          || review.invalid_url_entries > 0 || review.lastmod_invalid_count > 0;
+        const overview: ResultOverview = {
+          kind: "report",
+          status: attention ? "needs_attention" : "partial",
+          title: "Sitemap inventory (V05)",
+          headline: review.documents_observed + " sampled document(s), "
+            + review.distinct_page_urls + " distinct page URL(s), "
+            + review.missing_child_documents + " missing child sitemap(s).",
+          detail: review.duplicate_url_entries + " duplicate(s), "
+            + review.invalid_url_entries + " invalid URL(s), "
+            + review.lastmod_invalid_count + " invalid lastmod(s), "
+            + review.known_indexability_conflicts + " observed indexability conflict(s). "
+            + (review.inventory_complete
+              ? "Caller-provided document coverage marked complete."
+              : "Full document coverage is not established.")
+            + " No Google indexing/crawling status is inferred.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("invalid_urls", "Invalid URLs", review.invalid_url_entries, "warning"),
+            metric("missing_children", "Unseen child sitemaps", review.missing_child_documents, "info"),
+            metric("indexability_conflicts", "Indexability conflicts",
+              review.known_indexability_conflicts, "warning"),
+          ],
+          next_action: "Verify the complete sitemap index, important page statuses/canonical directives, and independent crawl coverage before treating any inventory as comprehensive.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview, review.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code + " (document " + finding.document + ")",
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "Sitemap inventory could not be evaluated within public URL, bounded XML/text or request limits.";
+        const overview = failedOverview("report", "Sitemap inventory (V05)",
+          "No trustworthy sitemap inventory comparison could be completed.", error);
+        return {
+          structuredContent: { ...emptySitemapInventoryReview(), overview, error },
           content: contentForOverview(overview),
           isError: true,
         };

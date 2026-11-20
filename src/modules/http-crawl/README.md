@@ -28,6 +28,12 @@ An explicit expected destination is required before declaring a wrong target;
 unobserved destinations are unknown, not presumed broken. See
 `docs/v04-redirect-canonical-chains.md`.
 
+V05 `site.sitemaps` and hosted `review_sitemap_inventory` review bounded
+XML/text sitemap documents, child sitemap coverage, lastmod anomalies and
+duplicates, alongside independently observed page redirect/noindex/canonical
+conflicts. Live fetch reads at most three sitemap documents and never crawls
+their listed pages. See `docs/v05-sitemap-inventory.md`.
+
 P1-11 now provides a bounded **offline HTTP response-observation analyzer** in
 `non-html-directives.ts`, exposed through local MCP `http.directives`. It
 parses supplied headers only; no binary download, URL probing or crawler

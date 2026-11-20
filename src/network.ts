@@ -720,22 +720,23 @@ export async function fetchPublicText(
   }
 
   const declaredEncoding = getDeclaredCharacterEncoding(contentTypeHeader);
+  const hasSupportedDeclaredEncoding = declaredEncoding !== undefined
+    && isSupportedCharacterEncoding(declaredEncoding);
   const shouldSniffHtmlEncoding = contentType === "text/html"
-    && (declaredEncoding === undefined || !isSupportedCharacterEncoding(declaredEncoding));
+    && !hasSupportedDeclaredEncoding;
   const isXmlContentType = contentType !== null
     && (contentType === "application/xml" || contentType === "text/xml" || contentType.endsWith("+xml"));
   const shouldSniffXmlEncoding = declaredEncoding === undefined
     && isXmlContentType;
   const shouldPreferXmlBom = declaredEncoding !== undefined && isXmlContentType;
   const shouldPreferHtmlBom = contentType === "text/html"
-    && declaredEncoding !== undefined
-    && isSupportedCharacterEncoding(declaredEncoding);
-  const shouldSniffCssEncoding = contentType === "text/css" && declaredEncoding === undefined;
-  const shouldPreferCssBom = contentType === "text/css" && declaredEncoding !== undefined;
+    && hasSupportedDeclaredEncoding;
+  const shouldSniffCssEncoding = contentType === "text/css" && !hasSupportedDeclaredEncoding;
+  const shouldPreferCssBom = contentType === "text/css" && hasSupportedDeclaredEncoding;
   const text = await readResponseText(
     response,
     maxBytes,
-    shouldSniffHtmlEncoding || shouldSniffXmlEncoding ? undefined : declaredEncoding,
+    shouldSniffHtmlEncoding || shouldSniffXmlEncoding || shouldSniffCssEncoding ? undefined : declaredEncoding,
     shouldSniffHtmlEncoding,
     shouldSniffXmlEncoding,
     shouldPreferXmlBom,

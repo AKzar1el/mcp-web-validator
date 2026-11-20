@@ -16,7 +16,7 @@ import {
   SITE_AUDIT_MAX_PAGES,
   SITE_AUDIT_MAX_SITEMAP_URLS,
 } from "./constants";
-import { fetchPublicHtml, PublicHtmlFetchError, type HtmlMediaType } from "./network";
+import { fetchPublicHtml, probePublicHttp, PublicHtmlFetchError, type HtmlMediaType } from "./network";
 import {
   contentForOverview,
   overviewSchema,
@@ -140,6 +140,15 @@ import {
   VARIANT_CANONICAL_STATES,
   VARIANT_FINDING_CODES,
 } from "./modules/http-crawl/url-variants";
+import {
+  analyzeHttpDelivery,
+  emptyDeliveryReview,
+  MAX_DELIVERY_HOPS,
+  MAX_DELIVERY_FINDINGS,
+  MAX_DELIVERY_HEADER_VALUE_BYTES,
+  DELIVERY_HEADER_NAMES,
+  DELIVERY_FINDING_CODES,
+} from "./modules/http-crawl/http-delivery";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -163,6 +172,63 @@ const GLAMA_CONNECTOR_METADATA = {
   $schema: "https://glama.ai/mcp/schemas/connector.json",
   maintainers: [{ email: "tomi.seregi99@gmail.com" }],
 };
+
+const deliveryInputUrl = z.string().url().max(512)
+  .refine((value) => Boolean(safeHttpResourceUrl(value)),
+    "Use a query-free HTTP(S) URL without credentials, fragment or custom port.");
+const deliveryHeaderSchema = z.record(z.string(), z.string().max(MAX_DELIVERY_HEADER_VALUE_BYTES))
+  .refine((headers) => Object.entries(headers).every(([name, value]) =>
+    DELIVERY_HEADER_NAMES.includes(name.toLowerCase() as typeof DELIVERY_HEADER_NAMES[number])
+    && !/[\r\n\u0000]/u.test(value)),
+  "Only V01 allowlisted HTTP headers with single-line values may be supplied.");
+const deliveryObservationSchema = z.object({
+  url: deliveryInputUrl,
+  status_code: z.number().int().min(100).max(599),
+  method: z.enum(["GET", "HEAD"]).optional(),
+  headers: deliveryHeaderSchema.optional(),
+});
+const deliveryOutputSchema = z.object({
+  scope: z.enum(["live_public_http_probe", "caller_supplied_http_observations"]),
+  hops_observed: z.number().int().min(0).max(MAX_DELIVERY_HOPS),
+  redirects_observed: z.number().int().nonnegative().max(MAX_DELIVERY_HOPS),
+  final_http_status: z.number().int().min(100).max(599).optional(),
+  errors_observed: z.number().int().nonnegative().max(MAX_DELIVERY_HOPS),
+  challenges_observed: z.number().int().nonnegative().max(MAX_DELIVERY_HOPS),
+  redirect_chain_complete: z.boolean(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(260)).max(4),
+  hops: z.array(z.object({
+    hop: z.number().int().min(1).max(MAX_DELIVERY_HOPS),
+    status_code: z.number().int().min(100).max(599),
+    status: z.enum(["success", "redirect", "forbidden", "rate_limited", "server_error", "client_error", "other"]),
+    method: z.enum(["GET", "HEAD", "unspecified"]),
+    https: z.boolean(),
+    redirect_target: z.enum(["none", "same_origin", "cross_origin", "https_downgrade", "query_target", "invalid", "missing"]),
+    next_hop_observed: z.boolean(),
+    cache_state: z.enum(["hit", "miss", "bypass", "dynamic", "expired", "stale", "other", "unknown"]),
+    cache_no_store: z.boolean(),
+    cache_no_cache: z.boolean(),
+    cache_private: z.boolean(),
+    cache_max_age_seconds: z.number().int().nonnegative().optional(),
+    age_seconds: z.number().int().nonnegative().optional(),
+    retry_after_present: z.boolean(),
+    retry_after_seconds: z.number().int().nonnegative().optional(),
+    cf_challenge: z.boolean(),
+    cf_ray_present: z.boolean(),
+    cloudflare_server: z.boolean(),
+    content_type_html: z.boolean(),
+  })).max(MAX_DELIVERY_HOPS),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    hop: z.number().int().min(1).max(MAX_DELIVERY_HOPS),
+    code: z.enum(DELIVERY_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(260),
+  })).max(MAX_DELIVERY_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+  overview: overviewSchema,
+});
 
 const validationMessageSchema = z.object({
   type: z.enum(["error", "warning", "info"]),
@@ -3057,6 +3123,81 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           "The supplied metadata sample could not be compared.", error);
         return {
           structuredContent: { ...emptyMetadataReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "diagnose_http_delivery",
+    {
+      title: "Diagnose HTTP delivery, redirects, cache and edge challenges",
+      description:
+        "V01: bounded single public HTTP GET (up to three same-origin redirects) or up to four already-supplied HTTP response hops. Identifies 403, 429, 5xx, incomplete redirects, cache-state flags, Retry-After, and cf-mitigated challenge evidence. No response body, scripts, cookies, authenticated browser, Googlebot identity verification, historical monitoring or raw header/URL-token output.",
+      inputSchema: {
+        url: deliveryInputUrl.optional()
+          .describe("One authorized public query-free HTTP(S) URL to probe once (GET)."),
+        observations: z.array(deliveryObservationSchema).min(1).max(MAX_DELIVERY_HOPS).optional()
+          .describe("One to four already-observed ordered response hops instead of making an HTTP request."),
+      },
+      outputSchema: deliveryOutputSchema.shape,
+      annotations: externalReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Diagnosing HTTP delivery response evidence...",
+        invoked: "HTTP delivery diagnostics complete.",
+      }),
+    },
+    async ({ url, observations }) => {
+      try {
+        if (Boolean(url) === Boolean(observations)) throw new Error("Exactly one input mode is required.");
+        if (url) {
+          const allowed = await env.SITE_AUDIT_RATE_LIMITER.limit({ key: siteAuditRateLimitKey });
+          if (!allowed.success) throw new Error("Rate limited");
+        }
+        const review = analyzeHttpDelivery(
+          observations ?? await probePublicHttp(url!),
+          url ? "live_public_http_probe" : "caller_supplied_http_observations",
+        );
+        const warnings = review.findings.filter((finding) => finding.severity === "warning");
+        const overview: ResultOverview = {
+          kind: "report",
+          status: warnings.length ? "needs_attention" : "partial",
+          title: "HTTP delivery diagnostics (V01)",
+          headline: review.hops_observed + " HTTP response(s), "
+            + review.errors_observed + " HTTP error(s), "
+            + review.challenges_observed + " explicit Cloudflare challenge signal(s).",
+          detail: review.redirects_observed + " redirect(s) observed; "
+            + (review.redirect_chain_complete ? "the sampled chain completed." : "the sampled redirect chain was incomplete.")
+            + " Single observation only; search crawler behavior and edge/origin causality were not verified.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("http_errors", "HTTP errors", review.errors_observed, "warning"),
+            metric("challenges", "Explicit challenges", review.challenges_observed, "warning"),
+            metric("redirects", "Observed redirects", review.redirects_observed, "info"),
+          ],
+          next_action: warnings.length > 0
+            ? "Inspect affected hops in origin and Cloudflare logs and compare with verified crawler records; do not infer Googlebot was blocked from this probe."
+            : "Repeat with authorized observations when the issue recurs and compare with server/crawler logs.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview, review.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code + " (hop " + finding.hop + ")",
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "HTTP delivery could not be assessed within the public URL, input and rate limits.";
+        const overview = failedOverview("report", "HTTP delivery diagnostics (V01)",
+          "The HTTP delivery sample could not be completed.", error);
+        return {
+          structuredContent: { ...emptyDeliveryReview(), overview, error },
           content: contentForOverview(overview),
           isError: true,
         };

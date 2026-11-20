@@ -95,6 +95,55 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
+describe("V01 real hosted MCP tool diagnostics", () => {
+  it("discovers the tool, runs offline classification and never leaks challenge identifiers", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const tool = (await listTools()).find((entry) => entry.name === "diagnose_http_delivery");
+    expect(tool?.annotations).toMatchObject({
+      readOnlyHint: true, destructiveHint: false, openWorldHint: true,
+    });
+    const result = await callTool("diagnose_http_delivery", {
+      observations: [{ url: "https://example.com/", status_code: 429,
+        headers: { "cf-mitigated": "challenge", "cf-ray": "hidden-V01-ray" } }],
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      hops_observed: 1, errors_observed: 1, challenges_observed: 1,
+      overview: { status: "needs_attention" },
+    });
+    expect(JSON.stringify(result)).not.toContain("hidden-V01-ray");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("runs a live same-origin HTTP delivery probe with two stubbed responses", async () => {
+    const fetchMock = vi.fn(async (url: URL) => String(url) === "https://example.com/"
+      ? new Response(null, { status: 301, headers: { location: "/blocked" } })
+      : new Response(null, { status: 403, headers: { "cf-mitigated": "challenge" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await callTool("diagnose_http_delivery", { url: "https://example.com/" });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      scope: "live_public_http_probe", hops_observed: 2,
+      redirects_observed: 1, errors_observed: 1, challenges_observed: 1,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects URL parameters, invalid input modes, and injected headers", async () => {
+    for (const args of [
+      { url: "https://example.com/?token=secret" },
+      { url: "https://example.com/", observations: [{ url: "https://example.com/", status_code: 200 }] },
+      { observations: [{ url: "https://example.com/", status_code: 403,
+        headers: { "set-cookie": "private-V01-session" } }] },
+    ]) {
+      const result = await callTool("diagnose_http_delivery", args);
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result)).not.toContain("private-V01-session");
+    }
+  });
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -314,7 +363,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers twenty accurately annotated tools", async () => {
+  it("discovers twenty-one accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -334,6 +383,7 @@ describe("hosted tool contract", () => {
       "validate_supported_schema",
       "review_internal_links",
       "review_metadata_consistency",
+      "diagnose_http_delivery",
       "review_url_variants",
       "review_https_security",
       "review_http_directives",

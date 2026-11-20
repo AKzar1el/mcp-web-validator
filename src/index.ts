@@ -64,6 +64,16 @@ import {
   VARIANT_FINDING_CODES,
 } from "./modules/http-crawl/url-variants.js";
 import {
+  analyzeHttpDelivery,
+  emptyDeliveryReview,
+  MAX_DELIVERY_HOPS,
+  MAX_DELIVERY_FINDINGS,
+  MAX_DELIVERY_HEADER_VALUE_BYTES,
+  DELIVERY_HEADER_NAMES,
+  DELIVERY_FINDING_CODES,
+} from "./modules/http-crawl/http-delivery.js";
+import { probeHttpDelivery } from "./modules/http-crawl/http-delivery-probe.js";
+import {
   auditSeoMetadata,
   auditSeoMetadataDetailed,
   checkBrokenLinks,
@@ -1045,6 +1055,65 @@ const httpDirectivesOutputSchema = {
   error: z.string().optional(),
 };
 
+const deliveryInputUrl = z.string().url().max(512)
+  .refine((value) => Boolean(safeHttpResourceUrl(value)),
+    "Use a query-free HTTP(S) URL without credentials, fragment or custom port.");
+const deliveryHeaderSchema = z.record(z.string(), z.string().max(MAX_DELIVERY_HEADER_VALUE_BYTES))
+  .refine((headers) => Object.entries(headers).every(([name, value]) =>
+    DELIVERY_HEADER_NAMES.includes(name.toLowerCase() as typeof DELIVERY_HEADER_NAMES[number])
+    && !/[\r\n\u0000]/u.test(value)),
+  "Only V01 allowlisted HTTP headers with single-line values may be supplied.");
+const deliveryObservationSchema = z.object({
+  url: deliveryInputUrl.describe("Safe query-free URL label of this already-observed HTTP hop; never echoed."),
+  status_code: z.number().int().min(100).max(599)
+    .describe("Observed HTTP response status code from this hop, never inferred."),
+  method: z.enum(["GET", "HEAD"]).optional()
+    .describe("Actual HTTP request method used for this observed response."),
+  headers: deliveryHeaderSchema.optional()
+    .describe("Optional allowlisted response-header observations, not returned verbatim."),
+});
+const deliveryOutputSchema = {
+  scope: z.enum(["live_public_http_probe", "caller_supplied_http_observations"]),
+  hops_observed: z.number().int().min(0).max(MAX_DELIVERY_HOPS),
+  redirects_observed: z.number().int().nonnegative().max(MAX_DELIVERY_HOPS),
+  final_http_status: z.number().int().min(100).max(599).optional(),
+  errors_observed: z.number().int().nonnegative().max(MAX_DELIVERY_HOPS),
+  challenges_observed: z.number().int().nonnegative().max(MAX_DELIVERY_HOPS),
+  redirect_chain_complete: z.boolean(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(260)).max(4),
+  hops: z.array(z.object({
+    hop: z.number().int().min(1).max(MAX_DELIVERY_HOPS),
+    status_code: z.number().int().min(100).max(599),
+    status: z.enum(["success", "redirect", "forbidden", "rate_limited", "server_error", "client_error", "other"]),
+    method: z.enum(["GET", "HEAD", "unspecified"]),
+    https: z.boolean(),
+    redirect_target: z.enum(["none", "same_origin", "cross_origin", "https_downgrade", "query_target", "invalid", "missing"]),
+    next_hop_observed: z.boolean(),
+    cache_state: z.enum(["hit", "miss", "bypass", "dynamic", "expired", "stale", "other", "unknown"]),
+    cache_no_store: z.boolean(),
+    cache_no_cache: z.boolean(),
+    cache_private: z.boolean(),
+    cache_max_age_seconds: z.number().int().nonnegative().optional(),
+    age_seconds: z.number().int().nonnegative().optional(),
+    retry_after_present: z.boolean(),
+    retry_after_seconds: z.number().int().nonnegative().optional(),
+    cf_challenge: z.boolean(),
+    cf_ray_present: z.boolean(),
+    cloudflare_server: z.boolean(),
+    content_type_html: z.boolean(),
+  })).max(MAX_DELIVERY_HOPS),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    hop: z.number().int().min(1).max(MAX_DELIVERY_HOPS),
+    code: z.enum(DELIVERY_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(260),
+  })).max(MAX_DELIVERY_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
 const reportSummarySchema = z.object({
   overallScore: z.number().int().min(0).max(100).nullable(),
   htmlScore: z.number().int().min(0).max(100).nullable(),
@@ -1963,6 +2032,49 @@ export function createServer(): McpServer {
         return result({ ...emptyMediaDiagnostics(), error }, failureContent(
           "Static media diagnostics", error,
           "Supply nonempty HTML markup within the declared UTF-8 byte limit.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "http.delivery",
+    {
+      title: "Diagnose live or supplied HTTP delivery and edge responses",
+      description:
+        "V01: one bounded public HTTP GET probe (up to three same-origin redirects), or one to four ordered caller-supplied response observations. Diagnose 403/429/5xx, redirect completeness, HTTP cache flags, Retry-After and Cloudflare challenge evidence. No body download, JS execution, Googlebot identity verification, monitoring, raw header values or query-bearing URL output. Supply exactly one of url or observations.",
+      inputSchema: {
+        url: deliveryInputUrl.optional()
+          .describe("Authorized public query-free HTTP(S) URL to probe once (GET)."),
+        observations: z.array(deliveryObservationSchema).min(1).max(MAX_DELIVERY_HOPS).optional()
+          .describe("One to four caller-observed response hops instead of live network traffic."),
+      },
+      outputSchema: deliveryOutputSchema,
+      annotations: externalReadOnlyAnnotations,
+    },
+    async ({ url, observations }) => {
+      try {
+        if (Boolean(url) === Boolean(observations)) {
+          throw new Error("Choose exactly one input mode.");
+        }
+        const review = observations
+          ? analyzeHttpDelivery(observations)
+          : await probeHttpDelivery(url!);
+        const warnings = review.findings.filter((item) => item.severity === "warning");
+        const text = "HTTP delivery: " + review.hops_observed + " observed response(s), "
+          + review.redirects_observed + " followed redirect(s), "
+          + review.errors_observed + " HTTP error response(s) and "
+          + review.challenges_observed + " confirmed Cloudflare challenge header(s). "
+          + (warnings.length > 0
+            ? "Review " + warnings.map((finding) => finding.code).slice(0, 4).join(", ") + ". "
+            : "No error or explicit challenge header observed. ")
+          + "This is point-in-time evidence, not a Googlebot or availability-history verdict.";
+        return result(review, text, Boolean(review.error));
+      } catch {
+        const error = "HTTP delivery could not be assessed within the safe URL, response and input limits.";
+        return result({ ...emptyDeliveryReview(), error }, failureContent(
+          "HTTP delivery diagnostics", error,
+          "Supply one authorized query-free public URL or a bounded list of ordered response observations.",
         ), true);
       }
     },

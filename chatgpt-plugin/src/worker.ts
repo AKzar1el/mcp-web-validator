@@ -166,6 +166,13 @@ import {
   MAX_CRAWLER_HTML_BYTES,
 } from "./modules/http-crawl/crawler-access";
 import { probeCrawlerAccess } from "./modules/http-crawl/crawler-access-probe";
+import {
+  analyzeRedirectCanonicalChains, emptyRedirectCanonicalReview,
+  MAX_CHAIN_HOPS, MAX_CHAIN_CANONICALS, MAX_CHAIN_HTML_BYTES,
+  MAX_CHAIN_FINDINGS, CHAIN_REDIRECT_STATES, CHAIN_TARGET_STATES,
+  CHAIN_CANONICAL_STATES, CHAIN_INDEXING_STATES, CHAIN_FINDING_CODES,
+} from "./modules/http-crawl/redirect-canonical-chains";
+import { probeRedirectCanonicalChain } from "./modules/http-crawl/redirect-canonical-probe";
 import { LEGACY_WIDGET_URI, WIDGET_HTML, WIDGET_URI } from "./widget";
 
 const MCP_BODY_MAX_BYTES = 2 * 1024 * 1024;
@@ -346,6 +353,61 @@ const crawlerOutputSchema = z.object({
     profile: z.enum(CRAWLER_PROFILES),
     message: z.string().max(260),
   })).max(MAX_CRAWLER_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+  overview: overviewSchema,
+});
+
+const chainLabelSchema = z.string().url().max(1024)
+  .refine((value) => Boolean(safeVariantLabel(value)),
+    "Use an HTTP(S) URL without credentials, fragments, custom ports or unsafe paths.");
+const chainObservationSchema = z.object({
+  url: chainLabelSchema,
+  status_code: z.number().int().min(100).max(599),
+  location: z.string().max(1024).optional(),
+  canonicals: z.array(z.string().max(1024)).max(MAX_CHAIN_CANONICALS).optional(),
+  html: z.string().max(MAX_CHAIN_HTML_BYTES).optional(),
+  x_robots_tag: z.array(z.string().max(512)).max(8).optional(),
+  robots_allowed: z.boolean().optional(),
+}).strict();
+const chainOutputSchema = z.object({
+  scope: z.enum(["caller_supplied_redirect_evidence", "live_public_redirect_probe"]),
+  hops_observed: z.number().int().min(0).max(MAX_CHAIN_HOPS),
+  redirects_observed: z.number().int().min(0).max(MAX_CHAIN_HOPS),
+  permanent_redirects: z.number().int().nonnegative(),
+  temporary_redirects: z.number().int().nonnegative(),
+  chain_complete: z.boolean(),
+  loop_detected: z.boolean(),
+  final_status_code: z.number().int().min(100).max(599).optional(),
+  expected_destination_match: z.boolean().optional(),
+  conflicting_canonical_hops: z.number().int().nonnegative(),
+  canonical_cycles: z.number().int().nonnegative(),
+  canonical_chain_edges: z.number().int().nonnegative(),
+  nonindexable_destination: z.boolean(),
+  destination_indexing_state: z.enum(CHAIN_INDEXING_STATES),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(260)).max(4),
+  hops: z.array(z.object({
+    hop: z.number().int().min(1).max(MAX_CHAIN_HOPS),
+    status_code: z.number().int().min(100).max(599),
+    redirect_state: z.enum(CHAIN_REDIRECT_STATES),
+    redirect_target: z.enum(CHAIN_TARGET_STATES),
+    next_hop_observed: z.boolean(),
+    canonical_state: z.enum(CHAIN_CANONICAL_STATES),
+    canonical_declarations: z.number().int().nonnegative(),
+    canonical_target_sampled: z.boolean(),
+    googlebot_indexing_state: z.enum(CHAIN_INDEXING_STATES),
+    robots_allowed: z.enum(["allowed", "disallowed", "unknown"]),
+    static_html_examined: z.boolean(),
+    x_robots_header_examined: z.boolean(),
+  })).max(MAX_CHAIN_HOPS),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    hop: z.number().int().min(1).max(MAX_CHAIN_HOPS),
+    code: z.enum(CHAIN_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(260),
+  })).max(MAX_CHAIN_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
   overview: overviewSchema,
@@ -3244,6 +3306,93 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           "The supplied metadata sample could not be compared.", error);
         return {
           structuredContent: { ...emptyMetadataReview(), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "review_redirect_canonical_chains",
+    {
+      title: "Review HTTP redirect chains and canonical destination conflicts",
+      description:
+        "V04: review up to eight supplied ordered HTTP response hops with redirects and static HTML/HTTP canonical plus X-Robots-Tag evidence; or probe a bounded same-origin public GET chain and static HTML destination. Detects loops, chain mismatches, missing or unsafe Location, 4xx/5xx/noindex destinations, conflicting/cyclic canonical declarations and non-matching explicit expected targets. Does not impersonate Googlebot, retrieve Google indexing decisions, store response bodies or echo raw URLs/tokens. Hosted live mode charges rate limit per outgoing request.",
+      inputSchema: {
+        url: deliveryInputUrl.optional()
+          .describe("One authorized query-free public URL for a bounded live GET chain."),
+        source_url: chainLabelSchema.optional()
+          .describe("Offline mode: source URL label; first supplied observation must match."),
+        observations: z.array(chainObservationSchema).min(1).max(MAX_CHAIN_HOPS).optional()
+          .describe("Offline: one to eight ordered observed redirect/status/canonical records."),
+        expected_destination: chainLabelSchema.optional()
+          .describe("Optional expected final URL to identify an observed destination mismatch."),
+      },
+      outputSchema: chainOutputSchema.shape,
+      annotations: externalReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Reviewing redirect hops and canonical destination evidence...",
+        invoked: "Redirect/canonical chain diagnostics complete.",
+      }),
+    },
+    async ({ url, source_url, observations, expected_destination }) => {
+      try {
+        if (url
+          ? Boolean(source_url || observations)
+          : !(source_url && observations)) {
+          throw new Error("Select either live URL or complete offline observations.");
+        }
+        const review = url
+          ? await probeRedirectCanonicalChain(url, expected_destination, async () => {
+            const allowed = await env.SITE_AUDIT_RATE_LIMITER.limit({ key: siteAuditRateLimitKey });
+            if (!allowed.success) throw new PublicHttpProbeBudgetError("Public HTTP request budget exceeded.");
+          })
+          : analyzeRedirectCanonicalChains({
+            source_url: source_url!, observations: observations!,
+            ...(expected_destination ? { expected_destination } : {}),
+          });
+        const warnings = review.findings.filter((item) => item.severity === "warning");
+        const overview: ResultOverview = {
+          kind: "report",
+          status: warnings.length > 0 ? "needs_attention" : "partial",
+          title: "Redirect and canonical chains (V04)",
+          headline: review.hops_observed + " HTTP response(s), "
+            + review.redirects_observed + " redirect(s), "
+            + review.conflicting_canonical_hops + " conflicting-canonical hop(s).",
+          detail: review.canonical_cycles + " canonical cycle(s), "
+            + (review.chain_complete ? "observed chain complete." : "observed chain incomplete.")
+            + (review.nonindexable_destination
+              ? " Sampled destination has an HTTP, noindex or robots-block signal." : "")
+            + " No Google-selected canonical or search indexing status was verified.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("redirects", "Redirect hops", review.redirects_observed, "info"),
+            metric("canonical_conflicts", "Canonical conflicts",
+              review.conflicting_canonical_hops, "warning"),
+            metric("canonical_cycles", "Canonical cycles", review.canonical_cycles, "warning"),
+          ],
+          next_action: warnings.length > 0
+            ? "Inspect the response Location and canonical declarations in the site's configuration; verify important destinations in Search Console or crawler logs separately."
+            : "Compare against the explicitly expected destination and verified crawler responses if the issue recurs.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview, review.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code + " (hop " + finding.hop + ")",
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "The redirect/canonical evidence could not be evaluated within safe public URL, input and request limits.";
+        const overview = failedOverview("report", "Redirect and canonical chains (V04)",
+          "No trustworthy redirect/canonical comparison could be completed.", error);
+        return {
+          structuredContent: { ...emptyRedirectCanonicalReview(), overview, error },
           content: contentForOverview(overview),
           isError: true,
         };

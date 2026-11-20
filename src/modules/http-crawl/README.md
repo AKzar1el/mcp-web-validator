@@ -21,6 +21,13 @@ or inspect robots.txt plus one authorized page with the service's own UA.
 Crawler access and indexing are intentionally separate and unknown evidence is
 not reported as healthy. See `docs/v03-crawler-access.md`.
 
+V04 `http.redirect_chain` and hosted `review_redirect_canonical_chains`
+validate ordered HTTP Location observations, sampled destination status,
+Google-applicable static noindex declarations and canonical chains/cycles.
+An explicit expected destination is required before declaring a wrong target;
+unobserved destinations are unknown, not presumed broken. See
+`docs/v04-redirect-canonical-chains.md`.
+
 P1-11 now provides a bounded **offline HTTP response-observation analyzer** in
 `non-html-directives.ts`, exposed through local MCP `http.directives`. It
 parses supplied headers only; no binary download, URL probing or crawler

@@ -95,6 +95,13 @@ import {
 } from "./modules/http-crawl/crawler-access.js";
 import { probeCrawlerAccess } from "./modules/http-crawl/crawler-access-probe.js";
 import {
+  analyzeRedirectCanonicalChains, emptyRedirectCanonicalReview,
+  MAX_CHAIN_HOPS, MAX_CHAIN_CANONICALS, MAX_CHAIN_HTML_BYTES,
+  MAX_CHAIN_FINDINGS, CHAIN_REDIRECT_STATES, CHAIN_TARGET_STATES,
+  CHAIN_CANONICAL_STATES, CHAIN_INDEXING_STATES, CHAIN_FINDING_CODES,
+} from "./modules/http-crawl/redirect-canonical-chains.js";
+import { probeRedirectCanonicalChain } from "./modules/http-crawl/redirect-canonical-probe.js";
+import {
   auditSeoMetadata,
   auditSeoMetadataDetailed,
   checkBrokenLinks,
@@ -1258,6 +1265,66 @@ const crawlerAccessOutputShape = {
   error: z.string().optional(),
 };
 
+const chainLabelSchema = z.string().url().max(1024)
+  .refine((value) => safeVariantLabel(value) !== null,
+    "Use a safe HTTP(S) URL without credentials, fragments or a custom port.");
+const chainObservationSchema = z.object({
+  url: chainLabelSchema.describe("Observed HTTP URL label, not echoed in the report."),
+  status_code: z.number().int().min(100).max(599)
+    .describe("Observed HTTP status code from this response hop."),
+  location: z.string().max(1024).optional()
+    .describe("Observed Location header when HTTP returned a redirect."),
+  canonicals: z.array(z.string().max(1024)).max(MAX_CHAIN_CANONICALS).optional()
+    .describe("Previously observed canonical href values, including HTTP Link declarations."),
+  html: z.string().max(MAX_CHAIN_HTML_BYTES).optional()
+    .describe("Optional static source HTML (150 KB UTF-8 cap), never executed or returned."),
+  x_robots_tag: z.array(z.string().max(512)).max(8).optional()
+    .describe("Optional observed X-Robots-Tag fields; [] means inspected and absent."),
+  robots_allowed: z.boolean().optional()
+    .describe("Optional independent robots-access evidence; never inferred from the HTTP status."),
+}).strict();
+const chainReviewOutputShape = {
+  scope: z.enum(["caller_supplied_redirect_evidence", "live_public_redirect_probe"]),
+  hops_observed: z.number().int().min(0).max(MAX_CHAIN_HOPS),
+  redirects_observed: z.number().int().min(0).max(MAX_CHAIN_HOPS),
+  permanent_redirects: z.number().int().nonnegative(),
+  temporary_redirects: z.number().int().nonnegative(),
+  chain_complete: z.boolean(),
+  loop_detected: z.boolean(),
+  final_status_code: z.number().int().min(100).max(599).optional(),
+  expected_destination_match: z.boolean().optional(),
+  conflicting_canonical_hops: z.number().int().nonnegative(),
+  canonical_cycles: z.number().int().nonnegative(),
+  canonical_chain_edges: z.number().int().nonnegative(),
+  nonindexable_destination: z.boolean(),
+  destination_indexing_state: z.enum(CHAIN_INDEXING_STATES),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(260)).max(4),
+  hops: z.array(z.object({
+    hop: z.number().int().min(1).max(MAX_CHAIN_HOPS),
+    status_code: z.number().int().min(100).max(599),
+    redirect_state: z.enum(CHAIN_REDIRECT_STATES),
+    redirect_target: z.enum(CHAIN_TARGET_STATES),
+    next_hop_observed: z.boolean(),
+    canonical_state: z.enum(CHAIN_CANONICAL_STATES),
+    canonical_declarations: z.number().int().nonnegative(),
+    canonical_target_sampled: z.boolean(),
+    googlebot_indexing_state: z.enum(CHAIN_INDEXING_STATES),
+    robots_allowed: z.enum(["allowed", "disallowed", "unknown"]),
+    static_html_examined: z.boolean(),
+    x_robots_header_examined: z.boolean(),
+  })).max(MAX_CHAIN_HOPS),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    hop: z.number().int().min(1).max(MAX_CHAIN_HOPS),
+    code: z.enum(CHAIN_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(260),
+  })).max(MAX_CHAIN_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
 const reportSummarySchema = z.object({
   overallScore: z.number().int().min(0).max(100).nullable(),
   htmlScore: z.number().int().min(0).max(100).nullable(),
@@ -2176,6 +2243,58 @@ export function createServer(): McpServer {
         return result({ ...emptyMediaDiagnostics(), error }, failureContent(
           "Static media diagnostics", error,
           "Supply nonempty HTML markup within the declared UTF-8 byte limit.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "http.redirect_chain",
+    {
+      title: "Analyze observed HTTP redirects and canonical destination chains",
+      description:
+        "V04: review up to eight ordered HTTP response hops, Location redirects, static HTML/HTTP Link canonical declarations, and Googlebot-applicable noindex/robots observations, or probe a bounded public query-free HTTP(S) URL. Detects redirect loops, incomplete/mismatched chains, HTTP errors, canonical conflicts/cycles/chains and non-indexable sampled destinations. A destination is called wrong only relative to an explicitly supplied expected URL. Reports no raw URLs, HTML, headers, credentials, authenticated crawler observations or Google-selected canonical/indexing verdict.",
+      inputSchema: {
+        url: deliveryInputUrl.optional()
+          .describe("Live mode: one authorized public query-free URL; bounded GET/redirect chain."),
+        source_url: chainLabelSchema.optional()
+          .describe("Offline mode: source URL, equal to the first supplied HTTP observation."),
+        observations: z.array(chainObservationSchema).min(1).max(MAX_CHAIN_HOPS).optional()
+          .describe("Offline mode: one to eight ordered observed HTTP responses. No requests made."),
+        expected_destination: chainLabelSchema.optional()
+          .describe("Optional caller-defined expected final URL, compared only on a complete observed chain."),
+      },
+      outputSchema: chainReviewOutputShape,
+      annotations: externalReadOnlyAnnotations,
+    },
+    async ({ url, source_url, observations, expected_destination }) => {
+      try {
+        if (url
+          ? Boolean(source_url || observations)
+          : !(source_url && observations)) {
+          throw new Error("Select live URL mode or complete offline evidence, not both.");
+        }
+        const review = url
+          ? await probeRedirectCanonicalChain(url, expected_destination)
+          : analyzeRedirectCanonicalChains({
+            source_url: source_url!, observations: observations!,
+            ...(expected_destination ? { expected_destination } : {}),
+          });
+        return result(review,
+          "Redirect and canonical chain: " + review.hops_observed + " observed response(s), "
+          + review.redirects_observed + " redirect(s), "
+          + review.conflicting_canonical_hops + " canonical conflict(s), "
+          + review.canonical_cycles + " canonical cycle(s). "
+          + (review.chain_complete ? "Observed chain complete. " : "Observed chain incomplete. ")
+          + (review.nonindexable_destination ? "The sampled destination has a blocking or HTTP-error signal. " : "")
+          + (review.expected_destination_match === false
+            ? "The completed chain differs from the caller's expected destination. " : "")
+          + "Google's actual canonical selection or indexing state was not verified.");
+      } catch {
+        const error = "Redirect/canonical evidence could not be assessed within public URL, response and source limits.";
+        return result({ ...emptyRedirectCanonicalReview(), error }, failureContent(
+          "Redirect/canonical chain", error,
+          "Provide one authorized public URL or a source and one to eight ordered HTTP response observations.",
         ), true);
       }
     },

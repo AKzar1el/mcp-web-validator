@@ -144,6 +144,85 @@ describe("V01 real hosted MCP tool diagnostics", () => {
   });
 });
 
+describe("V04 hosted MCP redirect and canonical chain review", () => {
+  it("discovers the read-only tool, returns structured offline findings and redacts URL tokens", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    const tool = (await listTools()).find((entry) => entry.name === "review_redirect_canonical_chains");
+    expect(tool?.annotations).toMatchObject({
+      readOnlyHint: true, openWorldHint: true, destructiveHint: false,
+    });
+    const report = await callTool("review_redirect_canonical_chains", {
+      source_url: "https://example.com/",
+      expected_destination: "https://example.com/final",
+      observations: [
+        { url: "https://example.com/", status_code: 301, location: "/final" },
+        { url: "https://example.com/final", status_code: 200,
+          html: "<html><head><meta name='robots' content='noindex'></head></html>",
+          x_robots_tag: [] },
+      ],
+    });
+    expect(report.isError).not.toBe(true);
+    expect(report.structuredContent).toMatchObject({
+      scope: "caller_supplied_redirect_evidence", hops_observed: 2,
+      redirects_observed: 1, chain_complete: true, expected_destination_match: true,
+      nonindexable_destination: true, overview: { status: "needs_attention" },
+    });
+    expect(JSON.stringify(report)).not.toContain("https://example.com/final");
+    expect(mock).not.toHaveBeenCalled();
+  });
+
+  it("calls the actual hosted live MCP with bounded redirect/HTML probes", async () => {
+    let n = 0;
+    const mock = vi.fn(async () => {
+      n++;
+      if (n === 1) return new Response(null, {
+        status: 301, headers: { location: "/final" },
+      });
+      if (n === 2) return new Response(null, { status: 200 });
+      return new Response("<html><head><link rel='canonical' href='/final'></head></html>", {
+        status: 200, headers: { "content-type": "text/html" },
+      });
+    });
+    vi.stubGlobal("fetch", mock);
+    const report = await callTool("review_redirect_canonical_chains", {
+      url: "https://example.com/",
+      expected_destination: "https://example.com/final",
+    });
+    expect(report.isError).not.toBe(true);
+    expect(report.structuredContent).toMatchObject({
+      scope: "live_public_redirect_probe", hops_observed: 2,
+      final_status_code: 200, chain_complete: true,
+      expected_destination_match: true,
+      destination_indexing_state: "no_noindex_observed",
+    });
+    expect(mock).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects conflicting modes, unsafe source URLs and malicious evidence", async () => {
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+    for (const args of [
+      { url: "https://example.com/?token=SECRET_V04" },
+      { url: "https://example.com/", source_url: "https://example.com/",
+        observations: [{ url: "https://example.com/", status_code: 200 }] },
+      { source_url: "https://example.com/", observations: [
+        { url: "https://example.com/", status_code: 200 },
+        { url: "https://example.com/unrelated", status_code: 200 },
+      ] },
+      { source_url: "https://example.com/", observations: [
+        { url: "https://example.com/", status_code: 200,
+          canonicals: ["a".repeat(1025)] },
+      ] },
+    ]) {
+      const r = await callTool("review_redirect_canonical_chains", args);
+      expect(r.isError).toBe(true);
+      expect(JSON.stringify(r)).not.toContain("SECRET_V04");
+    }
+    expect(mock).not.toHaveBeenCalled();
+  });
+});
+
 describe("V03 hosted MCP crawler-access matrix", () => {
   it("discovers the new read-only tool and runs a redacted offline profile comparison", async () => {
     const mock = vi.fn();
@@ -496,7 +575,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers twenty-three accurately annotated tools", async () => {
+  it("discovers twenty-four accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -516,6 +595,7 @@ describe("hosted tool contract", () => {
       "validate_supported_schema",
       "review_internal_links",
       "review_metadata_consistency",
+      "review_redirect_canonical_chains",
       "review_crawler_access",
       "review_availability_history",
       "diagnose_http_delivery",

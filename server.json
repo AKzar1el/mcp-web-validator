@@ -3406,6 +3406,385 @@
       }
     },
     {
+      "name": "http.redirect_chain",
+      "title": "Analyze observed HTTP redirects and canonical destination chains",
+      "description": "V04: review up to eight ordered HTTP response hops, Location redirects, static HTML/HTTP Link canonical declarations, and Googlebot-applicable noindex/robots observations, or probe a bounded public query-free HTTP(S) URL. Detects redirect loops, incomplete/mismatched chains, HTTP errors, canonical conflicts/cycles/chains and non-indexable sampled destinations. A destination is called wrong only relative to an explicitly supplied expected URL. Reports no raw URLs, HTML, headers, credentials, authenticated crawler observations or Google-selected canonical/indexing verdict.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "description": "Live mode: one authorized public query-free URL; bounded GET/redirect chain.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "source_url": {
+            "description": "Offline mode: source URL, equal to the first supplied HTTP observation.",
+            "type": "string",
+            "maxLength": 1024,
+            "format": "uri"
+          },
+          "observations": {
+            "description": "Offline mode: one to eight ordered observed HTTP responses. No requests made.",
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 1024,
+                  "format": "uri",
+                  "description": "Observed HTTP URL label, not echoed in the report."
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599,
+                  "description": "Observed HTTP status code from this response hop."
+                },
+                "location": {
+                  "description": "Observed Location header when HTTP returned a redirect.",
+                  "type": "string",
+                  "maxLength": 1024
+                },
+                "canonicals": {
+                  "description": "Previously observed canonical href values, including HTTP Link declarations.",
+                  "maxItems": 4,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 1024
+                  }
+                },
+                "html": {
+                  "description": "Optional static source HTML (150 KB UTF-8 cap), never executed or returned.",
+                  "type": "string",
+                  "maxLength": 1048576
+                },
+                "x_robots_tag": {
+                  "description": "Optional observed X-Robots-Tag fields; [] means inspected and absent.",
+                  "maxItems": 8,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 512
+                  }
+                },
+                "robots_allowed": {
+                  "description": "Optional independent robots-access evidence; never inferred from the HTTP status.",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "url",
+                "status_code"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "expected_destination": {
+            "description": "Optional caller-defined expected final URL, compared only on a complete observed chain.",
+            "type": "string",
+            "maxLength": 1024,
+            "format": "uri"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "caller_supplied_redirect_evidence",
+              "live_public_redirect_probe"
+            ]
+          },
+          "hops_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "redirects_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "permanent_redirects": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "temporary_redirects": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "chain_complete": {
+            "type": "boolean"
+          },
+          "loop_detected": {
+            "type": "boolean"
+          },
+          "final_status_code": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "expected_destination_match": {
+            "type": "boolean"
+          },
+          "conflicting_canonical_hops": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "canonical_cycles": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "canonical_chain_edges": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "nonindexable_destination": {
+            "type": "boolean"
+          },
+          "destination_indexing_state": {
+            "type": "string",
+            "enum": [
+              "explicit_noindex",
+              "no_noindex_observed",
+              "unknown"
+            ]
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 260
+            }
+          },
+          "hops": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "hop": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "redirect_state": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "permanent",
+                    "temporary"
+                  ]
+                },
+                "redirect_target": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "next_observed",
+                    "loop",
+                    "cross_origin",
+                    "https_downgrade",
+                    "query_target",
+                    "unobserved",
+                    "missing",
+                    "invalid",
+                    "mismatch"
+                  ]
+                },
+                "next_hop_observed": {
+                  "type": "boolean"
+                },
+                "canonical_state": {
+                  "type": "string",
+                  "enum": [
+                    "absent",
+                    "self",
+                    "sampled",
+                    "external",
+                    "unobserved",
+                    "conflicting",
+                    "invalid",
+                    "redirect_target"
+                  ]
+                },
+                "canonical_declarations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "canonical_target_sampled": {
+                  "type": "boolean"
+                },
+                "googlebot_indexing_state": {
+                  "type": "string",
+                  "enum": [
+                    "explicit_noindex",
+                    "no_noindex_observed",
+                    "unknown"
+                  ]
+                },
+                "robots_allowed": {
+                  "type": "string",
+                  "enum": [
+                    "allowed",
+                    "disallowed",
+                    "unknown"
+                  ]
+                },
+                "static_html_examined": {
+                  "type": "boolean"
+                },
+                "x_robots_header_examined": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "hop",
+                "status_code",
+                "redirect_state",
+                "redirect_target",
+                "next_hop_observed",
+                "canonical_state",
+                "canonical_declarations",
+                "canonical_target_sampled",
+                "googlebot_indexing_state",
+                "robots_allowed",
+                "static_html_examined",
+                "x_robots_header_examined"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 24,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "hop": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "redirect_missing_location",
+                    "redirect_invalid_target",
+                    "redirect_loop",
+                    "redirect_cross_origin",
+                    "redirect_https_downgrade",
+                    "redirect_query_target",
+                    "redirect_observation_mismatch",
+                    "redirect_chain_unobserved",
+                    "redirect_long_chain",
+                    "redirect_destination_http_error",
+                    "redirect_destination_noindex",
+                    "redirect_destination_robots_blocked",
+                    "expected_destination_mismatch",
+                    "canonical_conflict",
+                    "canonical_invalid",
+                    "canonical_external",
+                    "canonical_unobserved",
+                    "canonical_to_redirect",
+                    "canonical_to_http_error",
+                    "canonical_to_noindex",
+                    "canonical_cycle",
+                    "canonical_chain",
+                    "final_status_unverified",
+                    "destination_indexing_unverified"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 260
+                }
+              },
+              "required": [
+                "hop",
+                "code",
+                "severity",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "hops_observed",
+          "redirects_observed",
+          "permanent_redirects",
+          "temporary_redirects",
+          "chain_complete",
+          "loop_detected",
+          "conflicting_canonical_hops",
+          "canonical_cycles",
+          "canonical_chain_edges",
+          "nonindexable_destination",
+          "destination_indexing_state",
+          "coverage_limited",
+          "limitations",
+          "hops",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "crawler.access",
       "title": "Review crawler access, robots rules and indexing directives by profile",
       "description": "V03: compare up to eight supplied pages against robots.txt group precedence and static meta/X-Robots-Tag directives for Googlebot smartphone/desktop/news/image, Bingbot and GPTBot; or probe one public page and robots.txt using only the service's own User-Agent. Distinguishes crawl disallow from explicit noindex and unavailable/ambiguous evidence. Live probe obeys site robots for this service; it does NOT impersonate/verify real crawlers, request indexing, crawl historical logs, or claim a page is indexed. Raw URLs, source and response headers are not returned.",

@@ -7682,6 +7682,515 @@
       }
     },
     {
+      "name": "site.link_graph",
+      "title": "Review sampled internal-link graph, depth and possible orphans",
+      "description": "V06: evaluate one to eight caller-supplied same-origin static HTML/page observations and up to 256 previously observed sitemap labels, or perform a guarded public sample of one robots.txt and up to three HTML pages. Counts standard anchor links including navigation, computes shortest sample-only entry paths, and flags nofollow-only, missing inbound, unobserved URL, blocked/HTTP-error, noindex and noncanonical targets. Orphan candidates are not verified site-wide orphans. No raw URLs/HTML, JavaScript, full crawl, Googlebot impersonation, PageRank, GSC or production changes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "description": "Live mode: one authorized public query-free entry URL, at most three bounded same-origin HTML GETs after robots.txt permission.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "site_url": {
+            "description": "Offline mode: site URL used as the exact-origin comparison scope.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "pages": {
+            "description": "Offline mode: one to eight distinct page observations with optional already obtained HTML, no requests.",
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Observed page URL; only the supplied label is compared."
+                },
+                "html": {
+                  "description": "Optional static HTML of this page; absent HTML never certifies an empty link graph.",
+                  "type": "string",
+                  "maxLength": 1048576
+                },
+                "status_code": {
+                  "description": "Optional independently observed HTTP response status.",
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "robots_allowed": {
+                  "description": "Optional independently observed crawler access; unknown when absent.",
+                  "type": "boolean"
+                },
+                "noindex": {
+                  "description": "Optional independently observed Google-applicable noindex declaration.",
+                  "type": "boolean"
+                },
+                "canonical_url": {
+                  "description": "Optional observed preferred canonical target, not Google's selected canonical.",
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri"
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "entry_urls": {
+            "description": "Optional explicit entry roots; when absent, the site homepage is used only if supplied.",
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 512,
+              "format": "uri"
+            }
+          },
+          "sitemap_urls": {
+            "description": "Optional already observed sitemap page labels; URLs not in the page sample are unverified, never called orphans.",
+            "maxItems": 256,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 512,
+              "format": "uri"
+            }
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "caller_supplied_link_graph",
+              "live_bounded_public_link_graph"
+            ]
+          },
+          "pages_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "html_pages_examined": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "entry_pages_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "entry_pages_missing": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pages_reachable_within_sample": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pages_unreachable_within_sample": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "deepest_observed_sample_depth": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deep_pages_at_three_or_more": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "potential_orphans_within_sample": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unique_observed_sample_edges": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "internal_links_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "external_links_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "nofollow_internal_links": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "distinct_unsampled_link_targets": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unsafe_or_query_links_excluded": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pages_with_truncated_links": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "linked_http_error_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "linked_robots_blocked_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "linked_declared_noindex_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "linked_noncanonical_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "sitemap_urls_provided": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "sitemap_urls_without_page_sample": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "sampled_pages_not_in_sitemap": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "robots_unknown_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "status_unknown_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 350
+            }
+          },
+          "pages": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "html_examined": {
+                  "type": "boolean"
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "robots_access": {
+                  "type": "string",
+                  "enum": [
+                    "allowed",
+                    "disallowed",
+                    "unknown"
+                  ]
+                },
+                "noindex_state": {
+                  "type": "string",
+                  "enum": [
+                    "declared",
+                    "not_observed",
+                    "unknown"
+                  ]
+                },
+                "canonical_state": {
+                  "type": "string",
+                  "enum": [
+                    "self",
+                    "different",
+                    "ambiguous",
+                    "unknown"
+                  ]
+                },
+                "links_observed": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "internal_links": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "external_links": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "fragment_links": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "query_links_excluded": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "unsafe_links_excluded": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "self_links": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "nofollow_internal": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "sampled_targets": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "unobserved_internal_targets": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "incoming_sampled_sources": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "depth_from_entry": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 8
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "potential_orphan_in_sample": {
+                  "type": "boolean"
+                },
+                "extraction_limited": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "page",
+                "html_examined",
+                "robots_access",
+                "noindex_state",
+                "canonical_state",
+                "links_observed",
+                "internal_links",
+                "external_links",
+                "fragment_links",
+                "query_links_excluded",
+                "unsafe_links_excluded",
+                "self_links",
+                "nofollow_internal",
+                "sampled_targets",
+                "unobserved_internal_targets",
+                "incoming_sampled_sources",
+                "depth_from_entry",
+                "potential_orphan_in_sample",
+                "extraction_limited"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 24,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "entry_not_sampled",
+                    "entry_not_crawlable",
+                    "sampled_page_unreachable",
+                    "possible_orphan_in_sample",
+                    "sampled_deep_page",
+                    "link_sample_truncated",
+                    "linked_to_http_error",
+                    "linked_to_robots_blocked",
+                    "linked_to_noindex",
+                    "linked_to_noncanonical",
+                    "nofollow_only_path",
+                    "unobserved_link_targets",
+                    "sitemap_pages_unobserved",
+                    "unsafe_links_excluded",
+                    "query_links_excluded",
+                    "external_base_ignored",
+                    "page_html_unverified",
+                    "no_sampled_outgoing_links"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "page": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "target_page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 360
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "page",
+                "count",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "pages_observed",
+          "html_pages_examined",
+          "entry_pages_observed",
+          "entry_pages_missing",
+          "pages_reachable_within_sample",
+          "pages_unreachable_within_sample",
+          "deepest_observed_sample_depth",
+          "deep_pages_at_three_or_more",
+          "potential_orphans_within_sample",
+          "unique_observed_sample_edges",
+          "internal_links_observed",
+          "external_links_observed",
+          "nofollow_internal_links",
+          "distinct_unsampled_link_targets",
+          "unsafe_or_query_links_excluded",
+          "pages_with_truncated_links",
+          "linked_http_error_pages",
+          "linked_robots_blocked_pages",
+          "linked_declared_noindex_pages",
+          "linked_noncanonical_pages",
+          "sitemap_urls_provided",
+          "sitemap_urls_without_page_sample",
+          "sampled_pages_not_in_sitemap",
+          "robots_unknown_pages",
+          "status_unknown_pages",
+          "coverage_limited",
+          "limitations",
+          "pages",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "site.links",
       "title": "Review contextual internal links and anchor labels",
       "description": "Offline bounded review of one to eight caller-supplied same-origin HTML pages: contextual internal vs external links, missing accessible names, generic labels, nofollow, repeated anchors, and lexical title/H1 overlap only for supplied destinations. Unknown URLs are unverified, never called broken. No fetching, crawling, search data, JavaScript or ranking inference.",

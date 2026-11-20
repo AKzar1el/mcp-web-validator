@@ -7,4 +7,9 @@
 - **Reuse:** `src/seo-auditor.ts` link checks; hosted graph is `chatgpt-plugin/src/indexability-graph.ts`.
 - **Guardrail:** Use M01 crawl observations; never classify unsampled/unreachable pages as confirmed orphans or indexing failures.
 
-This directory is documentation-only; do not count it as a working SEO check or add MCP wiring without a separate request.
+V06 `site.link_graph` and hosted `review_internal_link_graph` share one pure
+bounded graph analyzer with ordinary navigation and contextual anchor edges,
+sampled shortest-path depth, incoming-link coverage and possible orphan leads.
+Optional guarded live mode checks robots.txt then up to three public pages.
+Neither mode claims a full crawl, verified orphan or Google's indexing verdict.
+See `docs/v06-internal-link-graph.md`.

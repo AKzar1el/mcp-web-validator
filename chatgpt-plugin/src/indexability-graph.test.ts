@@ -203,6 +203,18 @@ describe("indexability graph: sampled-only corroboration", () => {
     expect(build([a, reciprocal]).findings.map((f) => f.code)).not.toContain("indexability.hreflang_missing_return");
   });
 
+  it("does not require language-selector x-default targets to link back", () => {
+    const english = page("https://example.com/en",
+      '<title>English</title><link rel=alternate hreflang=en href="/en"><link rel=alternate hreflang=x-default href="/choose-language">');
+    const selector = page("https://example.com/choose-language", '<title>Choose your language</title>');
+    expect(build([english, selector]).findings.map((finding) => finding.code))
+      .not.toContain("indexability.hreflang_missing_return");
+    const localizedTarget = page("https://example.com/choose-language",
+      '<title>Localized content</title><link rel=alternate hreflang=de href="/de">');
+    expect(build([english, localizedTarget]).findings.map((finding) => finding.code))
+      .toContain("indexability.hreflang_missing_return");
+  });
+
   it("reports a missing HTML hreflang self-link only when the sampled declarations are complete", () => {
     const sourceUrl = "https://example.com/en";
     const source = page(sourceUrl, '<title>English</title><link rel=alternate hreflang=de href="/de">');

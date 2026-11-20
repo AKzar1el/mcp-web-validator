@@ -322,6 +322,9 @@ export function buildSiteIndexabilityGraph(
     for (const alternative of page.indexability.hreflang) {
       const target = byUrl.get(alternative.url);
       if (!target || target.indexability.hreflang_truncated) continue;
+      // An x-default language selector may not be a localized page and need
+      // not declare the originating page as a language variant.
+      if (alternative.language === "x-default" && target.indexability.hreflang.length === 0) continue;
       const reciprocal = target.indexability.hreflang.some((link) => link.url === ownUrl);
       if (reciprocal) continue;
       const key = JSON.stringify([ownUrl, alternative.url]);

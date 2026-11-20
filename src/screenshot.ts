@@ -127,7 +127,9 @@ export function explainScreenshotBrowserLaunchFailure(
 
 let screenshotBrowserExecutablePromise: Promise<string> | undefined;
 
-const defaultScreenshotBrowserRuntime: ScreenshotBrowserRuntime = {
+// Also reused by bounded local-only browser diagnostics. Callers are required
+// to configure an explicit deny-all proxy and intercept all document requests.
+export const defaultScreenshotBrowserRuntime: ScreenshotBrowserRuntime = {
   async launch(proxyServer: string): Promise<PuppeteerBrowser> {
     screenshotBrowserExecutablePromise ??= resolveScreenshotBrowserExecutable();
     let executablePath: string;

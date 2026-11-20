@@ -97,6 +97,21 @@ test("JSON-LD audit recognizes media-type parameters without matching unrelated 
   assert.match(detailed.issues[0].message, /Invalid JSON-LD schema syntax/);
 });
 
+test("JSON-LD accepts a leading BOM without accepting broken JSON", () => {
+  const bom = String.fromCharCode(0xfeff);
+  const valid = validateSchemaMarkupDetailed(
+    `<script type="application/ld+json">${bom}{"@context":"https://schema.org","@type":"WebSite"}</script>`,
+  );
+  assert.deepEqual(valid.counts, { error: 0, warning: 0, info: 0 });
+  assert.equal(valid.totalIssues, 0);
+
+  const invalid = validateSchemaMarkupDetailed(
+    `<script type="application/ld+json">${bom}{broken}</script>`,
+  );
+  assert.equal(invalid.totalIssues, 1);
+  assert.equal(invalid.issues[0].code, "schema.jsonld.invalid_json");
+});
+
 test("JSON-LD audit rejects non-document top-level JSON shapes", () => {
   const invalid = validateSchemaMarkupDetailed([
     '<script type="application/ld+json">42</script>',

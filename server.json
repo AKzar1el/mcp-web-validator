@@ -3,7 +3,7 @@
   "name": "io.github.AKzar1el/mcp-web-validator",
   "title": "Web Validator by DigestSEO",
   "description": "Validate HTML/CSS, audit SEO and JSON-LD, check links, and capture responsive screenshots.",
-  "version": "1.3.49",
+  "version": "1.3.51",
   "repository": {
     "url": "https://github.com/AKzar1el/mcp-web-validator",
     "source": "github"
@@ -453,6 +453,537 @@
       }
     },
     {
+      "name": "content.duplicates",
+      "title": "Compare same-language main content",
+      "description": "Compares static main text across one to eight HTML pages supplied by the caller. Reports high-confidence exact matches and conservative near matches only within the same language (and script). No network requests or storage. Output is limited to this sample, not site-wide uniqueness.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pages": {
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Absolute page URL label only; no network request is made or query parameters accepted."
+                },
+                "htmlContent": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 250000,
+                  "description": "Already obtained static HTML, at most 250,000 UTF-8 bytes per page."
+                }
+              },
+              "required": [
+                "url",
+                "htmlContent"
+              ]
+            },
+            "description": "One to eight HTML pages to compare; total HTML must be at most 1 MiB."
+          }
+        },
+        "required": [
+          "pages"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "sampled_pages_only"
+          },
+          "sampled_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "eligible_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "skipped_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "coverage_limited": {
+            "type": "boolean"
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "total_pairs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pairs": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "first_url": {
+                  "type": "string"
+                },
+                "second_url": {
+                  "type": "string"
+                },
+                "language": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "exact",
+                    "near"
+                  ]
+                },
+                "confidence": {
+                  "type": "string",
+                  "enum": [
+                    "observed",
+                    "potential"
+                  ]
+                },
+                "similarity_percent": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "first_words": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "second_words": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "first_url",
+                "second_url",
+                "language",
+                "kind",
+                "confidence",
+                "similarity_percent",
+                "first_words",
+                "second_words"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "pairs_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "sampled_pages",
+          "eligible_pages",
+          "skipped_pages",
+          "coverage_limited",
+          "limitations",
+          "total_pairs",
+          "pairs",
+          "pairs_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "content.quality",
+      "title": "Review empty, short and repeated main content",
+      "description": "Offline, evidence-limited review of empty or thin static main text and substantive repeated sentences within same-language page families. Reports possible missing standalone value, not Google rankings or a semantic quality verdict. Accepts up to eight supplied HTML pages; no network, storage, browser or LLM.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pages": {
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Absolute page URL label only; no network request is made or query parameters accepted."
+                },
+                "htmlContent": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 250000,
+                  "description": "Already obtained static HTML, at most 250,000 UTF-8 bytes per page."
+                }
+              },
+              "required": [
+                "url",
+                "htmlContent"
+              ]
+            },
+            "description": "One to eight authorized HTML page observations; total supplied HTML must be at most 1 MB."
+          }
+        },
+        "required": [
+          "pages"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "sampled_pages_only"
+          },
+          "sampled_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "eligible_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "skipped_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "families_compared": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "empty_main_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "short_main_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "repeated_boilerplate_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "possible_low_value_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "coverage_limited": {
+            "type": "boolean"
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 300
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "confidence": {
+                  "type": "string",
+                  "enum": [
+                    "observed",
+                    "potential"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                },
+                "affected_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "example_urls": {
+                  "maxItems": 2,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 512
+                  }
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "confidence",
+                "message",
+                "affected_pages",
+                "example_urls"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "sampled_pages",
+          "eligible_pages",
+          "skipped_pages",
+          "families_compared",
+          "empty_main_pages",
+          "short_main_pages",
+          "repeated_boilerplate_pages",
+          "possible_low_value_pages",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "site.hreflang",
+      "title": "Verify multilingual hreflang clusters",
+      "description": "Compares head-only hreflang and canonical declarations across up to sixteen supplied static HTML pages, including x-default, reciprocal references and same-locale target consistency. No URLs are fetched, and unsampled targets are not declared broken. Works across authorized domains; no browser, files or storage.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pages": {
+            "minItems": 1,
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 256,
+                  "format": "uri",
+                  "description": "Absolute authorized page URL label; not fetched. Cross-domain alternate sites are supported."
+                },
+                "htmlContent": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 125000,
+                  "description": "Already obtained static HTML for that page; no network requests are made."
+                }
+              },
+              "required": [
+                "url",
+                "htmlContent"
+              ]
+            },
+            "description": "Up to sixteen page observations; total supplied HTML must be at most 1.5 MB."
+          }
+        },
+        "required": [
+          "pages"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "sampled_pages_only"
+          },
+          "sampled_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16
+          },
+          "eligible_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16
+          },
+          "pages_with_alternates": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16
+          },
+          "locales_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unobserved_targets": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "invalid_declarations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coverage_limited": {
+            "type": "boolean"
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 320
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "error",
+                    "warning"
+                  ]
+                },
+                "confidence": {
+                  "type": "string",
+                  "enum": [
+                    "observed",
+                    "potential"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                },
+                "example_urls": {
+                  "maxItems": 2,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 256
+                  }
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "confidence",
+                "message",
+                "example_urls"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "sampled_pages",
+          "eligible_pages",
+          "pages_with_alternates",
+          "locales_observed",
+          "unobserved_targets",
+          "invalid_declarations",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "links.broken",
       "title": "Check public links",
       "description": "Resolves and checks up to 25 public HTTP(S) links in supplied HTML. Redirects are reported but not followed, and response bodies are discarded.",
@@ -525,12 +1056,22 @@
               "additionalProperties": false
             }
           },
+          "totalLinks": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "truncated": {
+            "type": "boolean"
+          },
           "error": {
             "type": "string"
           }
         },
         "required": [
-          "links"
+          "links",
+          "totalLinks",
+          "truncated"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false
@@ -652,6 +1193,214 @@
           "totalIssues",
           "truncated",
           "counts"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "schema.supported",
+      "title": "Review supported Schema.org JSON-LD structures",
+      "description": "Offline bounded structural review of explicit JSON-LD for Article/NewsArticle/BlogPosting, Product, BreadcrumbList, FAQPage, Organization and WebSite. Checks limited property shapes and review-profile recommendations; unknown contexts/types stay unverified. Does not resolve remote contexts or certify Schema.org validity, Google rich-result eligibility, content truth or rankings. Use schema.markup for existing syntax-only diagnostics.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "htmlContent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 250000,
+            "description": "Caller-supplied HTML containing JSON-LD script blocks, never fetched, at most 250 KB UTF-8."
+          }
+        },
+        "required": [
+          "htmlContent"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "bounded_jsonld_structural_profiles"
+          },
+          "blocks_seen": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "blocks_checked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 12
+          },
+          "blocks_skipped": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "nodes_examined": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 64
+          },
+          "supported_nodes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unsupported_nodes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "context_unverified_nodes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "types_checked": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "Article",
+                "NewsArticle",
+                "BlogPosting",
+                "Product",
+                "BreadcrumbList",
+                "FAQPage",
+                "Organization",
+                "WebSite"
+              ]
+            }
+          },
+          "errors": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "warnings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unverified": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coverage_limited": {
+            "type": "boolean"
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 320
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "error",
+                    "warning",
+                    "info"
+                  ]
+                },
+                "block": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "node": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "Article",
+                    "NewsArticle",
+                    "BlogPosting",
+                    "Product",
+                    "BreadcrumbList",
+                    "FAQPage",
+                    "Organization",
+                    "WebSite"
+                  ]
+                },
+                "property": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 290
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "block",
+                "node",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "blocks_seen",
+          "blocks_checked",
+          "blocks_skipped",
+          "nodes_examined",
+          "supported_nodes",
+          "unsupported_nodes",
+          "context_unverified_nodes",
+          "types_checked",
+          "errors",
+          "warnings",
+          "unverified",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": false
@@ -1125,6 +1874,967 @@
       }
     },
     {
+      "name": "audit.monitor",
+      "title": "Dry-run regression monitoring of existing local audit history",
+      "description": "Manual, offline, read-only P2-02 regression/optional-alert PREVIEW for two to ten existing saved audit.history IDs in oldest-first order. Configurable 1–8 sampled regressed pages, net error/warning increases, 1–4 step regression streak and review-only coverage loss/sitemap drift. Candidate alerts require complete comparable observations with unambiguous chronology; nothing is sent, scheduled, persisted, fetched or connected to GSC/GA4.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "minItems": 2,
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "description": "Two to ten already-saved distinct local history version IDs, oldest to newest; the archive is never modified by monitoring."
+          },
+          "dry_run": {
+            "default": true,
+            "description": "Strictly manual simulation. Only true is accepted; no alert delivery or scheduling exists.",
+            "type": "boolean",
+            "const": true
+          },
+          "policy": {
+            "description": "Optional bounded manual-only thresholds and review toggles, not persisted or scheduled.",
+            "type": "object",
+            "properties": {
+              "min_regressed_pages": {
+                "description": "Minimum number of regressed matched pages in the latest fully comparable sample (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "min_net_error_increase": {
+                "description": "Minimum positive net change in observed error counts across matching completed pages (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "min_net_warning_increase": {
+                "description": "Minimum positive net change in observed warning counts across matching completed pages (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "min_coverage_lost_pages": {
+                "description": "Minimum previously completed pages now missing a complete check for a review-only observation (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "consecutive_regressing_steps": {
+                "description": "Consecutive fully comparable regression transitions needed for the regressed-pages candidate (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4
+              },
+              "review_coverage_loss": {
+                "description": "Include review-only validator coverage-loss observations without treating them as defects (default true).",
+                "type": "boolean"
+              },
+              "review_sitemap_drift": {
+                "description": "Include review-only discovery fingerprint changes, never as defect alarms (default true).",
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "manual_sampled_regression_alert_preview_only"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "local_saved_ids",
+              "caller_supplied_snapshots"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "preview_ready",
+              "review_only",
+              "no_candidate",
+              "insufficient_evidence"
+            ]
+          },
+          "dry_run": {
+            "type": "boolean",
+            "const": true
+          },
+          "manually_invoked": {
+            "type": "boolean",
+            "const": true
+          },
+          "scheduler_enabled": {
+            "type": "boolean",
+            "const": false
+          },
+          "delivery_enabled": {
+            "type": "boolean",
+            "const": false
+          },
+          "notifications_sent": {
+            "type": "number",
+            "const": 0
+          },
+          "external_integrations_used": {
+            "type": "boolean",
+            "const": false
+          },
+          "latest_baseline_version": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "latest_current_version": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "latest_comparability": {
+            "type": "string",
+            "enum": [
+              "comparable_sample",
+              "partial",
+              "not_comparable"
+            ]
+          },
+          "latest_compared_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "latest_completed_pairs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "candidate_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "review_only_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "suppressed_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "policy": {
+            "type": "object",
+            "properties": {
+              "min_regressed_pages": {
+                "description": "Minimum number of regressed matched pages in the latest fully comparable sample (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "min_net_error_increase": {
+                "description": "Minimum positive net change in observed error counts across matching completed pages (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "min_net_warning_increase": {
+                "description": "Minimum positive net change in observed warning counts across matching completed pages (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "min_coverage_lost_pages": {
+                "description": "Minimum previously completed pages now missing a complete check for a review-only observation (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "consecutive_regressing_steps": {
+                "description": "Consecutive fully comparable regression transitions needed for the regressed-pages candidate (default 1).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4
+              },
+              "review_coverage_loss": {
+                "description": "Include review-only validator coverage-loss observations without treating them as defects (default true).",
+                "type": "boolean"
+              },
+              "review_sitemap_drift": {
+                "description": "Include review-only discovery fingerprint changes, never as defect alarms (default true).",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "min_regressed_pages",
+              "min_net_error_increase",
+              "min_net_warning_increase",
+              "min_coverage_lost_pages",
+              "consecutive_regressing_steps",
+              "review_coverage_loss",
+              "review_sitemap_drift"
+            ],
+            "additionalProperties": false
+          },
+          "rules": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "regressed_pages",
+                    "net_error_increase",
+                    "net_warning_increase",
+                    "coverage_loss",
+                    "sitemap_drift"
+                  ]
+                },
+                "decision": {
+                  "type": "string",
+                  "enum": [
+                    "preview_candidate",
+                    "review_only",
+                    "suppressed",
+                    "below_threshold",
+                    "disabled"
+                  ]
+                },
+                "reason_code": {
+                  "type": "string",
+                  "enum": [
+                    "threshold_met",
+                    "threshold_not_met",
+                    "rule_disabled",
+                    "incomplete_latest_pair",
+                    "ambiguous_version_order",
+                    "insufficient_streak_history",
+                    "regression_streak_not_met",
+                    "observed_validator_coverage_loss",
+                    "observed_sitemap_drift",
+                    "not_enough_observed_comparisons"
+                  ]
+                },
+                "latest_observed_value": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "threshold": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10000
+                },
+                "review_required": {
+                  "type": "boolean"
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 290
+                }
+              },
+              "required": [
+                "rule",
+                "decision",
+                "reason_code",
+                "latest_observed_value",
+                "threshold",
+                "review_required",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 360
+            }
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "source",
+          "status",
+          "dry_run",
+          "manually_invoked",
+          "scheduler_enabled",
+          "delivery_enabled",
+          "notifications_sent",
+          "external_integrations_used",
+          "latest_baseline_version",
+          "latest_current_version",
+          "latest_comparability",
+          "latest_compared_pages",
+          "latest_completed_pairs",
+          "candidate_count",
+          "review_only_count",
+          "suppressed_count",
+          "coverage_limited",
+          "policy",
+          "rules",
+          "limitations"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "audit.trends",
+      "title": "Compare two to ten locally saved site-audit history versions",
+      "description": "Read-only, offline longitudinal comparison of 2–10 previously saved local audit.history version IDs (oldest first). Uses only the existing compact audit archive, compares adjacent and first/last snapshots plus an exact fully-checked all-version cohort, separates coverage loss from real changes and gates issue-group disappearance on identical complete selected samples. No new site requests, archive mutations, scheduled checks or Google-indexing claims. Returns only redacted numeric evidence, never page URLs, issue messages or stored snapshots.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "minItems": 2,
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "description": "Two to ten distinct IDs of already-saved audit.history versions in oldest-to-newest storage order. An evicted or missing version fails closed without changing the archive."
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "historical_compact_audit_versions_only"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "local_saved_ids",
+              "caller_supplied_snapshots"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "comparable_sample",
+              "partial",
+              "not_comparable"
+            ]
+          },
+          "versions_compared": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "comparisons_made": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9
+          },
+          "comparable_transitions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "partial_transitions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "not_comparable_transitions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "stable_cohort_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "complete_stable_cohort_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "cohort_metrics_available": {
+            "type": "boolean"
+          },
+          "time_order_ambiguous": {
+            "type": "boolean"
+          },
+          "total_regressed_page_transitions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "total_improved_page_transitions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "total_coverage_lost_transitions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "historical_points": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "sampled_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "completed_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "sample_limited": {
+                  "type": "boolean"
+                },
+                "cohort_completed_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "cohort_errors": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "cohort_warnings": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "cohort_mean_health_score": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "version",
+                "sampled_pages",
+                "completed_pages",
+                "sample_limited",
+                "cohort_completed_pages",
+                "cohort_errors",
+                "cohort_warnings",
+                "cohort_mean_health_score"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "consecutive_changes": {
+            "maxItems": 9,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "baseline_version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "current_version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "comparable_sample",
+                    "partial",
+                    "not_comparable"
+                  ]
+                },
+                "shared_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "completely_checked_pairs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "regressed_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "improved_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "mixed_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "unchanged_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "coverage_lost_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "coverage_recovered_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "unverified_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "errors_delta_checked": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "warnings_delta_checked": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "changed_sample": {
+                  "type": "boolean"
+                },
+                "sitemap_changed": {
+                  "type": "boolean"
+                },
+                "issue_group_comparison_available": {
+                  "type": "boolean"
+                },
+                "newly_observed_groups": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "no_longer_observed_groups": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "expanding_groups": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "shrinking_groups": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "baseline_version",
+                "current_version",
+                "status",
+                "shared_pages",
+                "completely_checked_pairs",
+                "regressed_pages",
+                "improved_pages",
+                "mixed_pages",
+                "unchanged_pages",
+                "coverage_lost_pages",
+                "coverage_recovered_pages",
+                "unverified_pages",
+                "errors_delta_checked",
+                "warnings_delta_checked",
+                "changed_sample",
+                "sitemap_changed",
+                "issue_group_comparison_available",
+                "newly_observed_groups",
+                "no_longer_observed_groups",
+                "expanding_groups",
+                "shrinking_groups"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "first_last_change": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "baseline_version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10
+                  },
+                  "current_version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "comparable_sample",
+                      "partial",
+                      "not_comparable"
+                    ]
+                  },
+                  "shared_pages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "completely_checked_pairs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "regressed_pages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "improved_pages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "mixed_pages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "unchanged_pages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "coverage_lost_pages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "coverage_recovered_pages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "unverified_pages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 8
+                  },
+                  "errors_delta_checked": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "warnings_delta_checked": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "changed_sample": {
+                    "type": "boolean"
+                  },
+                  "sitemap_changed": {
+                    "type": "boolean"
+                  },
+                  "issue_group_comparison_available": {
+                    "type": "boolean"
+                  },
+                  "newly_observed_groups": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "no_longer_observed_groups": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "expanding_groups": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "shrinking_groups": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "baseline_version",
+                  "current_version",
+                  "status",
+                  "shared_pages",
+                  "completely_checked_pairs",
+                  "regressed_pages",
+                  "improved_pages",
+                  "mixed_pages",
+                  "unchanged_pages",
+                  "coverage_lost_pages",
+                  "coverage_recovered_pages",
+                  "unverified_pages",
+                  "errors_delta_checked",
+                  "warnings_delta_checked",
+                  "changed_sample",
+                  "sitemap_changed",
+                  "issue_group_comparison_available",
+                  "newly_observed_groups",
+                  "no_longer_observed_groups",
+                  "expanding_groups",
+                  "shrinking_groups"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 360
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "equal_timestamps",
+                    "changed_sitemap_fingerprint",
+                    "changed_sample",
+                    "incomplete_coverage",
+                    "nonoverlapping_versions",
+                    "regressed_pages",
+                    "mixed_page_changes",
+                    "coverage_lost",
+                    "group_changes_unavailable",
+                    "all_versions_incomplete",
+                    "historical_sample_only"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 330
+                }
+              },
+              "required": [
+                "version",
+                "code",
+                "severity",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "source",
+          "status",
+          "versions_compared",
+          "comparisons_made",
+          "comparable_transitions",
+          "partial_transitions",
+          "not_comparable_transitions",
+          "stable_cohort_pages",
+          "complete_stable_cohort_pages",
+          "cohort_metrics_available",
+          "time_order_ambiguous",
+          "total_regressed_page_transitions",
+          "total_improved_page_transitions",
+          "total_coverage_lost_transitions",
+          "historical_points",
+          "consecutive_changes",
+          "first_last_change",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "audit.history",
       "title": "Manage local audit history",
       "description": "Opt-in local-only site-audit snapshot history. Save a previous hosted audit_public_site structured result as JSON, list saved IDs, or retrieve an exact version. A single compact local JSON file retains at most 10 versions; saving the 11th removes the oldest. No database, background task, or network request.",
@@ -1215,6 +2925,1646 @@
         "readOnlyHint": false,
         "destructiveHint": true,
         "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "browser.wcag",
+      "title": "Review bounded rendered-DOM keyboard and WCAG interaction evidence",
+      "description": "Local-only inert Chromium analysis of supplied HTML: sandboxed pinned headless browser, no external resource requests, scripts disabled and stripped, DOM accessible-name heuristics, aria-hidden focus, positive tabindex, custom role focusability, up to 24 real keyboard Tab focus samples, computed focus indicator review and native summary Enter toggle. Never navigates URLs, clicks links/buttons, submits forms, stores screenshots or certifies WCAG; may provision pinned browser on first use.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "htmlContent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180000,
+            "description": "Caller-supplied authorized HTML only, never a URL or file path; scripts/frames removed, external resources blocked."
+          },
+          "viewportWidth": {
+            "description": "Optional isolated desktop/mobile viewport width in CSS pixels, 320–1440; defaults to 960.",
+            "type": "integer",
+            "minimum": 320,
+            "maximum": 1440
+          },
+          "viewportHeight": {
+            "description": "Optional isolated viewport height in CSS pixels, 360–1080; defaults to 720.",
+            "type": "integer",
+            "minimum": 360,
+            "maximum": 1080
+          },
+          "maxTabSteps": {
+            "description": "Maximum real browser Tab key samples (1–24), default 24; no click, form submission or network.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 24
+          }
+        },
+        "required": [
+          "htmlContent"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "offline_sandboxed_rendered_html"
+          },
+          "browser_executed": {
+            "type": "boolean"
+          },
+          "scripts_disabled": {
+            "type": "boolean",
+            "const": true
+          },
+          "viewport_width": {
+            "type": "integer",
+            "minimum": 320,
+            "maximum": 1440
+          },
+          "viewport_height": {
+            "type": "integer",
+            "minimum": 360,
+            "maximum": 1080
+          },
+          "resources_blocked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "scripts_present": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "controls_seen": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "controls_inspected": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120
+          },
+          "controls_truncated": {
+            "type": "boolean"
+          },
+          "visible_controls_without_name": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "positive_tabindex_controls": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "aria_hidden_focusable_controls": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "custom_roles_without_tab_stop": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "tab_steps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 24
+          },
+          "unique_tab_targets": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 24
+          },
+          "focus_indicator_review_leads": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "focus_outside_viewport": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "native_summaries_tested": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "native_summaries_toggled": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "keyboard_sampling_incomplete": {
+            "type": "boolean"
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 330
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "missing_accessible_name",
+                    "positive_tabindex",
+                    "aria_hidden_focusable",
+                    "custom_role_not_keyboard_focusable",
+                    "potential_focus_indicator_absent",
+                    "focus_outside_viewport",
+                    "summary_enter_not_toggled"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "evidence": {
+                  "type": "string",
+                  "enum": [
+                    "rendered_dom",
+                    "keyboard_tab",
+                    "native_summary"
+                  ]
+                },
+                "control": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 120
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "evidence",
+                "control",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "browser_executed",
+          "scripts_disabled",
+          "viewport_width",
+          "viewport_height",
+          "resources_blocked",
+          "scripts_present",
+          "controls_seen",
+          "controls_inspected",
+          "controls_truncated",
+          "visible_controls_without_name",
+          "positive_tabindex_controls",
+          "aria_hidden_focusable_controls",
+          "custom_roles_without_tab_stop",
+          "tab_steps",
+          "unique_tab_targets",
+          "focus_indicator_review_leads",
+          "focus_outside_viewport",
+          "native_summaries_tested",
+          "native_summaries_toggled",
+          "keyboard_sampling_incomplete",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "media.diagnostics",
+      "title": "Review static images, video and media-loading evidence",
+      "description": "Local-only, offline review of caller-supplied HTML image alt/name evidence, responsive picture fallbacks, intrinsic dimensions, lazy loading/decoding/fetchpriority hints, video sources and caption tracks. Bounded and redacted; never fetches or renders media, executes scripts, measures layout, validates caption contents or certifies accessibility/performance.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "htmlContent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180000,
+            "description": "Caller-supplied static HTML markup to inspect offline; no URL, resource or local file is fetched."
+          }
+        },
+        "required": [
+          "htmlContent"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "caller_supplied_static_media_markup_only"
+          },
+          "images_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pictures_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "videos_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "source_elements_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "track_elements_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "media_elements_checked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 160
+          },
+          "media_elements_truncated": {
+            "type": "boolean"
+          },
+          "images_without_explicit_alt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "images_with_empty_alt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "images_without_intrinsic_dimensions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lazy_images_without_intrinsic_dimensions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "image_sources_unobserved": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "videos_without_observed_source": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "videos_without_caption_track": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "picture_fallbacks_unobserved": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 360
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "image_name_unobserved",
+                    "image_whitespace_alt",
+                    "linked_image_name_unobserved",
+                    "image_source_unobserved",
+                    "image_lazy_dimensions_unobserved",
+                    "image_invalid_loading",
+                    "image_invalid_decoding",
+                    "image_invalid_fetchpriority",
+                    "picture_fallback_unobserved",
+                    "picture_source_srcset_unobserved",
+                    "video_source_unobserved",
+                    "video_caption_track_unobserved",
+                    "video_caption_source_unobserved",
+                    "video_autoplay_without_muted"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "media_type": {
+                  "type": "string",
+                  "enum": [
+                    "image",
+                    "picture",
+                    "video"
+                  ]
+                },
+                "element": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 160
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 240
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "media_type",
+                "element",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "images_observed",
+          "pictures_observed",
+          "videos_observed",
+          "source_elements_observed",
+          "track_elements_observed",
+          "media_elements_checked",
+          "media_elements_truncated",
+          "images_without_explicit_alt",
+          "images_with_empty_alt",
+          "images_without_intrinsic_dimensions",
+          "lazy_images_without_intrinsic_dimensions",
+          "image_sources_unobserved",
+          "videos_without_observed_source",
+          "videos_without_caption_track",
+          "picture_fallbacks_unobserved",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "http.variants",
+      "title": "Review supplied HTTP/HTTPS, www, slash, case and query URL variants",
+      "description": "Offline, bounded comparison of one explicit query-free reference URL and 1–12 caller-observed same-path candidate responses across HTTP/HTTPS, apex/www, trailing slash, ASCII path case and query parameters. Reviews one-step Location, up to three canonical declarations and optional caller-computed 200-response SHA-256 fingerprints. No URL fetch, redirect following, Google canonical selection, query-value leakage or content equivalence assumptions.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "reference_url": {
+            "type": "string",
+            "maxLength": 1024,
+            "format": "uri",
+            "description": "Explicit query-free HTTP(S) preferred URL to compare against; must also be present as one supplied response."
+          },
+          "observations": {
+            "minItems": 1,
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 1024,
+                  "format": "uri",
+                  "description": "Exact observed URL variant; query values are permitted for comparison but never fetched or returned."
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599,
+                  "description": "Observed HTTP status, not a request result obtained by this tool."
+                },
+                "method": {
+                  "description": "Observed request method, if known; HEAD cannot supply a body fingerprint.",
+                  "type": "string",
+                  "enum": [
+                    "GET",
+                    "HEAD"
+                  ]
+                },
+                "location": {
+                  "description": "Optional one-step HTTP Location header value for redirects; may be relative; no redirect is followed.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                },
+                "canonicals": {
+                  "description": "Zero to three actual observed canonical URL declarations, absolute or relative; not Google-selected canonicals.",
+                  "maxItems": 3,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "content_sha256": {
+                  "description": "Optional caller-computed SHA-256 hex of the exact HTTP 200 response body; never returned or independently verified.",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "url",
+                "status_code"
+              ]
+            },
+            "description": "One to twelve already-observed URL response records in the exact reference path family; do not cause fetches."
+          }
+        },
+        "required": [
+          "reference_url",
+          "observations"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "caller_supplied_url_variant_evidence_only"
+          },
+          "pages_sampled": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 12
+          },
+          "reference_observed": {
+            "type": "boolean"
+          },
+          "reference_http_200": {
+            "type": "boolean"
+          },
+          "scheme_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "www_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "slash_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "case_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "query_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "http_200_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "redirects_to_reference": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "redirects_outside_family": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unresolved_redirects": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "canonical_to_reference": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "conflicting_canonical_pages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "matching_content_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "different_content_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "content_not_comparable_variants": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 420
+            }
+          },
+          "pages": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 12
+                },
+                "is_reference": {
+                  "type": "boolean"
+                },
+                "dimensions": {
+                  "maxItems": 5,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "scheme",
+                      "www",
+                      "slash",
+                      "case",
+                      "query"
+                    ]
+                  }
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "GET",
+                    "HEAD",
+                    "unspecified"
+                  ]
+                },
+                "response_state": {
+                  "type": "string",
+                  "enum": [
+                    "ok",
+                    "other_success",
+                    "redirect",
+                    "not_modified",
+                    "other"
+                  ]
+                },
+                "redirect_state": {
+                  "type": "string",
+                  "enum": [
+                    "absent",
+                    "to_reference",
+                    "to_sampled_variant",
+                    "to_unobserved_family",
+                    "external",
+                    "unresolved"
+                  ]
+                },
+                "redirect_to_https": {
+                  "type": "boolean"
+                },
+                "canonical_state": {
+                  "type": "string",
+                  "enum": [
+                    "absent",
+                    "self",
+                    "to_reference",
+                    "to_sampled_variant",
+                    "to_unobserved_family",
+                    "external",
+                    "unresolved",
+                    "conflicting"
+                  ]
+                },
+                "canonical_declarations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 3
+                },
+                "fingerprint_supplied": {
+                  "type": "boolean"
+                },
+                "content_matches_reference": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "has_query": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "page",
+                "is_reference",
+                "dimensions",
+                "status_code",
+                "method",
+                "response_state",
+                "redirect_state",
+                "redirect_to_https",
+                "canonical_state",
+                "canonical_declarations",
+                "fingerprint_supplied",
+                "content_matches_reference",
+                "has_query"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 12
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "reference_not_ok",
+                    "variant_ok_without_redirect",
+                    "matching_content_at_variant",
+                    "different_content_at_variant",
+                    "content_unverified",
+                    "query_semantics_unverified",
+                    "redirect_to_other_variant",
+                    "redirect_outside_family",
+                    "redirect_unresolved",
+                    "canonical_conflicting_on_page",
+                    "canonical_outside_family",
+                    "canonical_unresolved",
+                    "self_canonical_on_matching_variant",
+                    "canonical_disagrees_with_reference",
+                    "reference_observation_only",
+                    "partial_or_other_success",
+                    "non_success_variant"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 330
+                }
+              },
+              "required": [
+                "page",
+                "severity",
+                "code",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "pages_sampled",
+          "reference_observed",
+          "reference_http_200",
+          "scheme_variants",
+          "www_variants",
+          "slash_variants",
+          "case_variants",
+          "query_variants",
+          "http_200_variants",
+          "redirects_to_reference",
+          "redirects_outside_family",
+          "unresolved_redirects",
+          "canonical_to_reference",
+          "conflicting_canonical_pages",
+          "matching_content_variants",
+          "different_content_variants",
+          "content_not_comparable_variants",
+          "coverage_limited",
+          "limitations",
+          "pages",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "http.security",
+      "title": "Review supplied HTTPS, mixed-content and HTTP security evidence",
+      "description": "Offline, bounded security-header/static-HTML observation review across 1–8 same-host HTTP/HTTPS pages. Distinguishes declared HTTP→HTTPS redirects, HSTS status, enforced vs report-only CSP, safe/weak referrer and framing policies, nosniff and static mixed-content/form/CSS declarations. No traffic, TLS certificate verification, browser execution, security certification or sensitive raw URL/header/HTML output.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pages": {
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Safe supplied HTTP or HTTPS page URL label, used for scheme/host comparisons only; never fetched/returned."
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599,
+                  "description": "Actual observed HTTP status code; no live fetch or redirect following."
+                },
+                "location": {
+                  "description": "Optional raw Location header of a 3xx HTTP(S) response; never returned.",
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "strict_transport_security": {
+                  "description": "Up to four observed Strict-Transport-Security headers, in received order.",
+                  "maxItems": 4,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "content_security_policy": {
+                  "description": "Up to four enforcing Content-Security-Policy response headers.",
+                  "maxItems": 4,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "content_security_policy_report_only": {
+                  "description": "Up to four Content-Security-Policy-Report-Only response headers; these do not enforce rules.",
+                  "maxItems": 4,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "referrer_policy": {
+                  "description": "Optional raw Referrer-Policy response header.",
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "x_content_type_options": {
+                  "description": "Optional observed X-Content-Type-Options response header.",
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "x_frame_options": {
+                  "description": "Optional observed X-Frame-Options response header.",
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "htmlContent": {
+                  "description": "Optional caller-supplied static HTML only; max 120 KB/page, 300 KB total; no CSS/JS fetched or executed.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120000
+                }
+              },
+              "required": [
+                "url",
+                "status_code"
+              ]
+            },
+            "description": "One to eight authorized, same-host supplied HTTP(S) observations; both schemes permitted for redirect comparison; max 24 KB headers and 300 KB HTML combined."
+          }
+        },
+        "required": [
+          "pages"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "caller_supplied_https_security_evidence_only"
+          },
+          "pages_sampled": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "http_observations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "https_observations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "https_redirect_declarations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "http_without_secure_redirect": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "https_without_hsts_observation": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "hsts_disabled_or_invalid": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "enforced_csp_observations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "report_only_csp_observations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "mixed_blockable_declarations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "mixed_upgradable_declarations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "insecure_form_actions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pages_with_truncated_html": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 380
+            }
+          },
+          "pages": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "scheme": {
+                  "type": "string",
+                  "enum": [
+                    "http",
+                    "https"
+                  ]
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "https_redirect_declared": {
+                  "type": "boolean"
+                },
+                "insecure_redirect_declared": {
+                  "type": "boolean"
+                },
+                "unresolved_redirect": {
+                  "type": "boolean"
+                },
+                "hsts_state": {
+                  "type": "string",
+                  "enum": [
+                    "absent",
+                    "enabled",
+                    "disabled",
+                    "invalid",
+                    "conflicting",
+                    "http_ignored"
+                  ]
+                },
+                "hsts_include_subdomains": {
+                  "type": "boolean"
+                },
+                "hsts_preload_declared": {
+                  "type": "boolean"
+                },
+                "csp_state": {
+                  "type": "string",
+                  "enum": [
+                    "absent",
+                    "enforced",
+                    "report_only",
+                    "both",
+                    "meta_only"
+                  ]
+                },
+                "csp_upgrade_insecure_requests": {
+                  "type": "boolean"
+                },
+                "referrer_policy_observed": {
+                  "type": "boolean"
+                },
+                "weak_referrer_policy": {
+                  "type": "boolean"
+                },
+                "nosniff_observed": {
+                  "type": "boolean"
+                },
+                "frame_protection_observed": {
+                  "type": "boolean"
+                },
+                "html_supplied": {
+                  "type": "boolean"
+                },
+                "mixed_blockable_declarations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "mixed_upgradable_declarations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "insecure_form_actions": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "mixed_ip_host_declarations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "insecure_base_href": {
+                  "type": "boolean"
+                },
+                "declarations_truncated": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "page",
+                "scheme",
+                "status_code",
+                "https_redirect_declared",
+                "insecure_redirect_declared",
+                "unresolved_redirect",
+                "hsts_state",
+                "hsts_include_subdomains",
+                "hsts_preload_declared",
+                "csp_state",
+                "csp_upgrade_insecure_requests",
+                "referrer_policy_observed",
+                "weak_referrer_policy",
+                "nosniff_observed",
+                "frame_protection_observed",
+                "html_supplied",
+                "mixed_blockable_declarations",
+                "mixed_upgradable_declarations",
+                "insecure_form_actions",
+                "mixed_ip_host_declarations",
+                "insecure_base_href",
+                "declarations_truncated"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "http_success_without_redirect",
+                    "http_redirect_not_https",
+                    "http_redirect_unresolved",
+                    "hsts_missing_observation",
+                    "hsts_disabled",
+                    "hsts_invalid",
+                    "hsts_conflicting",
+                    "hsts_http_ignored",
+                    "csp_report_only",
+                    "csp_unobserved",
+                    "weak_referrer_policy",
+                    "nosniff_unobserved",
+                    "frame_protection_unobserved",
+                    "mixed_blockable",
+                    "mixed_upgradable_candidate",
+                    "insecure_form_action",
+                    "insecure_base_href",
+                    "html_sampling_limited",
+                    "non_success_response"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                }
+              },
+              "required": [
+                "page",
+                "code",
+                "severity",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "pages_sampled",
+          "http_observations",
+          "https_observations",
+          "https_redirect_declarations",
+          "http_without_secure_redirect",
+          "https_without_hsts_observation",
+          "hsts_disabled_or_invalid",
+          "enforced_csp_observations",
+          "report_only_csp_observations",
+          "mixed_blockable_declarations",
+          "mixed_upgradable_declarations",
+          "insecure_form_actions",
+          "pages_with_truncated_html",
+          "coverage_limited",
+          "limitations",
+          "pages",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "http.directives",
+      "title": "Review observed non-HTML HTTP indexing directives",
+      "description": "Offline, bounded analysis of one to eight caller-supplied same-origin HTTP response header observations, including PDF/media MIME types, X-Robots-Tag (scoped Googlebot directives and contradictions), Link rel=canonical declarations, Content-Disposition and response status. No URL fetch, binary download, robots.txt inspection, Google indexing assertion, or storage. Sensitive raw URLs, headers, filenames and query tokens are not returned.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "resources": {
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Safe same-origin resource URL label; never fetched or echoed."
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599,
+                  "description": "Observed HTTP response status code, not a guessed crawler state."
+                },
+                "method": {
+                  "description": "Optional actual request method of this caller-supplied header observation.",
+                  "type": "string",
+                  "enum": [
+                    "HEAD",
+                    "GET"
+                  ]
+                },
+                "content_type": {
+                  "description": "Optional raw Content-Type HTTP response header value.",
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "content_disposition": {
+                  "description": "Optional raw Content-Disposition HTTP response header value; filenames are never returned.",
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "x_robots_tag": {
+                  "description": "Zero to eight X-Robots-Tag HTTP response header values, in received order.",
+                  "maxItems": 8,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "link": {
+                  "description": "Zero to eight Link HTTP response header values (including rel=canonical if present).",
+                  "maxItems": 8,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                }
+              },
+              "required": [
+                "url",
+                "status_code"
+              ]
+            },
+            "description": "One to eight authorized same-origin HTTP response header observations, no live network or binary fetching; 30 KB combined header budget."
+          }
+        },
+        "required": [
+          "resources"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "caller_supplied_http_headers_only"
+          },
+          "resources_sampled": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "non_html_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "html_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "unknown_mime_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "non_success_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "explicit_noindex_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "googlebot_noindex_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "googlebot_noimageindex_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "conflicting_robots_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "canonical_header_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "conflicting_canonical_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "unresolved_canonical_references": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "attachment_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 340
+            }
+          },
+          "resources": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "resource": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "status_code": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "HEAD",
+                    "GET",
+                    "unspecified"
+                  ]
+                },
+                "mime_category": {
+                  "type": "string",
+                  "enum": [
+                    "html",
+                    "pdf",
+                    "image",
+                    "video",
+                    "audio",
+                    "text",
+                    "data",
+                    "binary",
+                    "unknown"
+                  ]
+                },
+                "non_html": {
+                  "type": "boolean"
+                },
+                "x_robots_observed": {
+                  "type": "boolean"
+                },
+                "explicit_noindex": {
+                  "type": "boolean"
+                },
+                "googlebot_noindex": {
+                  "type": "boolean"
+                },
+                "googlebot_noimageindex": {
+                  "type": "boolean"
+                },
+                "conflicting_robots": {
+                  "type": "boolean"
+                },
+                "canonical_declarations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "canonical_valid_targets": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "canonical_state": {
+                  "type": "string",
+                  "enum": [
+                    "absent",
+                    "one",
+                    "repeated",
+                    "conflicting",
+                    "unresolved"
+                  ]
+                },
+                "attachment_declared": {
+                  "type": "boolean"
+                },
+                "header_coverage_limited": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "resource",
+                "status_code",
+                "method",
+                "mime_category",
+                "non_html",
+                "x_robots_observed",
+                "explicit_noindex",
+                "googlebot_noindex",
+                "googlebot_noimageindex",
+                "conflicting_robots",
+                "canonical_declarations",
+                "canonical_valid_targets",
+                "canonical_state",
+                "attachment_declared",
+                "header_coverage_limited"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "explicit_noindex",
+                    "googlebot_noindex",
+                    "conflicting_robots",
+                    "explicit_noimageindex",
+                    "unresolved_canonical",
+                    "conflicting_canonical",
+                    "attachment_disposition",
+                    "non_success_response",
+                    "partial_http_response",
+                    "unknown_content_type",
+                    "html_in_non_html_review",
+                    "link_header_limited",
+                    "pdf_type_mismatch"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "resource": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 300
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "resource",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "resources_sampled",
+          "non_html_resources",
+          "html_resources",
+          "unknown_mime_resources",
+          "non_success_resources",
+          "explicit_noindex_resources",
+          "googlebot_noindex_resources",
+          "googlebot_noimageindex_resources",
+          "conflicting_robots_resources",
+          "canonical_header_resources",
+          "conflicting_canonical_resources",
+          "unresolved_canonical_references",
+          "attachment_resources",
+          "coverage_limited",
+          "limitations",
+          "resources",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
         "openWorldHint": false
       },
       "execution": {
@@ -1336,6 +4686,1609 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "content.provenance",
+      "title": "Verify citation, dataset and methodology evidence",
+      "description": "Offline static comparison across one to eight supplied HTML pages. Checks explicit citation IDs/URLs, dataset version and as-of claims, publication/modification dates, methodology references, and only caller-supplied freshness limits. No source is fetched, no external fact is asserted, and missing evidence remains unverified.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pages": {
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Safe page label; no request is made."
+                },
+                "htmlContent": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200000,
+                  "description": "Static HTML source text supplied by caller; never fetched or stored."
+                }
+              },
+              "required": [
+                "url",
+                "htmlContent"
+              ]
+            },
+            "description": "Up to eight authorized HTML documents; combined limit 1,000,000 UTF-8 bytes."
+          },
+          "evidence": {
+            "description": "Optional caller-supplied source/dataset/methodology metadata; not independently authoritative.",
+            "type": "object",
+            "properties": {
+              "as_of": {
+                "description": "Optional caller-selected comparison day; no current date is inferred.",
+                "type": "string",
+                "maxLength": 48
+              },
+              "sources": {
+                "description": "Up to 24 caller-supplied source IDs and safe target URLs.",
+                "maxItems": 24,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "description": "Short ASCII source, dataset or methodology ID; no tokens or private identifiers."
+                    },
+                    "url": {
+                      "type": "string",
+                      "maxLength": 512,
+                      "format": "uri",
+                      "description": "Public-style HTTP(S) source label, never fetched and without query, userinfo or fragment."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "url"
+                  ]
+                }
+              },
+              "datasets": {
+                "description": "Up to 16 optional dataset metadata entries; not independently sourced.",
+                "maxItems": 16,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "description": "Short ASCII source, dataset or methodology ID; no tokens or private identifiers."
+                    },
+                    "version": {
+                      "description": "Optional exact dataset release/version string supplied by the caller.",
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "as_of": {
+                      "description": "Caller-supplied dataset snapshot reference date.",
+                      "type": "string",
+                      "maxLength": 48
+                    },
+                    "max_age_days": {
+                      "description": "Only this explicit caller-supplied freshness threshold can trigger age review.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 3650
+                    },
+                    "methodology_id": {
+                      "description": "Optional methodology ID associated with this dataset.",
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              },
+              "methodologies": {
+                "description": "Up to 16 methodology IDs and safe reference URLs supplied by the caller.",
+                "maxItems": 16,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "description": "Short ASCII source, dataset or methodology ID; no tokens or private identifiers."
+                    },
+                    "url": {
+                      "type": "string",
+                      "maxLength": 512,
+                      "format": "uri",
+                      "description": "Public-style HTTP(S) source label, never fetched and without query, userinfo or fragment."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "url"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "pages"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "supplied_static_html_and_evidence"
+          },
+          "pages_sampled": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "pages_eligible": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "citations_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "datasets_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "methodologies_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "checked_declarations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "consistent_declarations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "conflicting_declarations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unverified_declarations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "invalid_date_declarations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "evidence_supplied": {
+            "type": "boolean"
+          },
+          "coverage_limited": {
+            "type": "boolean"
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 320
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "evidence": {
+                  "type": "string",
+                  "enum": [
+                    "observed_html",
+                    "supplied_manifest",
+                    "reference_date"
+                  ]
+                },
+                "page_url": {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                "reference_id": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "evidence",
+                "page_url",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "pages_sampled",
+          "pages_eligible",
+          "citations_observed",
+          "datasets_observed",
+          "methodologies_observed",
+          "checked_declarations",
+          "consistent_declarations",
+          "conflicting_declarations",
+          "unverified_declarations",
+          "invalid_date_declarations",
+          "evidence_supplied",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "content.metadata",
+      "title": "Review duplicate, conflicting and mismatched page metadata",
+      "description": "Offline bounded consistency check for 1-8 caller-supplied same-origin HTML pages: duplicate/conflicting title, description and canonical declarations, Open Graph/Twitter differences, explicit robots directives and repeated titles/descriptions across distinct sampled canonical preferences. Outputs review evidence, not a Google-selected canonical, indexing or ranking verdict. No network or storage.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pages": {
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Caller-supplied page URL label; no URL or external metadata is fetched."
+                },
+                "htmlContent": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 180000,
+                  "description": "Authorized supplied static HTML; 180 KB UTF-8 per page."
+                }
+              },
+              "required": [
+                "url",
+                "htmlContent"
+              ]
+            },
+            "description": "One to eight authorized same-origin static HTML pages, distinct safe URL labels, combined maximum 900,000 UTF-8 bytes. None are fetched."
+          }
+        },
+        "required": [
+          "pages"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "caller_supplied_same_origin_metadata_only"
+          },
+          "pages_sampled": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "duplicate_declaration_fields": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "conflicting_declaration_fields": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unresolved_canonical_references": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "explicit_robots_conflicts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "cross_field_review_leads": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "duplicate_title_groups": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "duplicate_description_groups": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "excluded_annotated_canonicals": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pages": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "fields_present": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10
+                },
+                "title_declarations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 12
+                },
+                "description_declarations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 12
+                },
+                "canonical_declarations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 12
+                },
+                "robots_declarations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 24
+                },
+                "duplicate_fields": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10
+                },
+                "conflicting_fields": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10
+                },
+                "unresolved_canonicals": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 12
+                },
+                "cross_field_review_leads": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "extraction_limited": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "page",
+                "fields_present",
+                "title_declarations",
+                "description_declarations",
+                "canonical_declarations",
+                "robots_declarations",
+                "duplicate_fields",
+                "conflicting_fields",
+                "unresolved_canonicals",
+                "cross_field_review_leads",
+                "extraction_limited"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 360
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "confidence": {
+                  "type": "string",
+                  "enum": [
+                    "observed",
+                    "review"
+                  ]
+                },
+                "source_page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "field": {
+                  "type": "string",
+                  "enum": [
+                    "title",
+                    "description",
+                    "canonical",
+                    "og:title",
+                    "og:description",
+                    "og:url",
+                    "twitter:title",
+                    "twitter:description",
+                    "robots",
+                    "googlebot"
+                  ]
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "related_pages": {
+                  "maxItems": 7,
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 8
+                  }
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 340
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "confidence",
+                "source_page",
+                "field",
+                "count",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "pages_sampled",
+          "origin",
+          "duplicate_declaration_fields",
+          "conflicting_declaration_fields",
+          "unresolved_canonical_references",
+          "explicit_robots_conflicts",
+          "cross_field_review_leads",
+          "duplicate_title_groups",
+          "duplicate_description_groups",
+          "excluded_annotated_canonicals",
+          "pages",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "site.links",
+      "title": "Review contextual internal links and anchor labels",
+      "description": "Offline bounded review of one to eight caller-supplied same-origin HTML pages: contextual internal vs external links, missing accessible names, generic labels, nofollow, repeated anchors, and lexical title/H1 overlap only for supplied destinations. Unknown URLs are unverified, never called broken. No fetching, crawling, search data, JavaScript or ranking inference.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pages": {
+            "minItems": 1,
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Caller-supplied page URL label; no URL or linked target is fetched."
+                },
+                "htmlContent": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160000,
+                  "description": "Already-authorized static page HTML, at most 160 KB UTF-8 per page."
+                }
+              },
+              "required": [
+                "url",
+                "htmlContent"
+              ]
+            },
+            "description": "One to eight authorized same-origin page HTML observations, combined maximum 900,000 UTF-8 bytes; all distinct URL labels."
+          }
+        },
+        "required": [
+          "pages"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "caller_supplied_same_origin_html_only"
+          },
+          "pages_sampled": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "pages_eligible": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "origin": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "internal_links_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "external_links_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "excluded_navigation_links": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "linked_sample_targets": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "unmatched_internal_links": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "missing_anchor_labels": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "generic_anchor_links": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "low_heading_overlap_links": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "ambiguous_anchor_target_groups": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "nofollow_internal_links": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "self_links": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "fragment_only_links": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "skipped_non_http_links": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "pages": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "main_present": {
+                  "type": "boolean"
+                },
+                "internal_links": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "external_links": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "linked_sample_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 8
+                },
+                "unmatched_internal_links": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "missing_anchor_labels": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "generic_anchor_links": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "nofollow_internal_links": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "self_links": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "fragment_only_links": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "extraction_limited": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "page",
+                "main_present",
+                "internal_links",
+                "external_links",
+                "linked_sample_pages",
+                "unmatched_internal_links",
+                "missing_anchor_labels",
+                "generic_anchor_links",
+                "nofollow_internal_links",
+                "self_links",
+                "fragment_only_links",
+                "extraction_limited"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 330
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "confidence": {
+                  "type": "string",
+                  "enum": [
+                    "observed",
+                    "review"
+                  ]
+                },
+                "source_page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "target_page": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "confidence",
+                "source_page",
+                "count",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "pages_sampled",
+          "pages_eligible",
+          "origin",
+          "internal_links_observed",
+          "external_links_observed",
+          "excluded_navigation_links",
+          "linked_sample_targets",
+          "unmatched_internal_links",
+          "missing_anchor_labels",
+          "generic_anchor_links",
+          "low_heading_overlap_links",
+          "ambiguous_anchor_target_groups",
+          "nofollow_internal_links",
+          "self_links",
+          "fragment_only_links",
+          "skipped_non_http_links",
+          "pages",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "content.competitors",
+      "title": "Compare sampled competitor search-intent signals",
+      "description": "Offline comparison of one primary and up to six caller-supplied competitor pages for visible, bounded informational/commercial/transactional/navigational markup signals. Optional explicitly selected search intent and query-heading lexical overlap only. Does NOT discover competitors, fetch pages, access GSC, classify the query semantically, or predict rankings.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "primary": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "maxLength": 512,
+                "format": "uri",
+                "description": "Absolute HTTP(S) page URL label; no network requests are made."
+              },
+              "htmlContent": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 150000,
+                "description": "Already obtained authorized static HTML for this page; 150 KB maximum."
+              }
+            },
+            "required": [
+              "url",
+              "htmlContent"
+            ],
+            "description": "Caller-authorized primary page observation. No URL will be fetched."
+          },
+          "competitors": {
+            "minItems": 1,
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "format": "uri",
+                  "description": "Absolute HTTP(S) page URL label; no network requests are made."
+                },
+                "htmlContent": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 150000,
+                  "description": "Already obtained authorized static HTML for this page; 150 KB maximum."
+                }
+              },
+              "required": [
+                "url",
+                "htmlContent"
+              ]
+            },
+            "description": "One to six competitor HTML observations already obtained lawfully; each origin must be distinct."
+          },
+          "expected_intent": {
+            "description": "Optional intent specified by the caller; never inferred from the query.",
+            "type": "string",
+            "enum": [
+              "informational",
+              "commercial",
+              "transactional",
+              "navigational"
+            ]
+          },
+          "query": {
+            "description": "Optional caller-provided query for strict normalized title/H1 token overlap only; never echoed.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "primary",
+          "competitors"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "caller_supplied_static_html_only"
+          },
+          "expected_intent": {
+            "type": "string",
+            "enum": [
+              "informational",
+              "commercial",
+              "transactional",
+              "navigational"
+            ]
+          },
+          "query_supplied": {
+            "type": "boolean"
+          },
+          "usable_query_terms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 12
+          },
+          "primary": {
+            "type": "object",
+            "properties": {
+              "origin": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "title_present": {
+                "type": "boolean"
+              },
+              "h1_present": {
+                "type": "boolean"
+              },
+              "main_found": {
+                "type": "boolean"
+              },
+              "signals": {
+                "type": "object",
+                "properties": {
+                  "informational": {
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 40
+                    }
+                  },
+                  "commercial": {
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 40
+                    }
+                  },
+                  "transactional": {
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 40
+                    }
+                  },
+                  "navigational": {
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 40
+                    }
+                  }
+                },
+                "required": [
+                  "informational",
+                  "commercial",
+                  "transactional",
+                  "navigational"
+                ],
+                "additionalProperties": false
+              },
+              "signal_counts": {
+                "type": "object",
+                "properties": {
+                  "informational": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5
+                  },
+                  "commercial": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5
+                  },
+                  "transactional": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5
+                  },
+                  "navigational": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5
+                  }
+                },
+                "required": [
+                  "informational",
+                  "commercial",
+                  "transactional",
+                  "navigational"
+                ],
+                "additionalProperties": false
+              },
+              "intent_signal_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 5
+              },
+              "query_title_coverage_percent": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "query_h1_coverage_percent": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "extraction_limited": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "origin",
+              "title_present",
+              "h1_present",
+              "main_found",
+              "signals",
+              "signal_counts",
+              "extraction_limited"
+            ],
+            "additionalProperties": false
+          },
+          "competitors": {
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "origin": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "title_present": {
+                  "type": "boolean"
+                },
+                "h1_present": {
+                  "type": "boolean"
+                },
+                "main_found": {
+                  "type": "boolean"
+                },
+                "signals": {
+                  "type": "object",
+                  "properties": {
+                    "informational": {
+                      "maxItems": 5,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 40
+                      }
+                    },
+                    "commercial": {
+                      "maxItems": 5,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 40
+                      }
+                    },
+                    "transactional": {
+                      "maxItems": 5,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 40
+                      }
+                    },
+                    "navigational": {
+                      "maxItems": 5,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 40
+                      }
+                    }
+                  },
+                  "required": [
+                    "informational",
+                    "commercial",
+                    "transactional",
+                    "navigational"
+                  ],
+                  "additionalProperties": false
+                },
+                "signal_counts": {
+                  "type": "object",
+                  "properties": {
+                    "informational": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 5
+                    },
+                    "commercial": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 5
+                    },
+                    "transactional": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 5
+                    },
+                    "navigational": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 5
+                    }
+                  },
+                  "required": [
+                    "informational",
+                    "commercial",
+                    "transactional",
+                    "navigational"
+                  ],
+                  "additionalProperties": false
+                },
+                "intent_signal_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 5
+                },
+                "query_title_coverage_percent": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "query_h1_coverage_percent": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "extraction_limited": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "origin",
+                "title_present",
+                "h1_present",
+                "main_found",
+                "signals",
+                "signal_counts",
+                "extraction_limited"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "competitors_submitted": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6
+          },
+          "competitors_eligible": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6
+          },
+          "competitors_with_intent_signals": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6
+          },
+          "coverage_limited": {
+            "type": "boolean"
+          },
+          "limitations": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 330
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "confidence": {
+                  "type": "string",
+                  "enum": [
+                    "observed",
+                    "review"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                },
+                "competitors_supporting": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "confidence",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "query_supplied",
+          "usable_query_terms",
+          "primary",
+          "competitors",
+          "competitors_submitted",
+          "competitors_eligible",
+          "competitors_with_intent_signals",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "product.claims",
+      "title": "Check landing-page claims against local MCP capabilities",
+      "description": "Compare explicit local MCP product-page promises with this actual runtime's registered tool metadata. Supply HTML or one authorized public HTML URL. No arbitrary marketing semantics, no remote MCP credentials, no storage, no scripts and no claim of a successful tool invocation. Hosted tool claims must be verified by the hosted runtime.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "htmlContent": {
+            "description": "Optional static landing-page HTML, bounded at 250,000 UTF-8 bytes.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 250000
+          },
+          "url": {
+            "description": "Alternative to HTML: one authorized public landing-page URL, fetched with existing SSRF safeguards.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "landing_html_vs_registered_mcp_metadata"
+          },
+          "surface": {
+            "type": "string",
+            "enum": [
+              "hosted",
+              "local"
+            ]
+          },
+          "catalog_available": {
+            "type": "boolean"
+          },
+          "registered_tools": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 64
+          },
+          "tool_claims_checked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20
+          },
+          "checked_claims": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "consistent_claims": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "contradicted_claims": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unverified_claims": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "advertised_tools": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "registered": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "name",
+                "registered"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "site_batch_limit": {
+            "type": "object",
+            "properties": {
+              "advertised": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "registered": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "advertised"
+            ],
+            "additionalProperties": false
+          },
+          "coverage_limited": {
+            "type": "boolean"
+          },
+          "limitations": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 320
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "verdict": {
+                  "type": "string",
+                  "enum": [
+                    "contradicted",
+                    "unverifiable"
+                  ]
+                },
+                "claim": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 240
+                },
+                "evidence_tool": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "verdict",
+                "claim",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "surface",
+          "catalog_available",
+          "registered_tools",
+          "tool_claims_checked",
+          "checked_claims",
+          "consistent_claims",
+          "contradicted_claims",
+          "unverified_claims",
+          "advertised_tools",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true
       },

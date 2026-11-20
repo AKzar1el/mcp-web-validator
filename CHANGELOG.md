@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+### Hosted app
+
+- Accept public webpage URLs in `validate_html` (including legacy URL-as-HTML input) via the existing safe page fetch, avoiding misleading Nu diagnostics for URL text.
+- Fix Nu HTML validation in the Cloudflare Worker by using supported manual redirect handling and rejecting non-success responses without forwarding submitted markup.
+
+### Security
+
+- Refresh the local MCP's locked transitive Hono dependency to 4.13.19 to address npm-audited middleware and input-validation advisories without changing the runtime dependency declarations.
+
+## [1.3.51] - 2026-11-18
+
+### Fixed
+
+- Limit machine-readable HTML, CSS, link-check, and combined-report previews by serialized byte size so large valid diagnostics reach MCP gateways without oversized structured-content errors.
+- Preserve exact W3C totals, link counts, report scores, and failure status when verbose details are shortened; expose `totalLinks` and `truncated` for link checks.
+
+### Maintenance
+
+- Reuse one byte-aware diagnostic boundary for local MCP tools rather than duplicating per-tool truncation logic.
+- Add deterministic stress tests covering large combined reports and long blocked-link records.
+
+## [1.3.50] - 2026-11-18
+
+### Fixed
+
+- Bound the local MCP structured diagnostic issue arrays by UTF-8 byte size for `seo.metadata` and `schema.markup`. This prevents Codexify gateways from rejecting large issue floods while retaining exact totals, severity counts, and truncation signals.
+- Accept an optional UTF-8 byte-order mark at the beginning of a JSON-LD script block without accepting malformed JSON.
+
+### Validation
+
+- Extended real-stdio regression tests for hundreds of malformed JSON-LD blocks, oversized image attributes, and BOM-prefixed JSON-LD.
+
 ## [1.3.49] - 2026-11-18
 
 ### Added

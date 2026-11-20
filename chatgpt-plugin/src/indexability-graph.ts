@@ -61,7 +61,8 @@ function relContains(value: string | undefined, token: string): boolean {
 }
 
 function hasNoindexDirective(value: string | undefined): boolean {
-  return Boolean(value && /(?:^|[,;\s])noindex(?:$|[,;\s])/i.test(value));
+  // Google treats `none` as the noindex,nofollow shorthand in both meta and HTTP rules.
+  return Boolean(value && /(?:^|[,;\s])(?:noindex|none)(?:$|[,;\s])/i.test(value));
 }
 
 function hasGoogleNoindexHeader(header: string | undefined): boolean {

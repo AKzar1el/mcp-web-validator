@@ -45,6 +45,13 @@ import {
   inspectViewportParity, inspectPublicViewportParity,
 } from "./modules/browser-ux/viewport-parity-probe.js";
 import {
+  emptyLighthouseLabReview, MAX_LAB_HTML_BYTES, MAX_LAB_FINDINGS,
+  LAB_FACTORS, LAB_STATUSES, LAB_FINDING_CODES,
+} from "./modules/browser-ux/lighthouse-lab.js";
+import {
+  inspectOfflineLighthouseLab, lighthouseSupportedNode,
+} from "./modules/browser-ux/lighthouse-lab-probe.js";
+import {
   analyzeHttpDirectives,
   emptyHttpDirectiveReview,
   safeHttpResourceUrl,
@@ -159,6 +166,7 @@ import {
   urlVariantsContent,
   historicalComparisonContent,
   productionChangeContent,
+  lighthouseLabContent,
   regressionPreviewContent,
   multilingualClusterContent,
   failureContent,
@@ -857,6 +865,35 @@ const viewportParityOutputShape = {
     count: z.number().int().positive(),
     message: z.string().max(320),
   })).max(MAX_PARITY_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const lighthouseLabOutputShape = {
+  scope: z.literal("isolated_caller_supplied_html_lighthouse_lab"),
+  status: z.enum(LAB_STATUSES),
+  form_factor: z.enum(LAB_FACTORS),
+  browser_executed: z.boolean(),
+  scripts_disabled: z.literal(true),
+  network_isolated: z.literal(true),
+  lighthouse_version: z.string().max(50).nullable(),
+  performance_score_percent: z.number().int().min(0).max(100).nullable(),
+  metrics: z.object({
+    fcp_ms: z.number().min(0).max(600_000).nullable(),
+    lcp_ms: z.number().min(0).max(600_000).nullable(),
+    tbt_ms: z.number().min(0).max(600_000).nullable(),
+    speed_index_ms: z.number().min(0).max(600_000).nullable(),
+    cls: z.number().min(0).max(100).nullable(),
+  }),
+  requests_blocked: z.number().int().min(0).max(80),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(420)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(LAB_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(320),
+  })).max(MAX_LAB_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
 };
@@ -2639,6 +2676,39 @@ export function createServer(): McpServer {
           failureContent("Audit history", error, "Review snapshot JSON or local history file permissions and retry."),
           true,
         );
+      }
+    },
+  );
+
+  server.registerTool(
+    "browser.lighthouse_lab",
+    {
+      title: "Run isolated Lighthouse performance lab on supplied static HTML",
+      description:
+        "V11-LAB local-only: run the real Lighthouse engine once in pinned sandboxed Chromium against caller-supplied HTML served at a synthetic, isolated local proxy origin. Reports redacted Lighthouse performance score, FCP, LCP, TBT, Speed Index and CLS. All supplied executable page scripts and embedded frames are stripped, and all outbound resource requests are denied; no production URL, remote CSS/JS, CrUX field INP, ranking or indexing verdict. Chrome/Lighthouse may incur CPU and memory load; fixed 75-second deadline and 180 KB HTML cap.",
+      inputSchema: {
+        html: z.string().min(1).max(MAX_LAB_HTML_BYTES)
+          .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_LAB_HTML_BYTES,
+            "The static HTML sample must be within 180,000 UTF-8 bytes.")
+          .describe("Authorized static HTML markup for the isolated lab. It is not fetched or stored."),
+        form_factor: z.enum(LAB_FACTORS).default("mobile")
+          .describe("Run one real Lighthouse performance-only lab simulation using mobile or desktop viewport emulation."),
+      },
+      outputSchema: lighthouseLabOutputShape,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ html, form_factor }) => {
+      try {
+        const review = await inspectOfflineLighthouseLab(html, form_factor);
+        return result(review, lighthouseLabContent(review), review.status === "failed");
+      } catch {
+        const error = !lighthouseSupportedNode()
+          ? "V11 Lighthouse lab requires Node.js 22.19 or newer; existing non-Lighthouse tools retain the Node 22.12 minimum."
+          : "The sandboxed Lighthouse lab could not run within the fixed HTML, Chromium, network and time limits.";
+        return result({ ...emptyLighthouseLabReview(form_factor), error }, failureContent(
+          "Lighthouse isolated lab", error,
+          "Supply static HTML within 180 KB and verify the pinned Chromium sandbox is available; do not disable browser sandboxing.",
+        ), true);
       }
     },
   );

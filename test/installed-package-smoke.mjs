@@ -65,10 +65,21 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "audit.monitor", "audit.production_change", "audit.trends", "availability.history", "browser.dom_diff", "browser.resource_failures", "browser.viewport_parity", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
+      "audit.history", "audit.monitor", "audit.production_change", "audit.trends", "availability.history", "browser.dom_diff", "browser.lighthouse_lab", "browser.resource_failures", "browser.viewport_parity", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.link_graph", "site.links", "site.sitemaps",
     ],
   );
+
+  phase = "v11_lighthouse_lab_contract";
+  const labTool = tools.find((tool) => tool.name === "browser.lighthouse_lab");
+  assert.equal(labTool?.annotations?.readOnlyHint, true);
+  assert.equal(labTool?.outputSchema?.properties?.findings?.maxItems, 10);
+  const malformedLab = await client.callTool({
+    name: "browser.lighthouse_lab",
+    arguments: { html: " ", form_factor: "mobile" },
+  });
+  assert.equal(malformedLab.isError, true);
+  assert(!JSON.stringify(malformedLab).includes("PRIVATE V11"));
 
   phase = "v10_production_html_comparison";
   const change = await client.callTool({

@@ -115,6 +115,22 @@ test("V10: equal times are ambiguous; reverse times and naive times are rejected
   await assert.rejects(analyzeProductionChange(input));
 });
 
+test("V10: impossible calendar dates cannot produce comparable production evidence", async () => {
+  for (const invalid of [
+    "2026-02-30T09:00:00Z",
+    "2026-04-31T09:00:00Z",
+    "2025-02-29T09:00:00Z",
+    "2026-13-21T09:00:00Z",
+  ]) {
+    const input = pair();
+    input.baseline.observed_at = invalid;
+    await assert.rejects(analyzeProductionChange(input), /timestamp|date|time/i);
+  }
+  const valid = pair();
+  valid.baseline.observed_at = "2024-02-29T09:00:00+01:00";
+  assert.equal((await analyzeProductionChange(valid)).status, "comparable_snapshot");
+});
+
 test("V10: page labels with query strings, fragments, credentials and ports fail closed", async () => {
   for (const bad of [
     "https://example.test/x?token=secret", "https://example.test/x#frag",

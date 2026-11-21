@@ -6,6 +6,7 @@
  * An audit's absent observation is NOT a fixed defect. Stable cohort trends
  * contain only pages completed across every supplied version.
  */
+import { strictObservationTime } from "./strict-observation-time.js";
 
 export const MAX_HISTORICAL_VERSIONS = 10;
 export const MAX_HISTORICAL_SNAPSHOT_BYTES = 60_000;
@@ -169,12 +170,8 @@ function safeUrl(value: unknown): string {
   return result.href;
 }
 function checkDate(value: unknown): number {
-  if (typeof value !== "string" || value.length > 40 ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/u.test(value)) {
-    throw new Error("History requires ISO timestamp with UTC offset");
-  }
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed)) throw new Error("Invalid historical timestamp");
+  const parsed = strictObservationTime(value);
+  if (parsed === undefined) throw new Error("History requires a real calendar date and ISO timestamp with UTC offset");
   return parsed;
 }
 function complete(page: HistoricalPage): boolean {

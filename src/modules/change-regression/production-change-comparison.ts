@@ -6,6 +6,7 @@
 import { load } from "cheerio";
 import { analyzeRawRendered } from "../browser-ux/raw-rendered-diff.js";
 import { safeMetadataLabel } from "../content-schema/metadata-consistency.js";
+import { strictObservationTime } from "./strict-observation-time.js";
 
 export const MAX_CHANGE_HTML_BYTES = 180_000;
 export const MAX_CHANGE_TOTAL_BYTES = 360_000;
@@ -116,12 +117,8 @@ async function digest(value: string): Promise<string> {
   return Array.from(bytes, (item) => item.toString(16).padStart(2, "0")).join("");
 }
 function timeValue(value: string): number {
-  if (typeof value !== "string" ||
-      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/u.test(value)) {
-    throw new Error("Expected offset-aware ISO observation times");
-  }
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed)) throw new Error("Invalid observation time");
+  const parsed = strictObservationTime(value);
+  if (parsed === undefined) throw new Error("Invalid offset-aware ISO observation time or calendar date");
   return parsed;
 }
 function validateVersion(value: ChangeVersion): void {

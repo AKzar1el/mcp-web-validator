@@ -11,6 +11,12 @@ import type { MetadataReview } from "./modules/content-schema/metadata-consisten
 import type { MediaDiagnostics } from "./modules/browser-ux/media-diagnostics.js";
 import type { WcagInteractionReview } from "./modules/browser-ux/wcag-interactions.js";
 import type { HttpDirectiveReview } from "./modules/http-crawl/non-html-directives.js";
+import type { DeliveryReview } from "./modules/http-crawl/http-delivery.js";
+import type { ResourceFailureReview } from "./modules/browser-ux/resource-failures.js";
+import type { CrawlerAccessReview } from "./modules/http-crawl/crawler-access.js";
+import type { SitemapInventoryReview } from "./modules/http-crawl/sitemap-inventory.js";
+import type { RedirectCanonicalReview } from "./modules/http-crawl/redirect-canonical-chains.js";
+import type { AvailabilityReview } from "./modules/http-crawl/availability-observations.js";
 import type { HttpsSecurityReview } from "./modules/http-crawl/https-security.js";
 import type { UrlVariantReview } from "./modules/http-crawl/url-variants.js";
 import type { HistoricalReview } from "./modules/change-regression/historical-comparisons.js";
@@ -132,6 +138,159 @@ function toolContent(options: {
   }
   sections.push(`**Next step:** ${collapseWhitespace(options.nextStep, 400)}`);
   return sections.join("\n\n");
+}
+
+/** Human-oriented triage for the same bounded, structured delivery evidence. */
+export function httpDeliveryContent(review: DeliveryReview): string {
+  const codes = new Set(review.findings.map((finding) => finding.code));
+  const nextStep = codes.has("cloudflare_challenge") || codes.has("http_forbidden")
+    ? "Compare the affected path and time with Cloudflare WAF/challenge events and origin access logs; separately verify the permitted public response without bypassing protections."
+    : codes.has("http_rate_limited")
+      ? "Review observed 429 responses against authorized rate-limit rules and Retry-After, then repeat a bounded check after any approved change."
+      : codes.has("http_server_error")
+        ? "Correlate observed 5xx responses with origin/edge error logs and deployment timing, then repeat a bounded delivery check."
+        : !review.redirect_chain_complete
+          ? "Review the unobserved redirect destination with a bounded public same-origin check; an incomplete chain cannot verify final delivery."
+          : "Keep this point-in-time response as a baseline and compare it with independent availability and crawler evidence.";
+  return toolContent({
+    title: "HTTP delivery diagnostics",
+    status: review.findings.some(f => f.severity === "warning") ? "attention needed" : "review suggested",
+    outcome: `${review.hops_observed} observed response(s), ${review.redirects_observed} followed redirect(s), ` +
+      `${review.errors_observed} HTTP error response(s), ${review.challenges_observed} confirmed Cloudflare challenge signal(s). ` +
+      "These observations do not establish Googlebot identity or historical availability.",
+    actions: review.findings.map(f => ({
+      priority: f.severity === "warning" ? 1 : 2,
+      location: `Hop #${f.hop}`,
+      message: f.message,
+    })),
+    nextStep,
+  });
+}
+
+export function browserResourceContent(review: ResourceFailureReview): string {
+  const nextStep = review.critical_resource_failures > 0
+    ? "Inspect the failing document/script/stylesheet categories in independent browser/network logs and confirm user-visible effects; separate site HTTP errors from tool policy blocks before changing production."
+    : review.transport_failures > 0 || review.api_failures > 0
+      ? "Correlate the sampled transport/API failures with authorized network observations, then retest the affected request category."
+      : review.tool_blocked_requests > 0 || review.pending_requests > 0
+        ? "Treat policy-blocked and pending requests as missing evidence, not website failures; compare with an independently authorized sample if needed."
+        : "Keep this bounded resource observation as a baseline and repeat after a relevant website change.";
+  return toolContent({
+    title: "Browser resource loading",
+    status: review.findings.some(f => f.severity === "warning")
+      ? "attention needed" : "review suggested",
+    outcome: `${review.requests_recorded} sampled resource request(s): ${review.http_4xx} HTTP 4xx, ` +
+      `${review.http_5xx} HTTP 5xx, ${review.transport_failures} transport failures, ` +
+      `${review.tool_blocked_requests} validator-policy blocks and ${review.pending_requests} pending. ` +
+      "Policy blocks and incomplete requests are not confirmed site defects.",
+    actions: review.findings.map(f => ({
+      priority: f.severity === "warning" ? 1 : 2,
+      message: f.message,
+    })),
+    nextStep,
+  });
+}
+
+export function sitemapInventoryContent(review: SitemapInventoryReview): string {
+  const nextStep = review.known_indexability_conflicts > 0
+    ? "Review numbered entries with independently observed 404/410, noindex, disallow or canonical conflicts; align submitted sitemap URLs with intentionally indexable pages, then revalidate."
+    : review.lastmod_invalid_count > 0 || review.lastmod_future_count > 0
+      ? "Correct invalid or future sitemap lastmod dates using verified publication evidence, then revalidate XML before submission."
+      : review.missing_child_documents > 0
+        ? "Supply or inspect the referenced child sitemap documents before drawing inventory-coverage conclusions."
+        : "Compare the sampled sitemap inventory against independently discovered canonical pages; an XML listing alone does not prove Google indexing.";
+  return toolContent({
+    title: "Sitemap inventory",
+    status: review.findings.some(f => f.severity === "warning")
+      ? "attention needed" : "review suggested",
+    outcome: `${review.documents_observed} document(s) with ${review.distinct_page_urls} distinct page URL(s), ` +
+      `${review.missing_child_documents} missing child document(s), ${review.duplicate_url_entries} duplicates, ` +
+      `${review.lastmod_invalid_count} invalid lastmod and ${review.known_indexability_conflicts} independently observed indexability conflicts. ` +
+      (review.inventory_complete ? "The supplied document inventory is complete by its evidence." :
+        "Collection completeness is unknown or partial."),
+    actions: review.findings.map(f => ({
+      priority: f.severity === "warning" ? 1 : 2,
+      location: `Sitemap #${f.document}${f.entry === undefined ? "" : `, entry #${f.entry}`}`,
+      message: f.message,
+    })),
+    nextStep,
+  });
+}
+
+export function crawlerAccessContent(review: CrawlerAccessReview): string {
+  const nextStep = review.crawler_disallowed_rows > 0
+    ? "Compare the numbered page/profile rows with intended robots.txt rules. Crawl disallow and noindex are different; confirm both directives before changing crawl policy."
+    : review.noindex_declared_rows > 0
+      ? "Confirm that the sampled pages are intended to be excluded, then review the declared meta and X-Robots-Tag directives for each affected crawler profile."
+      : review.unknown_access_rows > 0 || review.unknown_indexing_rows > 0
+        ? "Obtain authorized robots.txt status and response indexing evidence for unresolved rows; unknown does not mean allowed or indexed."
+        : "Use independent search-engine evidence to check actual crawl/index status; these observations alone do not establish indexing.";
+  return toolContent({
+    title: "Crawler access matrix",
+    status: review.findings.some(f => f.severity === "warning")
+      ? "attention needed" : "review suggested",
+    outcome: `${review.rows_checked} page/profile comparisons: ${review.crawler_disallowed_rows} crawl disallow, ` +
+      `${review.noindex_declared_rows} declared noindex, ${review.unknown_access_rows} unknown access, ` +
+      `${review.unknown_indexing_rows} unknown indexing signals. These are declarations, not verified search-engine indexing verdicts.`,
+    actions: review.findings.map(f => ({
+      priority: f.severity === "warning" ? 1 : 2,
+      location: `Page #${f.page} · ${f.profile}`,
+      message: f.message,
+    })),
+    nextStep,
+  });
+}
+
+export function redirectCanonicalContent(review: RedirectCanonicalReview): string {
+  const nextStep = review.nonindexable_destination
+    ? "Inspect the final observed HTTP status, robots and canonical declarations; repair only confirmed unintentional destination blocks, then recheck the chain."
+    : review.loop_detected || !review.chain_complete
+      ? "Verify the unresolved or looping redirect hops with bounded same-origin observations before concluding where users or crawlers land."
+      : review.conflicting_canonical_hops > 0 || review.canonical_cycles > 0
+        ? "Compare the conflicting canonical declarations on numbered hops and resolve unintended conflicts before requesting reindexing."
+        : review.expected_destination_match === false
+          ? "Check the caller's expected destination against the completed redirect chain and update only the incorrect redirect policy."
+          : "Keep the observed redirect chain as evidence and separately check actual Google-selected canonicals and indexing in an authorized source.";
+  return toolContent({
+    title: "Redirect and canonical chain",
+    status: review.findings.some(f => f.severity === "warning")
+      ? "attention needed" : "review suggested",
+    outcome: `${review.hops_observed} observed response(s), ${review.redirects_observed} redirect(s), ` +
+      `${review.conflicting_canonical_hops} conflicting canonical hop(s), ${review.canonical_cycles} canonical cycle(s). ` +
+      (review.chain_complete ? "Sampled chain complete. " : "Sampled chain incomplete. ") +
+      "Actual Google canonical selection and indexing are not verified.",
+    actions: review.findings.map(f => ({
+      priority: f.severity === "warning" ? 1 : 2,
+      location: `Hop #${f.hop}`,
+      message: f.message,
+    })),
+    nextStep,
+  });
+}
+
+export function availabilityReviewContent(review: AvailabilityReview): string {
+  const nextStep = review.observed_http_5xx > 0 || review.observed_timeouts > 0 ||
+    review.observed_transport_failures > 0
+    ? "Compare the sampled failures with authorized server/edge logs and deployment times, then repeat bounded checks across equivalent observation windows."
+    : review.observed_rate_limits > 0 || review.observed_challenges > 0
+      ? "Review the affected rate-limit or challenge configuration against intended visitors and crawler policy, then repeat an authorized bounded check."
+    : review.findings.some(f=>f.code==="large_sampling_gap"||f.code==="sparse_samples")
+        ? "Treat the gaps between observations as unknown; collect comparable samples before inferring availability trends."
+        : "Use this bounded response sample as a baseline; continuous uptime and Googlebot availability require separate evidence.";
+  return toolContent({
+    title: "Availability observations",
+    status: review.findings.some(f => f.severity === "warning")
+      ? "attention needed" : "review suggested",
+    outcome: `${review.observed_successes}/${review.observations_count} HTTP 2xx observations ` +
+      `(${review.observed_success_percent}% of supplied samples), ${review.observed_http_5xx} HTTP 5xx, ` +
+      `${review.observed_rate_limits} rate limited, ${review.observed_transport_failures} transport failures and ` +
+      `${review.http_status_changes} status transition(s). Sample ratios are not uptime measurements.`,
+    actions: review.findings.map(f => ({
+      priority: f.severity === "warning" ? 1 : 2,
+      message: f.message,
+    })),
+    nextStep,
+  });
 }
 
 export function htmlValidationContent(

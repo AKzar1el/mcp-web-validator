@@ -33,6 +33,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "availability.history",
       "browser.dom_diff",
       "browser.resource_failures",
+      "browser.viewport_parity",
       "browser.wcag",
       "content.competitors",
       "content.duplicates",
@@ -62,6 +63,37 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "site.links",
       "site.sitemaps",
     ]);
+
+    const viewportTool = tools.find((tool) => tool.name === "browser.viewport_parity");
+    assert.equal(viewportTool?.annotations?.readOnlyHint, true);
+    assert.equal(viewportTool?.outputSchema?.properties?.findings?.maxItems, 16);
+    const parity = await client.callTool({
+      name: "browser.viewport_parity",
+      arguments: {
+        mode: "supplied_html",
+        page_url: "https://example.com/",
+        html: '<!doctype html><html><head>'
+          + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+          + '<title>Private V09 title</title>'
+          + '<style>@media(max-width:600px){nav{display:none}}</style></head><body>'
+          + '<nav><a href="/private-v09">Guide</a></nav>'
+          + '<main><h1>Both viewports</h1><details>'
+          + '<summary>Expand</summary><p>Detail text</p></details></main>'
+          + '</body></html>',
+      },
+    });
+    assert.equal(parity.isError, undefined);
+    assert.equal(parity.structuredContent?.browser_executed, true);
+    assert.equal(parity.structuredContent?.scripts_disabled, true);
+    assert.equal(parity.structuredContent?.mobile?.width, 375);
+    assert.equal(parity.structuredContent?.desktop?.width, 1440);
+    assert.equal(parity.structuredContent?.mobile?.visible_nav_links, 0);
+    assert.equal(parity.structuredContent?.desktop?.visible_nav_links, 1);
+    assert.equal(parity.structuredContent?.mobile_missing_internal_links, 0);
+    assert.equal(parity.structuredContent?.mobile?.disclosure_toggled, true);
+    assert.equal(parity.structuredContent?.desktop?.disclosure_toggled, true);
+    assert(!JSON.stringify(parity).includes("/private-v09"));
+    assert(!JSON.stringify(parity).includes("Private V09 title"));
 
     const resourceTool = tools.find((tool) => tool.name === "browser.resource_failures");
     assert.equal(resourceTool?.annotations?.readOnlyHint, true);

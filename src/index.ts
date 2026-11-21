@@ -38,6 +38,13 @@ import {
 } from "./modules/browser-ux/resource-failures.js";
 import { inspectPublicResourceLoading } from "./modules/browser-ux/resource-failures-probe.js";
 import {
+  emptyViewportParityReview, MAX_PARITY_HTML_BYTES, MAX_PARITY_FINDINGS,
+  MOBILE_VIEWPORT, DESKTOP_VIEWPORT, PARITY_FINDING_CODES,
+} from "./modules/browser-ux/viewport-parity.js";
+import {
+  inspectViewportParity, inspectPublicViewportParity,
+} from "./modules/browser-ux/viewport-parity-probe.js";
+import {
   analyzeHttpDirectives,
   emptyHttpDirectiveReview,
   safeHttpResourceUrl,
@@ -788,6 +795,62 @@ const screenshotSchema = z.object({
   outputPath: z.string(),
   incompleteAssetCount: z.number().int().nonnegative().optional(),
 });
+
+const viewportSummaryOutputSchema = z.object({
+  width: z.number().int().min(320).max(1_440),
+  height: z.number().int().min(360).max(1_080),
+  effective_layout_width: z.number().int().nonnegative().max(5_000),
+  viewport_meta_present: z.boolean(),
+  title_present: z.boolean(),
+  description_present: z.boolean(),
+  h1_count: z.number().int().nonnegative(),
+  main_dom_words: z.number().int().nonnegative(),
+  main_visible_words: z.number().int().nonnegative(),
+  internal_links: z.number().int().nonnegative(),
+  visible_links: z.number().int().nonnegative(),
+  visible_nav_links: z.number().int().nonnegative(),
+  canonical: z.enum(["missing", "self", "different", "unverified"]),
+  noindex_declared: z.boolean(),
+  jsonld_blocks: z.number().int().nonnegative(),
+  controls_seen: z.number().int().nonnegative(),
+  visible_controls: z.number().int().nonnegative(),
+  keyboard_focusable_controls: z.number().int().nonnegative(),
+  small_visible_controls: z.number().int().nonnegative(),
+  observed_keyboard_targets: z.number().int().min(0).max(12),
+  keyboard_incomplete: z.boolean(),
+  disclosure_toggled: z.boolean().nullable(),
+  horizontal_overflow_px: z.number().int().nonnegative(),
+  sample_truncated: z.boolean(),
+});
+const viewportParityOutputShape = {
+  scope: z.enum(["isolated_supplied_html_viewports", "isolated_public_html_viewports"]),
+  browser_executed: z.boolean(),
+  scripts_disabled: z.literal(true),
+  mobile: viewportSummaryOutputSchema,
+  desktop: viewportSummaryOutputSchema,
+  titles_equivalent: z.boolean(),
+  descriptions_equivalent: z.boolean(),
+  h1_equivalent: z.boolean(),
+  canonicals_equivalent: z.boolean(),
+  robots_equivalent: z.boolean(),
+  structured_data_count_equivalent: z.boolean(),
+  mobile_missing_dom_tokens: z.number().int().nonnegative(),
+  mobile_missing_visible_tokens: z.number().int().nonnegative(),
+  mobile_missing_internal_links: z.number().int().nonnegative(),
+  mobile_missing_visible_links: z.number().int().nonnegative(),
+  blocked_resources: z.number().int().nonnegative().max(1_000),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(400)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(PARITY_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    count: z.number().int().positive(),
+    message: z.string().max(320),
+  })).max(MAX_PARITY_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
 
 const browserResourceInputSchema = z.object({
   resource_type: z.enum(RESOURCE_TYPES)
@@ -2474,6 +2537,67 @@ export function createServer(): McpServer {
           failureContent("Audit history", error, "Review snapshot JSON or local history file permissions and retry."),
           true,
         );
+      }
+    },
+  );
+
+  server.registerTool(
+    "browser.viewport_parity",
+    {
+      title: "Compare isolated mobile and desktop rendering and native interaction evidence",
+      description:
+        "V09 local-only: compare the SAME authorized HTML in two fresh, network-denied Chromium viewports (375x812 touch/mobile and 1440x900 desktop), or fetch one robots-allowed public HTML 200 response for that isolated comparison. Detects mobile main content hidden vs absent in DOM, visible navigation/link differences, title/description/H1/robots/canonical/JSON-LD counts, horizontal overflow, bounded keyboard tab targets, small control dimensions and one safe native details tap/Enter. All page scripts and external CSS/JS/API assets are disabled, no arbitrary links/buttons clicked or forms submitted. Fixed counts/codes only, no raw text, URLs, IDs or screenshots in output. Not Google WRS, full-site SEO parity, full accessibility certification, or real hydrated browser behavior.",
+      inputSchema: {
+        mode: z.enum(["supplied_html", "public_html"])
+          .describe("Supplied HTML is rendered twice offline; public mode first fetches one robots-allowed page HTML response then compares it offline."),
+        page_url: z.string().url().max(512).refine((value) =>
+          Boolean(safeHttpResourceUrl(value)),
+          "Supply a safe query-free public HTTP(S) page label without credentials or fragments.")
+          .optional()
+          .describe("Only supplied_html: public same-origin page URL label for resolving links/canonicals; never fetched."),
+        html: z.string().min(1).max(MAX_PARITY_HTML_BYTES)
+          .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_PARITY_HTML_BYTES,
+            "HTML must fit the bounded 400 KB UTF-8 limit.")
+          .optional()
+          .describe("Only supplied_html: static/inline-CSS markup evaluated without scripts, network or remote assets."),
+        url: deliveryInputUrl.optional()
+          .describe("Only public_html: safe query-free HTTP(S) URL; robots.txt checked before a single public HTML GET."),
+      },
+      outputSchema: viewportParityOutputShape,
+      annotations: externalReadOnlyAnnotations,
+    },
+    async ({ mode, page_url, html, url }) => {
+      try {
+        if (mode === "public_html"
+          ? !url || page_url !== undefined || html !== undefined
+          : !page_url || !html || url !== undefined) {
+          throw new Error("Choose one complete local HTML or public read-only sampling mode.");
+        }
+        const report = mode === "public_html"
+          ? await inspectPublicViewportParity(url!)
+          : await inspectViewportParity(html!, page_url!);
+        return result(report,
+          "V09 isolated viewport parity: "
+          + MOBILE_VIEWPORT.width + "px mobile touch vs "
+          + DESKTOP_VIEWPORT.width + "px desktop; "
+          + report.mobile.main_dom_words + " mobile and " + report.desktop.main_dom_words
+          + " desktop DOM words; "
+          + report.mobile_missing_dom_tokens + " desktop-only distinct DOM words, "
+          + report.mobile_missing_visible_tokens + " desktop-only visibly rendered words, "
+          + report.mobile_missing_internal_links + " desktop-only same-origin link targets, "
+          + report.mobile.horizontal_overflow_px + "px mobile horizontal overflow, "
+          + report.mobile.observed_keyboard_targets + " mobile vs "
+          + report.desktop.observed_keyboard_targets + " desktop keyboard targets observed. "
+          + "External assets and all page JavaScript are disabled: no Googlebot or full hydration verdict.");
+      } catch {
+        const error = "Mobile/desktop parity could not be evaluated within safe URL, robots, HTML and isolated Chromium limits.";
+        const scope = mode === "public_html"
+          ? "isolated_public_html_viewports"
+          : "isolated_supplied_html_viewports";
+        return result({ ...emptyViewportParityReview(scope), error }, failureContent(
+          "Mobile versus desktop parity", error,
+          "Provide one authorized public HTML page or bounded markup and a safe page label; do not disable the pinned browser sandbox.",
+        ), true);
       }
     },
   );

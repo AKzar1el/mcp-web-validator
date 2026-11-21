@@ -52,6 +52,13 @@ import {
   inspectOfflineLighthouseLab, lighthouseSupportedNode,
 } from "./modules/browser-ux/lighthouse-lab-probe.js";
 import {
+  analyzeCruxField, emptyCruxFieldReview, validateCruxQuery,
+  CRUX_FORMS, CRUX_MODES, CRUX_SOURCES,
+  CRUX_FINDING_CODES, MAX_CRUX_FINDINGS, MAX_CRUX_HISTORY_PERIODS,
+  MAX_CRUX_RETURNED_PERIODS, MAX_CRUX_RESPONSE_BYTES,
+} from "./modules/external-metrics/crux-field.js";
+import { queryCruxField, CruxRequestError } from "./modules/external-metrics/crux-field-probe.js";
+import {
   analyzeHttpDirectives,
   emptyHttpDirectiveReview,
   safeHttpResourceUrl,
@@ -167,6 +174,7 @@ import {
   historicalComparisonContent,
   productionChangeContent,
   lighthouseLabContent,
+  cruxFieldContent,
   regressionPreviewContent,
   multilingualClusterContent,
   failureContent,
@@ -894,6 +902,52 @@ const lighthouseLabOutputShape = {
     severity: z.enum(["warning", "info"]),
     message: z.string().max(320),
   })).max(MAX_LAB_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const cruxMetricOutputSchema = z.object({
+  largest_contentful_paint: z.number().min(-600_000).max(600_000).nullable(),
+  interaction_to_next_paint: z.number().min(-600_000).max(600_000).nullable(),
+  cumulative_layout_shift: z.number().min(-100).max(100).nullable(),
+  first_contentful_paint: z.number().min(-600_000).max(600_000).nullable(),
+  experimental_time_to_first_byte: z.number().min(-600_000).max(600_000).nullable(),
+});
+const cruxVerdictOutputSchema = z.object({
+  largest_contentful_paint: z.enum(["good","needs_improvement","poor","unavailable"]),
+  interaction_to_next_paint: z.enum(["good","needs_improvement","poor","unavailable"]),
+  cumulative_layout_shift: z.enum(["good","needs_improvement","poor","unavailable"]),
+  first_contentful_paint: z.enum(["good","needs_improvement","poor","unavailable"]),
+  experimental_time_to_first_byte: z.enum(["good","needs_improvement","poor","unavailable"]),
+});
+const cruxFieldOutputShape = {
+  scope: z.literal("crux_real_user_field_p75"),
+  mode: z.enum(CRUX_MODES),
+  source: z.enum(CRUX_SOURCES),
+  granularity: z.enum(["origin","url"]),
+  form_factor: z.enum(CRUX_FORMS),
+  status: z.enum(["complete","partial","unavailable"]),
+  period_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).nullable(),
+  p75: cruxMetricOutputSchema,
+  metric_verdicts: cruxVerdictOutputSchema,
+  core_web_vitals: z.enum(["good","needs_improvement","poor","insufficient_data"]),
+  periods_available: z.number().int().min(0).max(MAX_CRUX_HISTORY_PERIODS),
+  periods_returned: z.number().int().min(0).max(MAX_CRUX_RETURNED_PERIODS),
+  history_points: z.array(z.object({
+    period: z.number().int().min(1).max(MAX_CRUX_HISTORY_PERIODS),
+    period_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+    p75: cruxMetricOutputSchema,
+    core_web_vitals: z.enum(["good","needs_improvement","poor","insufficient_data"]),
+  })).max(MAX_CRUX_RETURNED_PERIODS),
+  first_last_delta: cruxMetricOutputSchema,
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(370)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(CRUX_FINDING_CODES),
+    severity: z.enum(["warning","info"]),
+    message: z.string().max(320),
+  })).max(MAX_CRUX_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
 };
@@ -2676,6 +2730,60 @@ export function createServer(): McpServer {
           failureContent("Audit history", error, "Review snapshot JSON or local history file permissions and retry."),
           true,
         );
+      }
+    },
+  );
+
+  server.registerTool(
+    "performance.crux_field",
+    {
+      title: "Analyze Chrome UX Report real-user Core Web Vitals and trends",
+      description:
+        "V11-FIELD local: offline analyze an already-obtained Google CrUX daily or history JSON record, or make ONE explicitly requested free Google Chrome UX Report API query using an existing local CRUX_API_KEY environment variable. Reports origin/page, device-class p75 LCP/INP/CLS/FCP/TTFB and bounded historical points. Missing eligible data stays null. No GSC, GA4, visitor tracking, storage, scheduled requests, URL fetch, API-key echo or Google ranking/traffic causation.",
+      inputSchema: {
+        source_mode: z.enum(["supplied_record","live_crux"])
+          .describe("Use caller-provided JSON entirely offline or explicitly authorize one fixed-endpoint Google CrUX API request with local CRUX_API_KEY."),
+        mode: z.enum(CRUX_MODES).default("daily")
+          .describe("Daily 28-day aggregated p75 data or up to 40 overlapping historical 28-day weekly windows."),
+        granularity: z.enum(["origin","url"])
+          .describe("Origin aggregates eligible Chrome experiences across the whole origin; url requests one exact page."),
+        target: z.string().min(1).max(512)
+          .describe("Safe public HTTPS origin or exact page label; query strings, fragments, private hosts and credentials are rejected. Never fetched directly."),
+        form_factor: z.enum(CRUX_FORMS).default("ALL")
+          .describe("ALL aggregated devices, PHONE, DESKTOP or TABLET. Missing device data is not treated as zero."),
+        record_json: z.string().min(2).max(MAX_CRUX_RESPONSE_BYTES)
+          .refine(value => Buffer.byteLength(value,"utf8") <= MAX_CRUX_RESPONSE_BYTES)
+          .optional()
+          .describe("Only supplied_record: original CrUX API JSON (max 300 KB UTF-8), containing matching record identity, metrics and collection period. Never stored or echoed."),
+      },
+      outputSchema: cruxFieldOutputShape,
+      annotations: externalReadOnlyAnnotations,
+    },
+    async ({source_mode,mode,granularity,target,form_factor,record_json}) => {
+      const source=source_mode==="live_crux"?"verified_crux_api":"caller_supplied";
+      try {
+        const query=validateCruxQuery({mode,granularity,target,form_factor});
+        if (source_mode==="live_crux" ? record_json!==undefined : !record_json) {
+          throw new Error("CrUX input modes must be exclusive");
+        }
+        const review=source_mode==="live_crux"
+          ? await queryCruxField(query)
+          : analyzeCruxField(JSON.parse(record_json!),query,source);
+        return result(review,cruxFieldContent(review));
+      }catch(cause){
+        const code=cause instanceof CruxRequestError?cause.code:"invalid_response";
+        const error=code==="missing_key"
+          ? "Live CrUX requires a locally configured CRUX_API_KEY; no requests were sent."
+          : code==="rate_limited" ? "CrUX request was rate-limited; no retries were made."
+          : code==="access_denied" ? "The CrUX API rejected the configured access key or project authorization."
+          : code==="api_unavailable" ? "The single fixed-endpoint CrUX request could not complete."
+          : "CrUX record identity, time series, bounds or source mode could not be safely validated.";
+        return result({
+          ...emptyCruxFieldReview(mode,source,granularity,form_factor),error,
+        },failureContent(
+          "CrUX field Core Web Vitals",error,
+          "For offline analysis supply a matching CrUX record; for opt-in live mode configure CRUX_API_KEY for the free Google Chrome UX Report API.",
+        ),true);
       }
     },
   );

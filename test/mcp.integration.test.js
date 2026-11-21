@@ -54,6 +54,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "http.variants",
       "links.broken",
       "media.diagnostics",
+      "performance.crux_field",
       "product.claims",
       "report.validation",
       "schema.markup",
@@ -65,6 +66,48 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "site.links",
       "site.sitemaps",
     ]);
+
+    const cruxTool = tools.find((tool) => tool.name === "performance.crux_field");
+    assert.equal(cruxTool?.annotations?.readOnlyHint, true);
+    assert.equal(cruxTool?.outputSchema?.properties?.findings?.maxItems, 12);
+    const cruxJson = JSON.stringify({
+      record: {
+        key: { origin: "https://example.com", formFactor: "PHONE" },
+        collectionPeriod: {
+          firstDate: { year: 2026, month: 9, day: 1 },
+          lastDate: { year: 2026, month: 9, day: 28 },
+        },
+        metrics: {
+          largest_contentful_paint: { percentiles: { p75: 2500 } },
+          interaction_to_next_paint: { percentiles: { p75: 120 } },
+          cumulative_layout_shift: { percentiles: { p75: "0.08" } },
+          first_contentful_paint: { percentiles: { p75: 1000 } },
+          experimental_time_to_first_byte: { percentiles: { p75: 300 } },
+        },
+      },
+      raw_secret: "PRIVATE CRUX SOURCE STRING",
+    });
+    const crux = await client.callTool({
+      name: "performance.crux_field",
+      arguments: {
+        source_mode: "supplied_record", mode: "daily", granularity: "origin",
+        target: "https://example.com", form_factor: "PHONE", record_json: cruxJson,
+      },
+    });
+    assert.equal(crux.isError, undefined);
+    assert.equal(crux.structuredContent?.source, "caller_supplied");
+    assert.equal(crux.structuredContent?.core_web_vitals, "good");
+    assert.equal(crux.structuredContent?.p75?.cumulative_layout_shift, 0.08);
+    assert(!JSON.stringify(crux).includes("PRIVATE CRUX"));
+    assert(!JSON.stringify(crux).includes("https://example.com"));
+    const badCrux = await client.callTool({
+      name: "performance.crux_field",
+      arguments: {
+        source_mode: "live_crux", mode: "daily", granularity: "origin",
+        target: "https://127.0.0.1", form_factor: "PHONE",
+      },
+    });
+    assert.equal(badCrux.isError, true);
 
     const productionTool = tools.find((tool) => tool.name === "audit.production_change");
     assert.equal(productionTool?.annotations?.readOnlyHint, true);

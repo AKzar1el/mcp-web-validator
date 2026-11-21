@@ -28,3 +28,11 @@ fresh network-denied Chromium. A separate robots-gated public HTML sample is
 available but external JavaScript/CSS/API resources are not loaded; it is not
 Google WRS or a full-resource browser render. See
 `docs/v07-raw-rendered-dom.md`.
+
+V08 adds local `browser.resource_failures` with bounded redacted browser
+network events, reusing the pinned Chromium and public HTTP proxy. It separates
+real site HTTP 4xx/5xx, transport failures, explicit validator-policy blocks
+and pending requests. Live mode checks robots.txt and caps observed requests;
+third-party fetch is explicitly opt-in. No storage, full HAR, Googlebot
+impersonation or causal SEO/indexing verdict. See
+`docs/v08-browser-resource-failures.md`.

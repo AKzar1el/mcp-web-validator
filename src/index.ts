@@ -31,6 +31,13 @@ import {
 } from "./modules/browser-ux/raw-rendered-diff.js";
 import { renderInlineHtml, reviewPublicInlineDom } from "./modules/browser-ux/raw-rendered-probe.js";
 import {
+  analyzeResourceFailures, emptyResourceFailureReview,
+  MAX_RESOURCE_OBSERVATIONS, MAX_RESOURCE_FINDINGS,
+  RESOURCE_TYPES, RESOURCE_OUTCOMES, RESOURCE_FAILURE_REASONS,
+  RESOURCE_ORIGINS, RESOURCE_FINDING_CODES,
+} from "./modules/browser-ux/resource-failures.js";
+import { inspectPublicResourceLoading } from "./modules/browser-ux/resource-failures-probe.js";
+import {
   analyzeHttpDirectives,
   emptyHttpDirectiveReview,
   safeHttpResourceUrl,
@@ -612,7 +619,7 @@ const graphPageInputSchema = z.object({
     (value) => Buffer.byteLength(value, "utf8") <= MAX_GRAPH_HTML_BYTES,
     "Observed static HTML must fit the 1 MiB UTF-8 cap.").optional()
     .describe("Optional static HTML of this page; absent HTML never certifies an empty link graph."),
-  status_code: z.number().int().min(100).max(599).optional()
+  status_code: z.number().int().min(200).max(599).optional()
     .describe("Optional independently observed HTTP response status."),
   robots_allowed: z.boolean().optional()
     .describe("Optional independently observed crawler access; unknown when absent."),
@@ -781,6 +788,62 @@ const screenshotSchema = z.object({
   outputPath: z.string(),
   incompleteAssetCount: z.number().int().nonnegative().optional(),
 });
+
+const browserResourceInputSchema = z.object({
+  resource_type: z.enum(RESOURCE_TYPES)
+    .describe("Browser observed resource class, such as script, stylesheet, image or fetch."),
+  origin: z.enum(RESOURCE_ORIGINS)
+    .describe("Same-origin, third-party or unknown request classification; do not supply a URL."),
+  outcome: z.enum(RESOURCE_OUTCOMES)
+    .describe("Observed HTTP response, transport failure, explicit tool block, or still-pending request."),
+  status_code: z.number().int().min(100).max(599).optional()
+    .describe("Only for outcome=http: actual HTTP response status including 4xx/5xx."),
+  failure_reason: z.enum(RESOURCE_FAILURE_REASONS).optional()
+    .describe("Only for transport_failed: redacted DNS/timeout/TLS/connection/cancel/other category."),
+  duration_ms: z.number().min(0).max(600_000).optional()
+    .describe("Optional observed elapsed request time in milliseconds."),
+}).strict();
+const browserResourceOutputShape = {
+  scope: z.enum(["caller_supplied_resource_observations", "guarded_public_browser_resources"]),
+  browser_executed: z.boolean(),
+  requests_recorded: z.number().int().min(0).max(MAX_RESOURCE_OBSERVATIONS),
+  http_responses: z.number().int().nonnegative(),
+  http_2xx_3xx: z.number().int().nonnegative(),
+  http_4xx: z.number().int().nonnegative(),
+  http_5xx: z.number().int().nonnegative(),
+  http_429: z.number().int().nonnegative(),
+  transport_failures: z.number().int().nonnegative(),
+  tool_blocked_requests: z.number().int().nonnegative(),
+  pending_requests: z.number().int().nonnegative(),
+  additional_budget_blocked: z.number().int().nonnegative(),
+  critical_resource_failures: z.number().int().nonnegative(),
+  api_failures: z.number().int().nonnegative(),
+  image_failures: z.number().int().nonnegative(),
+  third_party_failures: z.number().int().nonnegative(),
+  slow_requests: z.number().int().nonnegative(),
+  navigation_completed: z.boolean().nullable(),
+  resource_types: z.array(z.object({
+    resource_type: z.enum(RESOURCE_TYPES),
+    attempted: z.number().int().nonnegative(),
+    http_responses: z.number().int().nonnegative(),
+    http_4xx: z.number().int().nonnegative(),
+    http_5xx: z.number().int().nonnegative(),
+    transport_failures: z.number().int().nonnegative(),
+    blocked_by_tool: z.number().int().nonnegative(),
+    still_pending: z.number().int().nonnegative(),
+  })).length(RESOURCE_TYPES.length),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(340)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(RESOURCE_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    count: z.number().int().positive(),
+    message: z.string().max(310),
+  })).max(MAX_RESOURCE_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
 
 const domSnapshotOutputSchema = z.object({
   title_present: z.boolean(),
@@ -2411,6 +2474,67 @@ export function createServer(): McpServer {
           failureContent("Audit history", error, "Review snapshot JSON or local history file permissions and retry."),
           true,
         );
+      }
+    },
+  );
+
+  server.registerTool(
+    "browser.resource_failures",
+    {
+      title: "Inspect bounded browser resource responses and loading failures",
+      description:
+        "V08 local-only: analyze up to 64 observed browser HTTP/network outcomes or navigate one robots-allowed public URL in fresh sandboxed Chromium with DNS-pinned proxy. Distinguishes real HTTP 4xx/5xx resource responses from transport failures, pending requests, and explicit tool-policy blocks. Groups script/CSS/document/API/image/font issues without returning URLs, headers, error text, response bodies or credentials. Browser allows same-origin assets by default, never private IPs; optional public third-party resource access is capped. Does not impersonate Google WRS or establish actual indexing, user experience, performance guarantees or causation.",
+      inputSchema: {
+        mode: z.enum(["analyze_observations", "live_browser"])
+          .describe("Choose offline caller-supplied resource observations or a guarded public browser network sample."),
+        url: deliveryInputUrl.optional()
+          .describe("Only live_browser: one safe public query-free page URL; robots.txt is checked before browser navigation."),
+        include_third_party: z.boolean().optional()
+          .describe("Only live_browser: explicitly permit public third-party assets from up to three additional origins; default false blocks them without calling them website failures."),
+        observations: z.array(browserResourceInputSchema).min(1).max(MAX_RESOURCE_OBSERVATIONS).optional()
+          .describe("Only analyze_observations: 1–64 fixed-shape browser outcomes; no raw URLs or headers."),
+        additional_budget_blocked: z.number().int().min(0).max(1_000_000).optional()
+          .describe("Offline only: number of extra requests explicitly blocked when the browser observation limit was exceeded."),
+        navigation_completed: z.boolean().optional()
+          .describe("Offline only: whether an independently observed navigation completed before the sampling deadline."),
+      },
+      outputSchema: browserResourceOutputShape,
+      annotations: externalReadOnlyAnnotations,
+    },
+    async ({ mode, url, include_third_party, observations,
+      additional_budget_blocked, navigation_completed }) => {
+      try {
+        if (mode === "live_browser"
+          ? !url || observations !== undefined || additional_budget_blocked !== undefined ||
+              navigation_completed !== undefined
+          : observations === undefined || url !== undefined || include_third_party !== undefined) {
+          throw new Error("Supply one guarded live URL or one offline observation set, not both.");
+        }
+        const review = mode === "live_browser"
+          ? await inspectPublicResourceLoading(url!, { includeThirdParty: include_third_party })
+          : analyzeResourceFailures({
+            observations: observations!,
+            ...(additional_budget_blocked === undefined ? {} : { additional_budget_blocked }),
+            ...(navigation_completed === undefined ? {} : { navigation_completed }),
+          });
+        return result(review,
+          "V08 browser resources: " + review.requests_recorded + " observed requests, "
+          + review.http_responses + " HTTP responses, " + review.http_4xx
+          + " HTTP 4xx, " + review.http_5xx + " HTTP 5xx, "
+          + review.transport_failures + " transport failures, "
+          + review.tool_blocked_requests + " explicit validator-policy blocks, "
+          + review.pending_requests + " unverified pending resources, "
+          + review.critical_resource_failures + " sampled critical document/script/style failures. "
+          + "Tool-policy blocks and unfinished requests are not site defects; Google WRS and indexing were not verified.");
+      } catch {
+        const error = "Browser resource evidence could not be inspected within public URL, robots, event or isolated Chromium limits.";
+        const scope = mode === "live_browser"
+          ? "guarded_public_browser_resources"
+          : "caller_supplied_resource_observations";
+        return result({ ...emptyResourceFailureReview(scope), error }, failureContent(
+          "Browser resource loading", error,
+          "Supply fixed offline HTTP/network outcomes or one authorized public URL, with the pinned browser sandbox enabled.",
+        ), true);
       }
     },
   );

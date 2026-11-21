@@ -65,10 +65,33 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "audit.monitor", "audit.trends", "availability.history", "browser.dom_diff", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
+      "audit.history", "audit.monitor", "audit.trends", "availability.history", "browser.dom_diff", "browser.resource_failures", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.link_graph", "site.links", "site.sitemaps",
     ],
   );
+
+  phase = "v08_resource_failure_classification";
+  const resources = await client.callTool({
+    name: "browser.resource_failures",
+    arguments: {
+      mode: "analyze_observations",
+      observations: [
+        { resource_type: "script", origin: "same_origin",
+          outcome: "http", status_code: 503 },
+        { resource_type: "fetch", origin: "third_party",
+          outcome: "transport_failed", failure_reason: "dns" },
+        { resource_type: "stylesheet", origin: "third_party",
+          outcome: "tool_blocked" },
+      ],
+      navigation_completed: true,
+    },
+  });
+  assert.notEqual(resources.isError, true);
+  assert.equal(resources.structuredContent?.requests_recorded, 3);
+  assert.equal(resources.structuredContent?.http_5xx, 1);
+  assert.equal(resources.structuredContent?.transport_failures, 1);
+  assert.equal(resources.structuredContent?.tool_blocked_requests, 1);
+  assert.equal(resources.structuredContent?.critical_resource_failures, 1);
 
   phase = "v07_raw_rendered_snapshot";
   const domCompare = await client.callTool({

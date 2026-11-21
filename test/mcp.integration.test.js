@@ -32,6 +32,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "audit.trends",
       "availability.history",
       "browser.dom_diff",
+      "browser.resource_failures",
       "browser.wcag",
       "content.competitors",
       "content.duplicates",
@@ -61,6 +62,32 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "site.links",
       "site.sitemaps",
     ]);
+
+    const resourceTool = tools.find((tool) => tool.name === "browser.resource_failures");
+    assert.equal(resourceTool?.annotations?.readOnlyHint, true);
+    assert.equal(resourceTool?.outputSchema?.properties?.requests_recorded?.maximum, 64);
+    const resources = await client.callTool({
+      name: "browser.resource_failures",
+      arguments: {
+        mode: "analyze_observations",
+        observations: [
+          { resource_type: "script", origin: "same_origin",
+            outcome: "http", status_code: 404 },
+          { resource_type: "fetch", origin: "same_origin",
+            outcome: "transport_failed", failure_reason: "timeout" },
+          { resource_type: "stylesheet", origin: "third_party",
+            outcome: "tool_blocked" },
+        ],
+        navigation_completed: true,
+      },
+    });
+    assert.equal(resources.isError, undefined);
+    assert.equal(resources.structuredContent?.scope, "caller_supplied_resource_observations");
+    assert.equal(resources.structuredContent?.http_4xx, 1);
+    assert.equal(resources.structuredContent?.transport_failures, 1);
+    assert.equal(resources.structuredContent?.tool_blocked_requests, 1);
+    assert.equal(resources.structuredContent?.critical_resource_failures, 1);
+    assert.equal(resources.structuredContent?.api_failures, 1);
 
     const renderedTool = tools.find((tool) => tool.name === "browser.dom_diff");
     assert.equal(renderedTool?.annotations?.readOnlyHint, true);

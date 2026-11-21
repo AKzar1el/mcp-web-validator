@@ -158,6 +158,7 @@ import {
   httpsSecurityContent,
   urlVariantsContent,
   historicalComparisonContent,
+  productionChangeContent,
   regressionPreviewContent,
   multilingualClusterContent,
   failureContent,
@@ -251,6 +252,14 @@ import {
   HISTORICAL_STATUSES,
   HISTORICAL_FINDING_CODES,
 } from "./modules/change-regression/historical-comparisons.js";
+import {
+  analyzeProductionChange,
+  emptyProductionChangeReview,
+  MAX_CHANGE_HTML_BYTES,
+  MAX_CHANGE_FINDINGS,
+  CHANGE_STATUSES,
+  CHANGE_FINDING_CODES,
+} from "./modules/change-regression/production-change-comparison.js";
 import {
   previewRegressionAlerts,
   emptyMonitorPreview,
@@ -952,6 +961,54 @@ const domDiffOutputShape = {
     severity: z.enum(["warning", "info"]),
     message: z.string().max(320),
   })).max(MAX_RENDER_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const productionFingerprintSchema = z.object({
+  http_status: z.number().int().min(200).max(599).nullable(),
+  html_bytes: z.number().int().nonnegative().max(MAX_CHANGE_HTML_BYTES),
+  html_sha256: z.string().regex(/^[a-f0-9]{64}$/u).nullable(),
+  main_text_sha256: z.string().regex(/^[a-f0-9]{64}$/u).nullable(),
+  main_words: z.number().int().nonnegative().nullable(),
+  same_origin_link_targets: z.number().int().nonnegative().nullable(),
+  title_present: z.boolean().nullable(),
+  description_present: z.boolean().nullable(),
+  h1_count: z.number().int().nonnegative().nullable(),
+  canonical_state: z.enum(["missing", "self", "different", "ambiguous"]).nullable(),
+  noindex_declared: z.boolean().nullable(),
+  jsonld_blocks: z.number().int().nonnegative().nullable(),
+  sample_truncated: z.boolean(),
+});
+const productionChangeOutputSchema = {
+  scope: z.literal("two_caller_supplied_html_observations"),
+  status: z.enum(CHANGE_STATUSES),
+  time_order_ambiguous: z.boolean(),
+  baseline: productionFingerprintSchema,
+  current: productionFingerprintSchema,
+  http_status_changed: z.boolean().nullable(),
+  html_fingerprint_changed: z.boolean().nullable(),
+  main_text_fingerprint_changed: z.boolean().nullable(),
+  title_changed: z.boolean().nullable(),
+  description_changed: z.boolean().nullable(),
+  h1_changed: z.boolean().nullable(),
+  canonical_changed: z.boolean().nullable(),
+  robots_changed: z.boolean().nullable(),
+  noindex_added: z.boolean().nullable(),
+  noindex_removed: z.boolean().nullable(),
+  main_words_added: z.number().int().nonnegative().nullable(),
+  main_words_removed: z.number().int().nonnegative().nullable(),
+  links_added: z.number().int().nonnegative().nullable(),
+  links_removed: z.number().int().nonnegative().nullable(),
+  jsonld_blocks_changed: z.boolean().nullable(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(340)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(CHANGE_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(320),
+  })).max(MAX_CHANGE_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
 };
@@ -2453,6 +2510,51 @@ export function createServer(): McpServer {
         return result({ ...emptyMonitorPreview("local_saved_ids"), error }, failureContent(
           "Manual regression alert preview", error,
           "List audit.history, supply two to ten existing IDs oldest first and valid bounded policy thresholds; no alerts can be sent.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "audit.production_change",
+    {
+      title: "Compare two captured production HTML versions",
+      description:
+        "V10 offline exact-page comparison of two explicitly supplied timestamped HTML observations: SHA-256 HTML/main-text fingerprints, title/description/H1/canonical/robots, JSON-LD block counts and bounded internal-link and main-word changes. Non-200 delivery and incomplete evidence suppress content-change claims. No live fetches, storage, deployment, source-text output, Google indexing or ranking causation.",
+      inputSchema: {
+        page_url: z.string().max(512).refine((value) => Boolean(safeMetadataLabel(value)))
+          .describe("Exact safe page URL without query, fragment, credentials or custom port; not fetched."),
+        baseline: z.object({
+          observed_at: z.string().min(20).max(40)
+            .describe("Earlier offset-aware ISO capture timestamp; supplied by caller, not independently verified."),
+          http_status: z.number().int().min(200).max(599).optional()
+            .describe("Earlier observed HTTP response status; omit if unknown."),
+          html: z.string().max(MAX_CHANGE_HTML_BYTES)
+            .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_CHANGE_HTML_BYTES)
+            .describe("Earlier captured HTML body, up to 180,000 UTF-8 bytes; empty only for a failed response."),
+        }).describe("Earlier caller-supplied captured response. A non-200 status can have empty HTML."),
+        current: z.object({
+          observed_at: z.string().min(20).max(40)
+            .describe("Later offset-aware ISO capture timestamp; supplied by caller, not independently verified."),
+          http_status: z.number().int().min(200).max(599).optional()
+            .describe("Later observed HTTP response status; omit if unknown."),
+          html: z.string().max(MAX_CHANGE_HTML_BYTES)
+            .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_CHANGE_HTML_BYTES)
+            .describe("Later captured HTML body, up to 180,000 UTF-8 bytes; empty only for a failed response."),
+        }).describe("Later caller-supplied captured response. Timestamps are validated but not verified."),
+      },
+      outputSchema: productionChangeOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async (input) => {
+      try {
+        const review = await analyzeProductionChange(input);
+        return result(review, productionChangeContent(review));
+      } catch {
+        const error = "Production HTML versions could not be compared within URL, timestamp, delivery and evidence limits.";
+        return result({ ...emptyProductionChangeReview(), error }, failureContent(
+          "Production HTML change comparison", error,
+          "Supply one safe page URL and two bounded, oldest-first HTML observations; no network requests or saved data were changed.",
         ), true);
       }
     },

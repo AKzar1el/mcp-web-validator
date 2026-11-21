@@ -724,7 +724,7 @@ describe("MCP HTTP boundary", () => {
 });
 
 describe("hosted tool contract", () => {
-  it("discovers twenty-six accurately annotated tools", async () => {
+  it("discovers twenty-seven accurately annotated tools", async () => {
     const tools = await listTools();
     expect(tools.map((tool) => tool.name)).toEqual([
       "validate_html",
@@ -736,6 +736,7 @@ describe("hosted tool contract", () => {
       "audit_public_webpage",
       "audit_public_site",
       "preview_regression_alerts",
+      "compare_production_snapshots",
       "compare_historical_audits",
       "compare_site_audits",
       "verify_product_claims",
@@ -2827,6 +2828,36 @@ describe("hosted site audit comparison", () => {
       expect(response.isError).toBe(true);
       expect(JSON.stringify(response)).not.toContain(secret);
     }
+  });
+
+  it("V10: invokes hosted production HTML comparison offline with redacted changes and delivery safeguards", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => { throw new Error("V10 must never fetch"); }));
+    const tools = await listTools();
+    expect(tools.find((tool) => tool.name === "compare_production_snapshots")?.annotations)
+      .toMatchObject({ readOnlyHint: true, openWorldHint: false, destructiveHint: false });
+    const baseline = '<html><head><title>PRIVATE-V10-BASELINE</title></head><body><main><h1>First</h1><p>alpha beta</p></main></body></html>';
+    const current = '<html><head><title>PRIVATE-V10-CURRENT</title><meta name="robots" content="noindex"></head><body><main><h1>Second</h1><p>alpha gamma</p></main></body></html>';
+    const args = {
+      page_url: "https://example.com/private-v10-path",
+      baseline: { observed_at: "2026-11-20T09:00:00Z", http_status: 200, html: baseline },
+      current: { observed_at: "2026-11-21T09:00:00Z", http_status: 200, html: current },
+    };
+    const r = await callTool("compare_production_snapshots", args);
+    expect(r.isError).not.toBe(true);
+    expect(r.structuredContent).toMatchObject({
+      scope: "two_caller_supplied_html_observations",
+      status: "comparable_snapshot", html_fingerprint_changed: true,
+      title_changed: true, noindex_added: true, coverage_limited: true,
+    });
+    expect(JSON.stringify(r)).not.toContain("PRIVATE-V10");
+    expect(JSON.stringify(r)).not.toContain("private-v10-path");
+    const failed = await callTool("compare_production_snapshots", {
+      ...args, current: { ...args.current, http_status: 429, html: "<html>challenge</html>" },
+    });
+    expect(failed.isError).not.toBe(true);
+    expect(failed.structuredContent.status).toBe("not_comparable");
+    expect(failed.structuredContent.title_changed).toBeNull();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
   it("P2-01: discovers and invokes hosted historical comparison fully offline with stable cohort trends", async () => {

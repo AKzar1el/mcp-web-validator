@@ -7,6 +7,15 @@
 - **Reuse:** `src/audit-history.ts` stores at most 10 compact local snapshots; hosted comparison is `chatgpt-plugin/src/site-comparison.ts`.
 - **Guardrail:** No new storage, scheduler or alerts without authorization; retain only redacted bounded observations. HTTP observations remain M01.
 
+V10 is the shared offline `production-change-comparison.ts` analyzer, exposed as
+local `audit.production_change` and hosted `compare_production_snapshots`.
+Two caller-supplied timestamped HTML bodies of one page are compared for
+SHA-256 byte/main-text fingerprints, static metadata, canonical/noindex and
+bounded link differences. Failed HTTP delivery suppresses content-delta claims.
+V10 does not save or fetch any HTML, infer the deployment responsible or
+replace P2-01's compact multi-page audit history. See
+`docs/v10-production-change-comparison.md`.
+
 P2-01 implements the **shared pure** `historical-comparisons.ts` analyzer,
 exposed through local read-only `audit.trends` (2–10 exact existing saved IDs,
 oldest first). The local `audit-history.ts` batch read preserves the existing

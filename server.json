@@ -2215,6 +2215,537 @@
       }
     },
     {
+      "name": "crawler.logs",
+      "title": "Correlate supplied crawler access-log failures around a cutover",
+      "description": "V12 local-only: offline compare before/after HTTP status evidence for 1–16 explicitly important same-origin URLs across up to 500 structured observations or Apache/Nginx combined access lines. Group 401/403, 429, 404/410, 5xx, claimed crawler user agents and query variants with bounded numeric/redacted findings. Googlebot strings are NOT verified crawler identities; no IP, user agent, URL, query, raw log lines or timestamps returned. No server connection, URL fetch, persistence, Search Console, alert scheduling or Google indexing/ranking causation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "site_origin": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "Public HTTPS origin shared by all important URLs and log paths, used only for local matching; never contacted."
+          },
+          "important_urls": {
+            "minItems": 1,
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "description": "One to sixteen explicit same-origin public important URL labels without query/fragment; output uses index numbers, not URLs."
+          },
+          "cutover_at": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 40,
+            "description": "Offset-aware ISO cutover timestamp dividing supplied request evidence into before versus after; never echoed."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "structured",
+              "combined_access"
+            ],
+            "description": "Use structured observations or Apache/Nginx combined access-log lines; exactly one source must be supplied."
+          },
+          "observations": {
+            "description": "Only structured mode: 1–500 previously captured HTTP observations, not fetched or saved.",
+            "minItems": 1,
+            "maxItems": 500,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "timestamp": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40,
+                  "description": "Request timestamp with explicit timezone offset or Z; invalid values reduce coverage rather than being guessed."
+                },
+                "method": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 12,
+                  "description": "HTTP method as observed; only GET/HEAD are correlated for crawl evidence."
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "description": "Observed same-origin request path including optional query, never echoed. Unsafe encoded separators are excluded."
+                },
+                "status": {
+                  "type": "integer",
+                  "minimum": 200,
+                  "maximum": 599,
+                  "description": "Actual caller-observed HTTP response status."
+                },
+                "user_agent": {
+                  "description": "Optional unverified User-Agent text, classified only as claimed crawler profile and never echoed.",
+                  "type": "string",
+                  "maxLength": 300
+                }
+              },
+              "required": [
+                "timestamp",
+                "method",
+                "path",
+                "status"
+              ]
+            }
+          },
+          "access_log": {
+            "description": "Only combined_access: up to 256 KB of Apache/Nginx combined access lines, max 500; IPs/referers/URLs/UA are not returned or stored.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256000
+          }
+        },
+        "required": [
+          "site_origin",
+          "important_urls",
+          "cutover_at",
+          "format"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "caller_supplied_access_log_sample"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "structured",
+              "combined_access"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "comparable_sample",
+              "partial",
+              "not_comparable"
+            ]
+          },
+          "important_urls_supplied": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16
+          },
+          "source_records": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "parsed_records": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "invalid_records": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "ignored_methods": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "unmatched_requests": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "query_variants_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "matched_requests": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "before": {
+            "type": "object",
+            "properties": {
+              "requests": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "http_2xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "redirects_3xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "block_401_403": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "rate_limited_429": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "missing_404_410": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "server_5xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "other_4xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "problem_responses": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "failure_rate_percent": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "requests",
+              "http_2xx",
+              "redirects_3xx",
+              "block_401_403",
+              "rate_limited_429",
+              "missing_404_410",
+              "server_5xx",
+              "other_4xx",
+              "problem_responses",
+              "failure_rate_percent"
+            ],
+            "additionalProperties": false
+          },
+          "after": {
+            "type": "object",
+            "properties": {
+              "requests": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "http_2xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "redirects_3xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "block_401_403": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "rate_limited_429": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "missing_404_410": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "server_5xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "other_4xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "problem_responses": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "failure_rate_percent": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "requests",
+              "http_2xx",
+              "redirects_3xx",
+              "block_401_403",
+              "rate_limited_429",
+              "missing_404_410",
+              "server_5xx",
+              "other_4xx",
+              "problem_responses",
+              "failure_rate_percent"
+            ],
+            "additionalProperties": false
+          },
+          "failure_rate_delta_percentage_points": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "per_url": {
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url_index": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 16
+                },
+                "before_requests": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "after_requests": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "after_problem_responses": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "after_block_401_403": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "after_rate_limited_429": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "after_server_5xx": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "url_index",
+                "before_requests",
+                "after_requests",
+                "after_problem_responses",
+                "after_block_401_403",
+                "after_rate_limited_429",
+                "after_server_5xx"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "claimed_crawler_profiles": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "profile": {
+                  "type": "string",
+                  "enum": [
+                    "claimed_googlebot",
+                    "claimed_bingbot",
+                    "claimed_gptbot",
+                    "claimed_other_bot",
+                    "other"
+                  ]
+                },
+                "before_requests": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "after_requests": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "after_problem_responses": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "profile",
+                "before_requests",
+                "after_requests",
+                "after_problem_responses"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "crawler_identities_verified": {
+            "type": "boolean",
+            "const": false
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 380
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "no_important_url_matches",
+                    "incomplete_before_after_sample",
+                    "failed_requests_increased",
+                    "post_block_challenge",
+                    "post_rate_limiting",
+                    "post_server_errors",
+                    "post_missing_pages",
+                    "important_url_post_failures",
+                    "unparsed_log_entries",
+                    "query_variants_observed",
+                    "user_agents_unverified",
+                    "sample_only"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "url_index": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 16
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 330
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "format",
+          "status",
+          "important_urls_supplied",
+          "source_records",
+          "parsed_records",
+          "invalid_records",
+          "ignored_methods",
+          "unmatched_requests",
+          "query_variants_observed",
+          "matched_requests",
+          "before",
+          "after",
+          "failure_rate_delta_percentage_points",
+          "per_url",
+          "claimed_crawler_profiles",
+          "crawler_identities_verified",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "audit.production_change",
       "title": "Compare two captured production HTML versions",
       "description": "V10 offline exact-page comparison of two explicitly supplied timestamped HTML observations: SHA-256 HTML/main-text fingerprints, title/description/H1/canonical/robots, JSON-LD block counts and bounded internal-link and main-word changes. Non-200 delivery and incomplete evidence suppress content-change claims. No live fetches, storage, deployment, source-text output, Google indexing or ranking causation.",

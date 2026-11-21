@@ -17,6 +17,7 @@ import type { HistoricalReview } from "./modules/change-regression/historical-co
 import type { ProductionChangeReview } from "./modules/change-regression/production-change-comparison.js";
 import type { LabReview } from "./modules/browser-ux/lighthouse-lab.js";
 import type { CruxFieldReview } from "./modules/external-metrics/crux-field.js";
+import type { CrawlerLogReview } from "./modules/change-regression/crawler-log-correlation.js";
 import type { MonitorPreview } from "./modules/change-regression/regression-alerts.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
@@ -689,6 +690,27 @@ export function cruxFieldContent(review: CruxFieldReview): string {
       message:`${f.code}: ${f.message}`,
     })),
     nextStep:"Interpret p75 metrics by page-versus-origin and device cohort, repeat after additional eligible collection periods and correlate with independent deployment records; rolling 28-day CrUX data do not prove a Google ranking or traffic cause.",
+  });
+}
+
+export function crawlerLogContent(review: CrawlerLogReview): string {
+  const percent=(value:number|null)=>value===null?"unavailable":String(value)+"%";
+  const delta=review.failure_rate_delta_percentage_points===null
+    ?"unavailable":String(review.failure_rate_delta_percentage_points)+" percentage points";
+  return toolContent({
+    title:"Offline crawler access-log correlation",
+    status:review.findings.some(f=>f.severity==="warning")?"attention needed":"partial",
+    outcome:`${review.status}: ${review.matched_requests}/${review.source_records} source records matched ` +
+      `${review.important_urls_supplied} supplied important URL labels. ` +
+      `Observed before ${review.before.requests} requests (${percent(review.before.failure_rate_percent)} 4xx/5xx), ` +
+      `after ${review.after.requests} (${percent(review.after.failure_rate_percent)} 4xx/5xx); ` +
+      `failure-rate change ${delta}. ${review.invalid_records} unparsed/unsafe records.`,
+    actions:review.findings.map(f=>({
+      priority:f.severity==="warning"?1:2,
+      location:f.url_index===undefined?"Supplied sampled logs":`Important URL #${f.url_index}`,
+      message:`${f.code}: ${f.message}`,
+    })),
+    nextStep:"Review the original access logs privately, verify claimed crawler source IPs independently, and compare against delivery, deployment and Google Search Console evidence before attributing a visibility decline. No log source or production service was accessed.",
   });
 }
 

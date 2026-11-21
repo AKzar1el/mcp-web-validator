@@ -43,6 +43,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "content.provenance",
       "content.quality",
       "crawler.access",
+      "crawler.logs",
       "css.local",
       "html.local",
       "html.url",
@@ -66,6 +67,47 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "site.links",
       "site.sitemaps",
     ]);
+
+    const crawlerLogsTool = tools.find((tool) => tool.name === "crawler.logs");
+    assert.equal(crawlerLogsTool?.annotations?.readOnlyHint, true);
+    assert.equal(crawlerLogsTool?.outputSchema?.properties?.findings?.maxItems, 16);
+    const crawlLogs = await client.callTool({
+      name: "crawler.logs",
+      arguments: {
+        site_origin: "https://example.com",
+        important_urls: ["https://example.com/private-log-path"],
+        cutover_at: "2026-11-12T00:00:00Z",
+        format: "structured",
+        observations: [
+          { timestamp: "2026-11-11T11:00:00Z", method: "GET",
+            path: "/private-log-path?private-token=should-not-echo",
+            status: 200, user_agent: "Googlebot secret-user-agent" },
+          { timestamp: "2026-11-12T11:00:00Z", method: "GET",
+            path: "/private-log-path",status: 403,
+            user_agent: "Googlebot secret-user-agent" },
+        ],
+      },
+    });
+    assert.equal(crawlLogs.isError, undefined);
+    assert.equal(crawlLogs.structuredContent?.status, "comparable_sample");
+    assert.equal(crawlLogs.structuredContent?.after?.block_401_403, 1);
+    assert.equal(crawlLogs.structuredContent?.crawler_identities_verified, false);
+    assert(!JSON.stringify(crawlLogs).includes("private-log-path"));
+    assert(!JSON.stringify(crawlLogs).includes("private-token"));
+    assert(!JSON.stringify(crawlLogs).includes("secret-user-agent"));
+    const invalidCrawlerLogs = await client.callTool({
+      name: "crawler.logs",
+      arguments: {
+        site_origin: "https://127.0.0.1",
+        important_urls: ["https://127.0.0.1/"],
+        cutover_at: "2026-11-12T00:00:00Z",
+        format: "structured",
+        observations: [
+          { timestamp: "2026-11-11T11:00:00Z",method: "GET",path: "/",status:200 },
+        ],
+      },
+    });
+    assert.equal(invalidCrawlerLogs.isError, true);
 
     const cruxTool = tools.find((tool) => tool.name === "performance.crux_field");
     assert.equal(cruxTool?.annotations?.readOnlyHint, true);

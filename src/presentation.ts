@@ -697,20 +697,26 @@ export function crawlerLogContent(review: CrawlerLogReview): string {
   const percent=(value:number|null)=>value===null?"unavailable":String(value)+"%";
   const delta=review.failure_rate_delta_percentage_points===null
     ?"unavailable":String(review.failure_rate_delta_percentage_points)+" percentage points";
+  const ip=review.googlebot_ip_evidence;
+  const ipEvidence=ip.status==="not_requested"
+    ?" Source-IP range check was not requested."
+    :ip.status==="unavailable"
+      ?" Official Google common-crawler IP ranges were unavailable; no source IP check was completed."
+      :` Current Google common-crawler ranges matched ${ip.matched_current_ranges}/${ip.claimed_requests} claimed Googlebot requests; ${ip.outside_current_ranges} outside and ${ip.missing_or_invalid_ip} missing/invalid source IPs. ${ip.matched_after_problem_responses} matched-source requests had post-cutover 4xx/5xx.`;
   return toolContent({
-    title:"Offline crawler access-log correlation",
+    title:"Crawler access-log correlation with optional Googlebot IP evidence",
     status:review.findings.some(f=>f.severity==="warning")?"attention needed":"partial",
     outcome:`${review.status}: ${review.matched_requests}/${review.source_records} source records matched ` +
       `${review.important_urls_supplied} supplied important URL labels. ` +
       `Observed before ${review.before.requests} requests (${percent(review.before.failure_rate_percent)} 4xx/5xx), ` +
       `after ${review.after.requests} (${percent(review.after.failure_rate_percent)} 4xx/5xx); ` +
-      `failure-rate change ${delta}. ${review.invalid_records} unparsed/unsafe records.`,
+      `failure-rate change ${delta}. ${review.invalid_records} unparsed/unsafe records.`+ipEvidence,
     actions:review.findings.map(f=>({
       priority:f.severity==="warning"?1:2,
       location:f.url_index===undefined?"Supplied sampled logs":`Important URL #${f.url_index}`,
       message:`${f.code}: ${f.message}`,
     })),
-    nextStep:"Review the original access logs privately, verify claimed crawler source IPs independently, and compare against delivery, deployment and Google Search Console evidence before attributing a visibility decline. No log source or production service was accessed.",
+    nextStep:"Review access logs privately, confirm the log field contains actual visitor source IP (not a proxy), and corroborate current IP-range matches with forward/reverse DNS and contemporaneous evidence. Compare delivery, deployments and Search Console before attributing visibility changes. No target site or log provider was contacted.",
   });
 }
 

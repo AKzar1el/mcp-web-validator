@@ -78,7 +78,7 @@
     },
     {
       "name": "crawler.logs",
-      "description": "V12 local-only: offline compare before/after HTTP status evidence for 1–16 explicitly important same-origin URLs across up to 500 structured observations or Apache/Nginx combined access lines. Group 401/403, 429, 404/410, 5xx, claimed crawler user agents and query variants with bounded numeric/redacted findings. Googlebot strings are NOT verified crawler identities; no IP, user agent, URL, query, raw log lines or timestamps returned. No server connection, URL fetch, persistence, Search Console, alert scheduling or Google indexing/ranking causation."
+      "description": "V12/V13 local-only: correlate 1–16 important URLs across 500 supplied access observations, grouping failures and claimed crawlers. Optional verify_googlebot_ip_ranges=true downloads one fixed Google official common-crawler CIDR list and compares caller-supplied source IPs locally. Default is offline. No IPs, UAs, paths, logs, query or timestamps returned; no target-site fetch, log-provider connection, storage, DNS verification, Search Console or Google ranking causation."
     },
     {
       "name": "audit.production_change",

@@ -42,6 +42,12 @@ Module roots include scoped implementations where individual features have been 
 | `V11-FIELD` | CrUX real-user field performance measurements | M06 | `local` + opt-in external Google CrUX API | `existing` (offline analysis; optional keyed live lookup) | L `src/modules/external-metrics/crux-field.ts` + `crux-field-probe.ts`; hosted not enabled | L `test/external-metrics-crux-field.test.js` + actual MCP integration/package smoke | Local `performance.crux_field` reads caller-supplied daily/history CrUX JSON or one explicit key-gated Google API request. P75 LCP/INP/CLS/FCP/TTFB by device and exact page/origin, bounded 40 overlapping historical periods (8 returned), no missing-value interpolation. Live requires existing free `CRUX_API_KEY`; no key, account setup, target fetch, storage, GSC/GA4 or ranking-causality claims. See `docs/v11-crux-field.md`. |
 | `V12` | Crawler-log correlation with observed crawl/index signals | M05 | `local` (supplied log evidence) | `existing` (bounded offline correlation) | L `src/modules/change-regression/crawler-log-correlation.ts`; hosted omitted for privacy | L `test/change-regression-crawler-log-correlation.test.js` + real stdio MCP/package integration | Local `crawler.logs` compares up to 500 user-supplied structured or Apache/Nginx combined access entries before/after a cutover across 1–16 numbered important URLs, 401/403/429/404/410/5xx and *claimed* crawler UAs. No URL/IP/query/UA/timestamp returned; no live provider logs, identity verification, GSC, Google indexing, rankings or causality. See `docs/v12-crawler-log-correlation.md`. |
 
+## Post-V12 narrow follow-ups
+
+| ID | Feature | Owner | Runtime | Status | Files | Guardrails |
+| --- | --- | --- | --- | --- | --- | --- |
+| `V13` | Optional Googlebot source-IP evidence for `crawler.logs` | M05 | `local` | `existing` | `src/modules/change-regression/google-common-crawler-ip.ts`, `crawler-log-correlation.ts`, `test/change-regression-google-common-crawler-ip.test.js` | Default offline; explicit opt-in one fixed official Google common-crawlers JSON GET, 8 seconds, 512 KB, 1,000 CIDRs. Supplied log IPs remain local. Current published IP-range matches, **not** DNS/historical verification, indexing or ranking causality. See `docs/v13-googlebot-ip-evidence.md`. |
+
 ## Remaining P1 roadmap inventory
 
 | ID | Feature | Primary owner | Runtime | Status | Intended implementation file(s) | Required test file(s) | Related working code (not moved) |

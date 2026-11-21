@@ -1,8 +1,11 @@
 /**
  * V12: bounded, offline correlation of caller-supplied HTTP access records.
  * No IP, URL, user agent, token, log line or timestamp is returned. A bot
- * user-agent is only a self-declared string, not verified crawler identity.
+ * user-agent is only a self-declared string; optional range matching is not DNS proof.
  */
+import {
+  matchesOfficialGoogleRange, type NumericCidr,
+} from "./google-common-crawler-ip.js";
 export const MAX_CRAWL_LOG_RECORDS=500;
 export const MAX_CRAWL_LOG_TOTAL_BYTES=256_000;
 export const MAX_CRAWL_IMPORTANT_URLS=16;
@@ -14,6 +17,7 @@ export const CRAWL_FINDING_CODES=[
   "post_block_challenge","post_rate_limiting","post_server_errors",
   "post_missing_pages","important_url_post_failures","unparsed_log_entries",
   "query_variants_observed","user_agents_unverified","sample_only",
+  "googlebot_range_match","googlebot_range_mismatch","googlebot_ranges_unavailable",
 ] as const;
 type LogFormat=typeof CRAWL_LOG_FORMATS[number];
 type LogProfile=typeof CRAWL_PROFILES[number];
@@ -24,6 +28,7 @@ export interface LogObservation {
   path:string;
   status:number;
   user_agent?:string;
+  client_ip?:string;
 }
 export interface CrawlerLogInput {
   site_origin:string;
@@ -60,6 +65,16 @@ export interface LogProfileStats {
   after_requests:number;
   after_problem_responses:number;
 }
+export interface GooglebotIpEvidence {
+  status:"not_requested"|"checked_current_official_ranges"|"unavailable";
+  claimed_requests:number;
+  matched_current_ranges:number;
+  outside_current_ranges:number;
+  missing_or_invalid_ip:number;
+  matched_before:number;
+  matched_after:number;
+  matched_after_problem_responses:number;
+}
 export interface CrawlerLogFinding{
   code:LogCode;
   severity:"warning"|"info";
@@ -83,6 +98,7 @@ export interface CrawlerLogReview{
   failure_rate_delta_percentage_points:number|null;
   per_url:LogUrlStats[];
   claimed_crawler_profiles:LogProfileStats[];
+  googlebot_ip_evidence:GooglebotIpEvidence;
   crawler_identities_verified:false;
   coverage_limited:true;
   limitations:string[];
@@ -93,7 +109,7 @@ export interface CrawlerLogReview{
 }
 const limitations=[
   "Only caller-supplied bounded log observations are analyzed; missing log periods or unmatched URLs cannot prove real availability, crawling frequency or absence of defects.",
-  "Googlebot, Bingbot and other bot groups are unverified user-agent claims, not verified source IPs or confirmed crawler identity.",
+  "User-agent claims remain unverified. Optional source-IP matches against Google's current common-crawler ranges do not prove historical identity, reverse DNS, or identities of other bots.",
   "The before/after cutover is a sample comparison of request counts and HTTP statuses, not a causal test of deployment changes, Google indexing, rankings or traffic loss.",
   "IP addresses, raw paths, query strings, user agents, timestamps and source log text are never returned or stored; redirects, robots policy and Google-selected canonicals are not followed.",
 ];
@@ -106,6 +122,13 @@ function emptyPeriod():LogPeriodStats{
     other_4xx:0,problem_responses:0,failure_rate_percent:null,
   };
 }
+function emptyGooglebotIpEvidence():GooglebotIpEvidence{
+  return {
+    status:"not_requested",claimed_requests:0,matched_current_ranges:0,
+    outside_current_ranges:0,missing_or_invalid_ip:0,
+    matched_before:0,matched_after:0,matched_after_problem_responses:0,
+  };
+}
 export function emptyCrawlerLogReview(format:LogFormat="structured"):CrawlerLogReview{
   return {
     scope:"caller_supplied_access_log_sample",format,status:"not_comparable",
@@ -113,7 +136,8 @@ export function emptyCrawlerLogReview(format:LogFormat="structured"):CrawlerLogR
     ignored_methods:0,unmatched_requests:0,query_variants_observed:0,
     matched_requests:0,before:emptyPeriod(),after:emptyPeriod(),
     failure_rate_delta_percentage_points:null,per_url:[],
-    claimed_crawler_profiles:[],crawler_identities_verified:false,
+    claimed_crawler_profiles:[],googlebot_ip_evidence:emptyGooglebotIpEvidence(),
+    crawler_identities_verified:false,
     coverage_limited:true,limitations,total_findings:0,findings:[],findings_truncated:false,
   };
 }
@@ -196,11 +220,11 @@ function apacheTime(raw:string):string|undefined {
 /** A deliberately narrow Apache combined log parser; malformed lines become unknown evidence. */
 export function parseCombinedAccessLine(line:string):LogObservation|undefined {
   if(typeof line!=="string"||byteLength(line)>2048)return;
-  const m=/^\S+ \S+ \S+ \[([^\]]{15,45})\] "([A-Z]+) ([^"\s]{1,1024}) HTTP\/\d(?:\.\d)?" ([2-5]\d{2}) (?:\d+|-) "[^"]{0,1024}" "([^"]{0,300})"$/u.exec(line);
+  const m=/^(\S+) \S+ \S+ \[([^\]]{15,45})\] "([A-Z]+) ([^"\s]{1,1024}) HTTP\/\d(?:\.\d)?" ([2-5]\d{2}) (?:\d+|-) "[^"]{0,1024}" "([^"]{0,300})"$/u.exec(line);
   if(!m)return;
-  const timestamp=apacheTime(m[1]);
+  const timestamp=apacheTime(m[2]);
   if(!timestamp)return;
-  return {timestamp,method:m[2],path:m[3],status:Number(m[4]),user_agent:m[5]};
+  return {timestamp,method:m[3],path:m[4],status:Number(m[5]),user_agent:m[6],client_ip:m[1]};
 }
 function claimedAgent(raw:unknown):LogProfile {
   if(typeof raw!=="string"||raw.length>300)return "other";
@@ -231,7 +255,10 @@ function addFinding(
   if(report.findings.length<MAX_CRAWL_FINDINGS)
     report.findings.push({code,severity,message,...(urlIndex===undefined?{}:{url_index:urlIndex})});
 }
-export function analyzeCrawlerLogs(input:CrawlerLogInput):CrawlerLogReview {
+export function analyzeCrawlerLogs(
+  input:CrawlerLogInput,
+  ipCheck?:{requested:true;ranges?:readonly NumericCidr[]},
+):CrawlerLogReview {
   if(!input||!CRAWL_LOG_FORMATS.includes(input.format))throw new Error("Invalid log format");
   const origin=safeLogOrigin(input.site_origin);
   if(!origin)throw new Error("Unsafe log site origin");
@@ -239,6 +266,9 @@ export function analyzeCrawlerLogs(input:CrawlerLogInput):CrawlerLogReview {
   const cutoff=isoTimestamp(input.cutover_at);
   if(cutoff===undefined)throw new Error("Invalid offset-aware cutover timestamp");
   const report=emptyCrawlerLogReview(input.format);
+  if(ipCheck?.requested)
+    report.googlebot_ip_evidence.status=ipCheck.ranges?
+      "checked_current_official_ranges":"unavailable";
   report.important_urls_supplied=important.length;
   const all:LogObservation[]=[];
   if(input.format==="structured"){
@@ -303,7 +333,24 @@ export function analyzeCrawlerLogs(input:CrawlerLogInput):CrawlerLogReview {
       if(status===429)u.after_rate_limited_429++;
       if(status>=500)u.after_server_5xx++;
     }else{u.before_requests++;}
-    const profile=profiles.find(p=>p.profile===claimedAgent(item.user_agent))!;
+    const agent=claimedAgent(item.user_agent);
+    const profile=profiles.find(p=>p.profile===agent)!;
+    if(agent==="claimed_googlebot"){
+      const evidence=report.googlebot_ip_evidence;
+      evidence.claimed_requests++;
+      if(ipCheck?.ranges){
+        const matched=matchesOfficialGoogleRange(item.client_ip,ipCheck.ranges);
+        if(matched===null)evidence.missing_or_invalid_ip++;
+        else if(!matched)evidence.outside_current_ranges++;
+        else{
+          evidence.matched_current_ranges++;
+          if(after){
+            evidence.matched_after++;
+            if(status>=400)evidence.matched_after_problem_responses++;
+          }else evidence.matched_before++;
+        }
+      }
+    }
     if(after){
       profile.after_requests++;
       if(status>=400)profile.after_problem_responses++;
@@ -352,7 +399,16 @@ export function analyzeCrawlerLogs(input:CrawlerLogInput):CrawlerLogReview {
     "Query-bearing log requests were counted by safe path only; raw query values were dropped.");
   if(profiles.some(p=>p.profile!=="other"&&(p.before_requests+p.after_requests)>0))
     addFinding(report,"user_agents_unverified","info",
-      "Crawler groupings reflect claimed user-agent text; reverse-DNS or published-IP verification was not performed.");
+      "Crawler groups are user-agent claims. Any optional Googlebot IP-range matches are partial evidence, not reverse-DNS verification.");
+  if(report.googlebot_ip_evidence.status==="unavailable")
+    addFinding(report,"googlebot_ranges_unavailable","info",
+      "The requested official Google common-crawler IP list was unavailable or invalid; no source IPs were verified.");
+  if(report.googlebot_ip_evidence.matched_current_ranges>0)
+    addFinding(report,"googlebot_range_match","info",
+      "Some claimed Googlebot requests matched Google's current published common-crawler IP ranges; this is not historical or DNS proof.");
+  if(report.googlebot_ip_evidence.outside_current_ranges>0)
+    addFinding(report,"googlebot_range_mismatch","warning",
+      "Some claimed Googlebot requests were outside Google's current common-crawler IP ranges; check proxy IPs and snapshot timing.");
   addFinding(report,"sample_only","info",
     "The supplied log sample and cutoff cannot establish complete server traffic, Google indexing or ranking causation.");
   report.findings_truncated=report.total_findings>report.findings.length;

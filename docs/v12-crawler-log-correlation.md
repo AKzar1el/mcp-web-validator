@@ -2,14 +2,14 @@
 
 **Owner:** M05 `change-regression`. **Runtime:** local Node/stdio **`crawler.logs`** only. **Scope:** completely offline and read-only. The tool does not connect to Cloudflare, nginx, hosting providers, access-log files, Google Search Console or the target site. Only logs that the caller intentionally supplies are parsed.
 
-The primary use case is evaluating whether **explicitly listed important page paths** received more HTTP 401/403, 429, 404/410 or 5xx responses after an incident cutover. A user-agent containing `Googlebot` is **unverified**, not evidence of actual Googlebot IP ownership. Google recommends reverse-DNS + forward verification or published crawler-IP ranges to verify real Google crawler traffic; V12 never performs that verification.
+The primary use case is evaluating whether **explicitly listed important page paths** received more HTTP 401/403, 429, 404/410 or 5xx responses after an incident cutover. A user-agent containing `Googlebot` is **unverified**, not evidence of actual Googlebot IP ownership. Google recommends reverse-DNS + forward verification or published crawler-IP ranges to verify real Google crawler traffic. The original V12 does not verify crawler identity; an optional [V13 source-IP check](v13-googlebot-ip-evidence.md) now compares recorded source IPs against Google's current published ranges.
 
 ## Inputs
 
 Choose one of the following formats, not both:
 
-1. `structured`: 1–500 caller-supplied observations, each with `timestamp` (offset-aware ISO), `method` (GET/HEAD), `path` (with optional query), `status` (HTTP 100–599), optional `user_agent`.
-2. `combined_access`: 1–500 **Apache/Nginx combined-format access lines**, maximum **256,000 UTF-8 bytes**. Example format: `IP - - [12/Nov/2026:06:00:00 +0000] "GET /path HTTP/1.1" 403 123 "-" "Googlebot/2.1"`. Only the timestamp, HTTP method, request path, response status and claimed User-Agent are retained ephemerally during computation. IP, referrer, raw User-Agent, request URL and query are **never returned**. Unsupported custom/proxy/Cloudflare formats are counted as unparsed evidence rather than guessed.
+1. `structured`: 1–500 caller-supplied observations, each with `timestamp` (offset-aware ISO), `method` (GET/HEAD), `path` (with optional query), `status` (HTTP 200–599), optional `user_agent` and optional `client_ip` for the V13 check.
+2. `combined_access`: 1–500 **Apache/Nginx combined-format access lines**, maximum **256,000 UTF-8 bytes**. Example format: `IP - - [12/Nov/2026:06:00:00 +0000] "GET /path HTTP/1.1" 403 123 "-" "Googlebot/2.1"`. The timestamp, HTTP method, request path, response status, claimed User-Agent and (for optional V13 matching) first-field source IP are retained ephemerally during computation. IP, referrer, raw User-Agent, request URL and query are **never returned**. Unsupported custom/proxy/Cloudflare formats are counted as unparsed evidence rather than guessed.
 
 Supply `site_origin` (public HTTPS origin), **1–16 same-origin important URLs** in a fixed order, and one explicit `cutover_at` timestamp. Example:
 
@@ -50,7 +50,7 @@ The report contains counts and per-supplied-request 4xx/5xx fractions in the bef
 - HTTP 2xx success, 3xx redirect, HTTP 401/403 access denied/challenge, 429 rate limit, 404/410 gone, other 4xx and 5xx server errors are tracked **separately**. Redirects are not failures. HTTP 404 may reflect a legitimate removal, not necessarily a defect.
 - Each important URL is matched by **exact safe path**; permitted query variants match the same route and their query values are dropped. No redirects, canonicals or alternate hosts are followed. Suspicious encoded separators and dot traversal are excluded, with invalid-record counts included in the report.
 - Requests not matching the listed important paths are counted but not used to invent a website-wide crawl statistic. POST/DELETE and other methods are ignored as crawler GET/HEAD evidence.
-- Source `User-Agent` is a self-claim: groups are `claimed_googlebot`, `claimed_bingbot`, `claimed_gptbot`, `claimed_other_bot` and `other`; `crawler_identities_verified` is always **false**.
+- Source `User-Agent` is a self-claim: groups are `claimed_googlebot`, `claimed_bingbot`, `claimed_gptbot`, `claimed_other_bot` and `other`; `crawler_identities_verified` remains **false**. V13's optional official-IP-range comparison is narrower than DNS or historical crawler verification.
 - Missing before/after observations yield `partial`, null baseline rates and null deltas. No matching important URLs yields `not_comparable`. Malformed log lines explicitly downgrade comparability. Counts are **not time-normalized requests/hour** because supplied windows may have different lengths and coverage.
 - The sample contains at most **500 records**, **16 important paths** and **16 redacted findings**; total finding counts and truncation flags preserve omitted evidence. Raw source logs, URLs, query strings, timestamps, IP addresses, user agents, credentials and headers are never output. There is no storage or subscription.
 

@@ -71,6 +71,8 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     const crawlerLogsTool = tools.find((tool) => tool.name === "crawler.logs");
     assert.equal(crawlerLogsTool?.annotations?.readOnlyHint, true);
     assert.equal(crawlerLogsTool?.outputSchema?.properties?.findings?.maxItems, 16);
+    assert.equal(crawlerLogsTool?.inputSchema?.properties?.verify_googlebot_ip_ranges?.default, false);
+    assert(crawlerLogsTool?.outputSchema?.properties?.googlebot_ip_evidence);
     const crawlLogs = await client.callTool({
       name: "crawler.logs",
       arguments: {
@@ -81,7 +83,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
         observations: [
           { timestamp: "2026-11-11T11:00:00Z", method: "GET",
             path: "/private-log-path?private-token=should-not-echo",
-            status: 200, user_agent: "Googlebot secret-user-agent" },
+            status: 200, user_agent: "Googlebot secret-user-agent",client_ip:"203.0.113.9" },
           { timestamp: "2026-11-12T11:00:00Z", method: "GET",
             path: "/private-log-path",status: 403,
             user_agent: "Googlebot secret-user-agent" },
@@ -92,9 +94,11 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.equal(crawlLogs.structuredContent?.status, "comparable_sample");
     assert.equal(crawlLogs.structuredContent?.after?.block_401_403, 1);
     assert.equal(crawlLogs.structuredContent?.crawler_identities_verified, false);
+    assert.equal(crawlLogs.structuredContent?.googlebot_ip_evidence?.status, "not_requested");
     assert(!JSON.stringify(crawlLogs).includes("private-log-path"));
     assert(!JSON.stringify(crawlLogs).includes("private-token"));
     assert(!JSON.stringify(crawlLogs).includes("secret-user-agent"));
+    assert(!JSON.stringify(crawlLogs).includes("203.0.113.9"));
     const invalidCrawlerLogs = await client.callTool({
       name: "crawler.logs",
       arguments: {

@@ -44,6 +44,16 @@ test("V05: robots Sitemap discovery only accepts absolute query-free same-origin
   assert.equal(sitemapFromRobotsTxt(site_url, "Sitemap: https://example.com/a?token=hidden"), undefined);
 });
 
+test("V05: robots Sitemap discovery accepts an inline comment after the URL", () => {
+  const robots = [
+    "Sitemap: https://outside.example.net/other.xml # not this host",
+    "Sitemap: https://example.com/sitemap.xml # primary inventory",
+  ].join("\n");
+  assert.equal(sitemapFromRobotsTxt(site_url, robots), site_url + "sitemap.xml");
+  assert.equal(sitemapFromRobotsTxt(site_url, "Sitemap: https://example.com/sitemap.xml\t# comment"), site_url + "sitemap.xml");
+  assert.equal(sitemapFromRobotsTxt(site_url, "Sitemap: https://example.com/sitemap.xml?token=secret # ignored"), undefined);
+});
+
 test("V05: complete supplied index+child, unique URLs and 100% independent discovery coverage", () => {
   const r = analyze({
     documents_complete: true, discovered_complete: true,

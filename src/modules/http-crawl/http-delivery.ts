@@ -119,6 +119,23 @@ function safeIntegerHeader(value: string | undefined): number | undefined {
   return Number.isSafeInteger(result) ? result : undefined;
 }
 
+function cacheDirectives(value: string): string[] {
+  const directives: string[] = [];
+  let start = 0, quoted = false, escaped = false;
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i];
+    if (escaped) { escaped = false; continue; }
+    if (char === "\\" && quoted) { escaped = true; continue; }
+    if (char === '"') { quoted = !quoted; continue; }
+    if (char === "," && !quoted) {
+      directives.push(value.slice(start, i).trim().toLowerCase());
+      start = i + 1;
+    }
+  }
+  directives.push(value.slice(start).trim().toLowerCase());
+  return directives;
+}
+
 function parseHeaders(record: Record<string, string> | undefined): Record<string, string> {
   const headers: Record<string, string> = Object.create(null);
   if (!record) return headers;
@@ -230,11 +247,13 @@ export function analyzeHttpDelivery(
     visited.add(url.href);
 
     const cfChallenge = head["cf-mitigated"]?.trim().toLowerCase() === "challenge";
-    const control = head["cache-control"]?.toLowerCase() ?? "";
+    // Cache-Control extension values may contain quoted commas and directive-like text.
+    const control = cacheDirectives(head["cache-control"] ?? "");
     const cacheRaw = head["cf-cache-status"]?.trim().toUpperCase() ??
       (/\bHIT\b/i.test(head["x-cache"] ?? "") ? "HIT" :
         /\bMISS\b/i.test(head["x-cache"] ?? "") ? "MISS" : "");
-    const maxAgeMatch = /(?:^|,)\s*max-age\s*=\s*(\d{1,9})(?:\s*,|$)/i.exec(control);
+    const maxAgeMatch = control.map((part) => /^max-age\s*=\s*(\d{1,9})$/u.exec(part))
+      .find((match) => match !== null);
     const maxAge = safeIntegerHeader(maxAgeMatch?.[1]);
     const age = safeIntegerHeader(head.age);
     const retryAfter = safeIntegerHeader(head["retry-after"]);
@@ -245,9 +264,9 @@ export function analyzeHttpDelivery(
       cache_state: cacheStates.has(cacheRaw)
         ? cacheRaw.toLowerCase() as DeliveryCacheState
         : cacheRaw ? "other" : "unknown",
-      cache_no_store: /(?:^|,)\s*no-store(?:\s*,|$)/i.test(control),
-      cache_no_cache: /(?:^|,)\s*no-cache(?:\s*,|$)/i.test(control),
-      cache_private: /(?:^|,)\s*private(?:\s*,|$)/i.test(control),
+      cache_no_store: control.includes("no-store"),
+      cache_no_cache: control.some((part) => /^no-cache(?:\s*=|$)/u.test(part)),
+      cache_private: control.some((part) => /^private(?:\s*=|$)/u.test(part)),
       ...(maxAge === undefined ? {} : { cache_max_age_seconds: maxAge }),
       ...(age === undefined ? {} : { age_seconds: age }),
       retry_after_present: head["retry-after"] !== undefined,

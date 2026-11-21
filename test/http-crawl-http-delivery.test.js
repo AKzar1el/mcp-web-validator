@@ -27,6 +27,35 @@ test("V01: 200 and bounded cache evidence never return secret header values", ()
   assert(!JSON.stringify(r).includes("secret-ray-id"));
 });
 
+test("V01: Cache-Control quoted extension commas do not invent cache directives", () => {
+  const r = analyzeHttpDelivery([obs(200, { headers: {
+    "cache-control": 'custom="note, no-store, no-cache, private, max-age=999, tail"',
+  } })]);
+  assert.equal(r.hops[0].cache_no_store, false);
+  assert.equal(r.hops[0].cache_no_cache, false);
+  assert.equal(r.hops[0].cache_private, false);
+  assert.equal(r.hops[0].cache_max_age_seconds, undefined);
+
+  const mixed = analyzeHttpDelivery([obs(200, { headers: {
+    "cache-control": 'custom="note, max-age=999, no-cache", max-age=60, no-store',
+  } })]);
+  assert.equal(mixed.hops[0].cache_no_store, true);
+  assert.equal(mixed.hops[0].cache_no_cache, false);
+  assert.equal(mixed.hops[0].cache_max_age_seconds, 60);
+});
+
+test("V01: field-qualified no-cache/private and ordinary max-age are recognized", () => {
+  const r = analyzeHttpDelivery([obs(200, { headers: {
+    "Cache-Control": 'private="Set-Cookie", no-cache="Authorization", max-age=60',
+  } })]);
+  assert.equal(r.hops[0].cache_no_cache, true);
+  assert.equal(r.hops[0].cache_private, true);
+  assert.equal(r.hops[0].cache_no_store, false);
+  assert.equal(r.hops[0].cache_max_age_seconds, 60);
+  assert(!JSON.stringify(r).includes("Set-Cookie"));
+  assert(!JSON.stringify(r).includes("Authorization"));
+});
+
 test("V01: distinct 403, 429, 5xx, challenge and Retry-After classifications", () => {
   for (const [status, code] of [[403, "http_forbidden"], [429, "http_rate_limited"],
     [500, "http_server_error"], [503, "http_server_error"], [404, "http_client_error"]]) {

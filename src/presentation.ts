@@ -15,6 +15,7 @@ import type { HttpsSecurityReview } from "./modules/http-crawl/https-security.js
 import type { UrlVariantReview } from "./modules/http-crawl/url-variants.js";
 import type { HistoricalReview } from "./modules/change-regression/historical-comparisons.js";
 import type { ProductionChangeReview } from "./modules/change-regression/production-change-comparison.js";
+import type { LabReview } from "./modules/browser-ux/lighthouse-lab.js";
 import type { MonitorPreview } from "./modules/change-regression/regression-alerts.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
@@ -641,6 +642,30 @@ export function productionChangeContent(review: ProductionChangeReview): string 
       message: `${finding.code}: ${finding.message}`,
     })),
     nextStep: "Confirm capture timestamps and HTTP statuses against independent delivery evidence. Compare source deployments and crawler observations separately before attributing a production or Google visibility change.",
+  });
+}
+
+export function lighthouseLabContent(review: LabReview): string {
+  const score = review.performance_score_percent === null
+    ? "unavailable" : String(review.performance_score_percent) + "/100";
+  const metric = (value: number | null, unit = "ms") =>
+    value === null ? "unavailable" : String(value) + unit;
+  return toolContent({
+    title: "Isolated Lighthouse performance laboratory",
+    status: review.status === "failed" ? "partial" :
+      review.findings.some((finding) => finding.severity === "warning")
+        ? "attention needed" : "partial",
+    outcome: `${review.status}: Lighthouse ${review.form_factor} lab score ${score}; ` +
+      `FCP ${metric(review.metrics.fcp_ms)}, LCP ${metric(review.metrics.lcp_ms)}, ` +
+      `TBT ${metric(review.metrics.tbt_ms)}, Speed Index ${metric(review.metrics.speed_index_ms)}, ` +
+      `CLS ${metric(review.metrics.cls, "")}. ` +
+      `${review.requests_blocked} requests blocked by the offline security policy.`,
+    actions: review.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: "One isolated static-HTML lab run",
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Repeat consistent Lighthouse runs for trends. This sandboxed static HTML audit did not load live production JavaScript, CSS, network assets or real-user CrUX field data; it cannot establish production Core Web Vitals, SEO rankings or visibility-cause conclusions.",
   });
 }
 

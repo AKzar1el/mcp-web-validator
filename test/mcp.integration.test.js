@@ -33,6 +33,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "audit.trends",
       "availability.history",
       "browser.dom_diff",
+      "browser.lighthouse_lab",
       "browser.resource_failures",
       "browser.viewport_parity",
       "browser.wcag",
@@ -97,6 +98,14 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.equal(failedProduction.structuredContent?.status, "not_comparable");
     assert.equal(failedProduction.structuredContent?.title_changed, null);
 
+    const lighthouseTool = tools.find((tool) => tool.name === "browser.lighthouse_lab");
+    assert.equal(lighthouseTool?.annotations?.readOnlyHint, true);
+    assert.equal(lighthouseTool?.outputSchema?.properties?.findings?.maxItems, 10);
+    const invalidLab = await client.callTool({
+      name: "browser.lighthouse_lab",
+      arguments: { html: " ", form_factor: "mobile" },
+    });
+    assert.equal(invalidLab.isError, true);
     const viewportTool = tools.find((tool) => tool.name === "browser.viewport_parity");
     assert.equal(viewportTool?.annotations?.readOnlyHint, true);
     assert.equal(viewportTool?.outputSchema?.properties?.findings?.maxItems, 16);

@@ -3539,6 +3539,261 @@
       }
     },
     {
+      "name": "browser.lighthouse_lab",
+      "title": "Run isolated Lighthouse performance lab on supplied static HTML",
+      "description": "V11-LAB local-only: run the real Lighthouse engine once in pinned sandboxed Chromium against caller-supplied HTML served at a synthetic, isolated local proxy origin. Reports redacted Lighthouse performance score, FCP, LCP, TBT, Speed Index and CLS. All supplied executable page scripts and embedded frames are stripped, and all outbound resource requests are denied; no production URL, remote CSS/JS, CrUX field INP, ranking or indexing verdict. Chrome/Lighthouse may incur CPU and memory load; fixed 75-second deadline and 180 KB HTML cap.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "html": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180000,
+            "description": "Authorized static HTML markup for the isolated lab. It is not fetched or stored."
+          },
+          "form_factor": {
+            "default": "mobile",
+            "description": "Run one real Lighthouse performance-only lab simulation using mobile or desktop viewport emulation.",
+            "type": "string",
+            "enum": [
+              "mobile",
+              "desktop"
+            ]
+          }
+        },
+        "required": [
+          "html"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "isolated_caller_supplied_html_lighthouse_lab"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "complete",
+              "partial",
+              "failed"
+            ]
+          },
+          "form_factor": {
+            "type": "string",
+            "enum": [
+              "mobile",
+              "desktop"
+            ]
+          },
+          "browser_executed": {
+            "type": "boolean"
+          },
+          "scripts_disabled": {
+            "type": "boolean",
+            "const": true
+          },
+          "network_isolated": {
+            "type": "boolean",
+            "const": true
+          },
+          "lighthouse_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "performance_score_percent": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metrics": {
+            "type": "object",
+            "properties": {
+              "fcp_ms": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 600000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "lcp_ms": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 600000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "tbt_ms": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 600000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "speed_index_ms": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 600000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cls": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "fcp_ms",
+              "lcp_ms",
+              "tbt_ms",
+              "speed_index_ms",
+              "cls"
+            ],
+            "additionalProperties": false
+          },
+          "requests_blocked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 80
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 420
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "lab_score_review",
+                    "lcp_review",
+                    "cls_review",
+                    "tbt_review",
+                    "metric_unavailable",
+                    "run_incomplete",
+                    "runtime_failed",
+                    "external_resources_blocked"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "status",
+          "form_factor",
+          "browser_executed",
+          "scripts_disabled",
+          "network_isolated",
+          "lighthouse_version",
+          "performance_score_percent",
+          "metrics",
+          "requests_blocked",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "browser.viewport_parity",
       "title": "Compare isolated mobile and desktop rendering and native interaction evidence",
       "description": "V09 local-only: compare the SAME authorized HTML in two fresh, network-denied Chromium viewports (375x812 touch/mobile and 1440x900 desktop), or fetch one robots-allowed public HTML 200 response for that isolated comparison. Detects mobile main content hidden vs absent in DOM, visible navigation/link differences, title/description/H1/robots/canonical/JSON-LD counts, horizontal overflow, bounded keyboard tab targets, small control dimensions and one safe native details tap/Enter. All page scripts and external CSS/JS/API assets are disabled, no arbitrary links/buttons clicked or forms submitted. Fixed counts/codes only, no raw text, URLs, IDs or screenshots in output. Not Google WRS, full-site SEO parity, full accessibility certification, or real hydrated browser behavior.",

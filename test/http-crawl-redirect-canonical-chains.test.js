@@ -19,6 +19,14 @@ test("V04: bounded HTTP Link rel=canonical extraction ignores other relations", 
   assert.deepEqual(canonicalHrefsFromLinkHeader("x".repeat(9_000)), []);
 });
 
+test("V04: Link headers do not interpret rel-looking URI or quoted values as parameters", () => {
+  assert.deepEqual(canonicalHrefsFromLinkHeader(
+    "<https://example.com/path;rel=canonical;x=y>; rel=alternate"), []);
+  assert.deepEqual(canonicalHrefsFromLinkHeader(
+    '<https://example.com/path>; title="note;rel=canonical;other"; rel=alternate'), []);
+  assert.deepEqual(canonicalHrefsFromLinkHeader(
+    '<https://example.com/final>; rel="alternate canonical"'), ["https://example.com/final"]);
+});
 test("V04: 301 -> 200 observed chain completes, self canonical, explicit expected target", () => {
   const result = analyzeRedirectCanonicalChains({
     source_url: s, expected_destination: s + "final",

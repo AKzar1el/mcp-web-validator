@@ -171,12 +171,30 @@ export function canonicalHrefsFromLinkHeader(value: string | null): string[] {
   const found: string[] = [];
   for (const part of value.split(/,(?=\s*<)/u)) {
     const uri = /^\s*<([^<>]{1,1024})>/u.exec(part);
-    const rel = /(?:^|;)\s*rel\s*=\s*(?:"([^"]*)"|'([^']*)'|([^;,\s]+))/iu.exec(part);
-    if (uri && rel && (rel[1] ?? rel[2] ?? rel[3] ?? "")
-      .toLowerCase().split(/\s+/u).includes("canonical")) {
-      found.push(uri[1]);
-      if (found.length === MAX_CHAIN_CANONICALS) break;
+    if (!uri) continue;
+    const parameters = part.slice(uri[0].length);
+    let quote: "\"" | "'" | undefined;
+    let start = -1; // Only semicolon-delimited Link parameters count.
+    for (let i = 0; i <= parameters.length; i += 1) {
+      const char = parameters[i];
+      if (quote && char === "\\" && i + 1 < parameters.length) { i += 1; continue; }
+      if (char === quote) quote = undefined;
+      else if (!quote && (char === '"' || char === "'")) quote = char;
+      if (!quote && (char === ";" || i === parameters.length)) {
+        if (start >= 0) {
+          const rel = /^rel\s*=\s*(?:"([^"]*)"|'([^']*)'|([^;,\s]+))$/iu.exec(
+            parameters.slice(start, i).trim(),
+          );
+          if (rel && (rel[1] ?? rel[2] ?? rel[3] ?? "")
+            .toLowerCase().split(/\s+/u).includes("canonical")) {
+            found.push(uri[1]);
+            break;
+          }
+        }
+        start = i + 1;
+      }
     }
+    if (found.length === MAX_CHAIN_CANONICALS) break;
   }
   return found;
 }

@@ -314,6 +314,18 @@ This installs the local stdio package, preserving its workspace-file and screens
 
 ## Development
 
+### Optional safe update-on-activation for local source builds
+
+The normal `npx -y mcp-web-validator` setup runs the **published npm version**;
+merging GitHub changes does not publish them or refresh an already-running MCP.
+For a trusted personal development setup that should pick up new `main` commits
+at the **next** start, see [safe activation](https://github.com/AKzar1el/mcp-web-validator/blob/main/docs/activation-and-release.md).
+It uses an isolated cache, rebuilds and smoke-tests each new revision, and
+retains the last verified build when offline or when a new build fails. It does
+not restart running sessions, change other Git worktrees, publish npm, deploy
+the hosted Worker, or submit an OpenAI Platform release.
+
+
 Clone the repository and install the locked dependencies:
 
 ```bash

@@ -9,6 +9,28 @@ All notable changes to this project are documented here. The project follows [Se
 - Accept public webpage URLs in `validate_html` (including legacy URL-as-HTML input) via the existing safe page fetch, avoiding misleading Nu diagnostics for URL text.
 - Fix Nu HTML validation in the Cloudflare Worker by using supported manual redirect handling and rejecting non-success responses without forwarding submitted markup.
 
+## [1.3.52] - 2026-11-21
+
+### Added
+
+- Expand local stdio MCP to 39 tools with evidence-bounded technical SEO and
+  incident diagnostics: HTTP delivery, availability, redirects, crawler access,
+  sitemaps, browser resource failures, viewport checks, production changes,
+  Lighthouse offline laboratory, CrUX field data, and crawler log correlation.
+- Add optional, local GitHub-main update-on-activation launcher for trusted
+  development environments. Each new revision is isolated, built, and checked
+  with a real offline MCP canary before promotion. Offline, lock, or failed-build
+  cases preserve the last known-good revision; public npm clients are unchanged.
+
+### Fixed
+
+- Validate calendar dates strictly in production-change and historical audits;
+  impossible timestamps no longer count as comparable evidence.
+- Give six high-use incident tools prioritized, bounded remediation suggestions
+  without weakening privacy or their structured MCP contracts.
+- Harden redirect, URL-variant, sitemap, and Cache-Control parsing against
+  misleading edge cases found in follow-up testing.
+
 ### Security
 
 - Refresh the local MCP's locked transitive Hono dependency to 4.13.19 to address npm-audited middleware and input-validation advisories without changing the runtime dependency declarations.

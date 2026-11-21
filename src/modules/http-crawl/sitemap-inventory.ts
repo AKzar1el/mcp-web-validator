@@ -173,7 +173,7 @@ export function sitemapFromRobotsTxt(siteUrl: string, robotsText: string): strin
   const site = safeUrl(siteUrl, false);
   if (!site || typeof robotsText !== "string" || bytes(robotsText) > 64_000) return undefined;
   for (const line of robotsText.split(/\r\n|\r|\n/u)) {
-    const match = /^\s*sitemap\s*:\s*(\S+)\s*$/iu.exec(line);
+    const match = /^\s*sitemap\s*:\s*(\S+)(?:\s+#.*)?\s*$/iu.exec(line);
     if (!match) continue;
     const found = safeUrl(match[1], false);
     if (found && found.origin === site.origin) return found.href;

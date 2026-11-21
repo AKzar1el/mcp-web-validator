@@ -65,10 +65,37 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "audit.monitor", "audit.production_change", "audit.trends", "availability.history", "browser.dom_diff", "browser.lighthouse_lab", "browser.resource_failures", "browser.viewport_parity", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "performance.crux_field", "product.claims",
+      "audit.history", "audit.monitor", "audit.production_change", "audit.trends", "availability.history", "browser.dom_diff", "browser.lighthouse_lab", "browser.resource_failures", "browser.viewport_parity", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "crawler.logs", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "performance.crux_field", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.link_graph", "site.links", "site.sitemaps",
     ],
   );
+
+  phase = "v12_crawler_access_log_correlation";
+  const crawlerLogsTool = tools.find((tool) => tool.name === "crawler.logs");
+  assert.equal(crawlerLogsTool?.annotations?.readOnlyHint, true);
+  assert.equal(crawlerLogsTool?.outputSchema?.properties?.findings?.maxItems, 16);
+  const crawlerLogs = await client.callTool({
+    name: "crawler.logs",
+    arguments: {
+      site_origin: "https://example.com",
+      important_urls: ["https://example.com/private-crawler-log"],
+      cutover_at: "2026-11-12T00:00:00Z",
+      format: "structured",
+      observations: [
+        { timestamp: "2026-11-11T08:00:00Z", method: "GET",
+          path: "/private-crawler-log", status: 200,
+          user_agent: "Googlebot-secret-identity" },
+        { timestamp: "2026-11-12T08:00:00Z", method: "GET",
+          path: "/private-crawler-log", status: 429,
+          user_agent: "Googlebot-secret-identity" },
+      ],
+    },
+  });
+  assert.notEqual(crawlerLogs.isError, true);
+  assert.equal(crawlerLogs.structuredContent?.after?.rate_limited_429, 1);
+  assert.equal(crawlerLogs.structuredContent?.crawler_identities_verified, false);
+  assert(!JSON.stringify(crawlerLogs).includes("private-crawler-log"));
+  assert(!JSON.stringify(crawlerLogs).includes("Googlebot-secret-identity"));
 
   phase = "v11_crux_field_offline_contract";
   const cruxTool = tools.find((tool) => tool.name === "performance.crux_field");

@@ -175,6 +175,7 @@ import {
   productionChangeContent,
   lighthouseLabContent,
   cruxFieldContent,
+  crawlerLogContent,
   regressionPreviewContent,
   multilingualClusterContent,
   failureContent,
@@ -268,6 +269,13 @@ import {
   HISTORICAL_STATUSES,
   HISTORICAL_FINDING_CODES,
 } from "./modules/change-regression/historical-comparisons.js";
+import {
+  analyzeCrawlerLogs, emptyCrawlerLogReview,
+  safeLogOrigin,
+  MAX_CRAWL_LOG_RECORDS, MAX_CRAWL_LOG_TOTAL_BYTES,
+  MAX_CRAWL_IMPORTANT_URLS, MAX_CRAWL_FINDINGS,
+  CRAWL_LOG_FORMATS, CRAWL_PROFILES, CRAWL_FINDING_CODES,
+} from "./modules/change-regression/crawler-log-correlation.js";
 import {
   analyzeProductionChange,
   emptyProductionChangeReview,
@@ -948,6 +956,62 @@ const cruxFieldOutputShape = {
     severity: z.enum(["warning","info"]),
     message: z.string().max(320),
   })).max(MAX_CRUX_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const crawlerLogPeriodOutputSchema = z.object({
+  requests: z.number().int().nonnegative().max(MAX_CRAWL_LOG_RECORDS),
+  http_2xx: z.number().int().nonnegative(),
+  redirects_3xx: z.number().int().nonnegative(),
+  block_401_403: z.number().int().nonnegative(),
+  rate_limited_429: z.number().int().nonnegative(),
+  missing_404_410: z.number().int().nonnegative(),
+  server_5xx: z.number().int().nonnegative(),
+  other_4xx: z.number().int().nonnegative(),
+  problem_responses: z.number().int().nonnegative(),
+  failure_rate_percent: z.number().min(0).max(100).nullable(),
+});
+const crawlerLogOutputShape = {
+  scope: z.literal("caller_supplied_access_log_sample"),
+  format: z.enum(CRAWL_LOG_FORMATS),
+  status: z.enum(["comparable_sample","partial","not_comparable"]),
+  important_urls_supplied: z.number().int().min(0).max(MAX_CRAWL_IMPORTANT_URLS),
+  source_records: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+  parsed_records: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+  invalid_records: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+  ignored_methods: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+  unmatched_requests: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+  query_variants_observed: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+  matched_requests: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+  before: crawlerLogPeriodOutputSchema,
+  after: crawlerLogPeriodOutputSchema,
+  failure_rate_delta_percentage_points: z.number().min(-100).max(100).nullable(),
+  per_url: z.array(z.object({
+    url_index: z.number().int().min(1).max(MAX_CRAWL_IMPORTANT_URLS),
+    before_requests: z.number().int().nonnegative(),
+    after_requests: z.number().int().nonnegative(),
+    after_problem_responses: z.number().int().nonnegative(),
+    after_block_401_403: z.number().int().nonnegative(),
+    after_rate_limited_429: z.number().int().nonnegative(),
+    after_server_5xx: z.number().int().nonnegative(),
+  })).max(MAX_CRAWL_IMPORTANT_URLS),
+  claimed_crawler_profiles: z.array(z.object({
+    profile: z.enum(CRAWL_PROFILES),
+    before_requests: z.number().int().nonnegative(),
+    after_requests: z.number().int().nonnegative(),
+    after_problem_responses: z.number().int().nonnegative(),
+  })).max(CRAWL_PROFILES.length),
+  crawler_identities_verified: z.literal(false),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(380)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(CRAWL_FINDING_CODES),
+    severity: z.enum(["warning","info"]),
+    url_index: z.number().int().min(1).max(MAX_CRAWL_IMPORTANT_URLS).optional(),
+    message: z.string().max(330),
+  })).max(MAX_CRAWL_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
 };
@@ -2602,6 +2666,62 @@ export function createServer(): McpServer {
           "Manual regression alert preview", error,
           "List audit.history, supply two to ten existing IDs oldest first and valid bounded policy thresholds; no alerts can be sent.",
         ), true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "crawler.logs",
+    {
+      title: "Correlate supplied crawler access-log failures around a cutover",
+      description:
+        "V12 local-only: offline compare before/after HTTP status evidence for 1–16 explicitly important same-origin URLs across up to 500 structured observations or Apache/Nginx combined access lines. Group 401/403, 429, 404/410, 5xx, claimed crawler user agents and query variants with bounded numeric/redacted findings. Googlebot strings are NOT verified crawler identities; no IP, user agent, URL, query, raw log lines or timestamps returned. No server connection, URL fetch, persistence, Search Console, alert scheduling or Google indexing/ranking causation.",
+      inputSchema: {
+        site_origin: z.string().min(1).max(300)
+          .refine(value => Boolean(safeLogOrigin(value)),
+            "Supply a safe public HTTPS origin with no path, query, private hostname or credentials.")
+          .describe("Public HTTPS origin shared by all important URLs and log paths, used only for local matching; never contacted."),
+        important_urls: z.array(z.string().min(1).max(512))
+          .min(1).max(MAX_CRAWL_IMPORTANT_URLS)
+          .describe("One to sixteen explicit same-origin public important URL labels without query/fragment; output uses index numbers, not URLs."),
+        cutover_at: z.string().min(20).max(40)
+          .describe("Offset-aware ISO cutover timestamp dividing supplied request evidence into before versus after; never echoed."),
+        format: z.enum(CRAWL_LOG_FORMATS)
+          .describe("Use structured observations or Apache/Nginx combined access-log lines; exactly one source must be supplied."),
+        observations: z.array(z.object({
+          timestamp: z.string().min(1).max(40)
+            .describe("Request timestamp with explicit timezone offset or Z; invalid values reduce coverage rather than being guessed."),
+          method: z.string().min(1).max(12)
+            .describe("HTTP method as observed; only GET/HEAD are correlated for crawl evidence."),
+          path: z.string().min(1).max(1024)
+            .describe("Observed same-origin request path including optional query, never echoed. Unsafe encoded separators are excluded."),
+          status: z.number().int().min(200).max(599)
+            .describe("Actual caller-observed HTTP response status."),
+          user_agent: z.string().max(300).optional()
+            .describe("Optional unverified User-Agent text, classified only as claimed crawler profile and never echoed."),
+        })).min(1).max(MAX_CRAWL_LOG_RECORDS).optional()
+          .describe("Only structured mode: 1–500 previously captured HTTP observations, not fetched or saved."),
+        access_log: z.string().min(1).max(MAX_CRAWL_LOG_TOTAL_BYTES)
+          .refine(value => Buffer.byteLength(value,"utf8") <= MAX_CRAWL_LOG_TOTAL_BYTES)
+          .optional()
+          .describe("Only combined_access: up to 256 KB of Apache/Nginx combined access lines, max 500; IPs/referers/URLs/UA are not returned or stored."),
+      },
+      outputSchema: crawlerLogOutputShape,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({site_origin,important_urls,cutover_at,format,observations,access_log}) => {
+      try {
+        const review=analyzeCrawlerLogs({
+          site_origin, important_urls, cutover_at, format,
+          observations, access_log,
+        });
+        return result(review,crawlerLogContent(review));
+      }catch{
+        const error="Crawler access logs could not be safely correlated within same-origin, timestamp, format, record-count or privacy limits.";
+        return result({ ...emptyCrawlerLogReview(format),error },failureContent(
+          "Supplied crawler log correlation",error,
+          "Provide 1–16 safe important URL labels and up to 500 authorized structured/combined request observations around a valid offset-aware cutover. No source data was changed.",
+        ),true);
       }
     },
   );

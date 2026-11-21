@@ -19,8 +19,7 @@ buttons or links are activated and no forms are submitted. Full dynamic
 JavaScript behavior, assistive-technology coverage and WCAG certification
 remain outside the tool; see `docs/p1-12-browser-wcag-interactions.md`.
 
-Browser-verified live resource loading, viewport comparison and Lighthouse
-remain separate M03 work.
+Lighthouse lab measurements remain separate M03 work.
 
 V07 adds local `browser.dom_diff`: compare caller-supplied raw versus rendered
 HTML snapshots, or obtain a bounded DOM snapshot with only inline scripts in
@@ -36,3 +35,12 @@ and pending requests. Live mode checks robots.txt and caps observed requests;
 third-party fetch is explicitly opt-in. No storage, full HAR, Googlebot
 impersonation or causal SEO/indexing verdict. See
 `docs/v08-browser-resource-failures.md`.
+
+V09 adds local `browser.viewport_parity`: compare one caller-supplied or
+robots-gated public HTML page in two fresh sandboxed mobile/desktop Chromium
+viewport pages, with scripts disabled and all network resources denied.
+Reports CSS visibility versus DOM presence, responsive navigation and
+overflow, metadata differences, capped keyboard steps and one safe native
+disclosure tap/Enter. It does not emulate fully hydrated sites, Google WRS,
+live accessibility behavior, whole-site coverage or indexing decisions.
+See `docs/v09-mobile-desktop-parity.md`.

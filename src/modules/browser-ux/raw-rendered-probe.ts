@@ -103,12 +103,11 @@ export async function renderInlineHtml(
   }
 }
 
-/** Fetch one authorized public HTML response, robots-gated, then render
- * a resource-denied inline-script DOM sample in local Chromium. */
-export async function reviewPublicInlineDom(
-  url: string,
-  runtime: ScreenshotBrowserRuntime = defaultScreenshotBrowserRuntime,
-): Promise<RawRenderedReview> {
+/** Shared V07/V09 guarded single-public-HTML source fetch.
+ * Exactly one robots.txt and one page GET; never follows redirects. */
+export async function fetchGuardedPublicHtml(url: string): Promise<{
+  page_url: string; raw_html: string;
+}> {
   const safe = guard(url);
   await resolvePublicHttpUrl(safe);
   const origin = new URL(safe).origin;
@@ -152,6 +151,16 @@ export async function reviewPublicInlineDom(
       .exec(response.headers.get("content-type") ?? "")?.[1];
     rawHtml = await readResponseText(response, MAX_RENDER_HTML_BYTES, charset, !charset);
   } finally { await cancel(response); }
-  return renderInlineHtml(rawHtml, safe, runtime,
+  return { page_url: safe, raw_html: rawHtml };
+}
+
+/** Fetch one authorized public HTML response, robots-gated, then render
+ * a resource-denied inline-script DOM sample in local Chromium. */
+export async function reviewPublicInlineDom(
+  url: string,
+  runtime: ScreenshotBrowserRuntime = defaultScreenshotBrowserRuntime,
+): Promise<RawRenderedReview> {
+  const source = await fetchGuardedPublicHtml(url);
+  return renderInlineHtml(source.raw_html, source.page_url, runtime,
     "isolated_public_html_inline_script_sample");
 }

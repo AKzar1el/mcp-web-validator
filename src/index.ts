@@ -276,6 +276,7 @@ import {
   MAX_CRAWL_IMPORTANT_URLS, MAX_CRAWL_FINDINGS,
   CRAWL_LOG_FORMATS, CRAWL_PROFILES, CRAWL_FINDING_CODES,
 } from "./modules/change-regression/crawler-log-correlation.js";
+import { fetchOfficialGoogleCommonRanges } from "./modules/change-regression/google-common-crawler-ip.js";
 import {
   analyzeProductionChange,
   emptyProductionChangeReview,
@@ -1002,6 +1003,16 @@ const crawlerLogOutputShape = {
     after_requests: z.number().int().nonnegative(),
     after_problem_responses: z.number().int().nonnegative(),
   })).max(CRAWL_PROFILES.length),
+  googlebot_ip_evidence: z.object({
+    status: z.enum(["not_requested","checked_current_official_ranges","unavailable"]),
+    claimed_requests: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+    matched_current_ranges: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+    outside_current_ranges: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+    missing_or_invalid_ip: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+    matched_before: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+    matched_after: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+    matched_after_problem_responses: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+  }),
   crawler_identities_verified: z.literal(false),
   coverage_limited: z.literal(true),
   limitations: z.array(z.string().max(380)).max(4),
@@ -2675,7 +2686,7 @@ export function createServer(): McpServer {
     {
       title: "Correlate supplied crawler access-log failures around a cutover",
       description:
-        "V12 local-only: offline compare before/after HTTP status evidence for 1–16 explicitly important same-origin URLs across up to 500 structured observations or Apache/Nginx combined access lines. Group 401/403, 429, 404/410, 5xx, claimed crawler user agents and query variants with bounded numeric/redacted findings. Googlebot strings are NOT verified crawler identities; no IP, user agent, URL, query, raw log lines or timestamps returned. No server connection, URL fetch, persistence, Search Console, alert scheduling or Google indexing/ranking causation.",
+        "V12/V13 local-only: correlate 1–16 important URLs across 500 supplied access observations, grouping failures and claimed crawlers. Optional verify_googlebot_ip_ranges=true downloads one fixed Google official common-crawler CIDR list and compares caller-supplied source IPs locally. Default is offline. No IPs, UAs, paths, logs, query or timestamps returned; no target-site fetch, log-provider connection, storage, DNS verification, Search Console or Google ranking causation.",
       inputSchema: {
         site_origin: z.string().min(1).max(300)
           .refine(value => Boolean(safeLogOrigin(value)),
@@ -2699,22 +2710,32 @@ export function createServer(): McpServer {
             .describe("Actual caller-observed HTTP response status."),
           user_agent: z.string().max(300).optional()
             .describe("Optional unverified User-Agent text, classified only as claimed crawler profile and never echoed."),
+          client_ip: z.string().max(64).optional()
+            .describe("Optional source client IP for Googlebot range matching. Use trusted visitor IP, not reverse-proxy edge IP; never returned."),
         })).min(1).max(MAX_CRAWL_LOG_RECORDS).optional()
           .describe("Only structured mode: 1–500 previously captured HTTP observations, not fetched or saved."),
         access_log: z.string().min(1).max(MAX_CRAWL_LOG_TOTAL_BYTES)
           .refine(value => Buffer.byteLength(value,"utf8") <= MAX_CRAWL_LOG_TOTAL_BYTES)
           .optional()
           .describe("Only combined_access: up to 256 KB of Apache/Nginx combined access lines, max 500; IPs/referers/URLs/UA are not returned or stored."),
+        verify_googlebot_ip_ranges: z.boolean().default(false)
+          .describe("False by default. True requests one bounded GET of the current common-crawlers.json from fixed developers.google.com URL. All log IPs stay local; no other sites contacted, historical source IPs cannot be proven by current ranges."),
       },
       outputSchema: crawlerLogOutputShape,
       annotations: localReadOnlyAnnotations,
     },
-    async ({site_origin,important_urls,cutover_at,format,observations,access_log}) => {
+    async ({site_origin,important_urls,cutover_at,format,observations,access_log,verify_googlebot_ip_ranges}) => {
       try {
-        const review=analyzeCrawlerLogs({
+        const sample={
           site_origin, important_urls, cutover_at, format,
           observations, access_log,
-        });
+        };
+        let review=analyzeCrawlerLogs(sample);
+        if(verify_googlebot_ip_ranges){
+          let ranges;
+          try{ranges=await fetchOfficialGoogleCommonRanges();}catch{ /* Preserve offline results if Google is unavailable. */ }
+          review=analyzeCrawlerLogs(sample,{requested:true,ranges});
+        }
         return result(review,crawlerLogContent(review));
       }catch{
         const error="Crawler access logs could not be safely correlated within same-origin, timestamp, format, record-count or privacy limits.";

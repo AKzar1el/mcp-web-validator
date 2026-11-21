@@ -2217,7 +2217,7 @@
     {
       "name": "crawler.logs",
       "title": "Correlate supplied crawler access-log failures around a cutover",
-      "description": "V12 local-only: offline compare before/after HTTP status evidence for 1–16 explicitly important same-origin URLs across up to 500 structured observations or Apache/Nginx combined access lines. Group 401/403, 429, 404/410, 5xx, claimed crawler user agents and query variants with bounded numeric/redacted findings. Googlebot strings are NOT verified crawler identities; no IP, user agent, URL, query, raw log lines or timestamps returned. No server connection, URL fetch, persistence, Search Console, alert scheduling or Google indexing/ranking causation.",
+      "description": "V12/V13 local-only: correlate 1–16 important URLs across 500 supplied access observations, grouping failures and claimed crawlers. Optional verify_googlebot_ip_ranges=true downloads one fixed Google official common-crawler CIDR list and compares caller-supplied source IPs locally. Default is offline. No IPs, UAs, paths, logs, query or timestamps returned; no target-site fetch, log-provider connection, storage, DNS verification, Search Console or Google ranking causation.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2288,6 +2288,11 @@
                   "description": "Optional unverified User-Agent text, classified only as claimed crawler profile and never echoed.",
                   "type": "string",
                   "maxLength": 300
+                },
+                "client_ip": {
+                  "description": "Optional source client IP for Googlebot range matching. Use trusted visitor IP, not reverse-proxy edge IP; never returned.",
+                  "type": "string",
+                  "maxLength": 64
                 }
               },
               "required": [
@@ -2303,6 +2308,11 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 256000
+          },
+          "verify_googlebot_ip_ranges": {
+            "default": false,
+            "description": "False by default. True requests one bounded GET of the current common-crawlers.json from fixed developers.google.com URL. All log IPs stay local; no other sites contacted, historical source IPs cannot be proven by current ranges.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -2632,6 +2642,65 @@
               "additionalProperties": false
             }
           },
+          "googlebot_ip_evidence": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "not_requested",
+                  "checked_current_official_ranges",
+                  "unavailable"
+                ]
+              },
+              "claimed_requests": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "matched_current_ranges": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "outside_current_ranges": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "missing_or_invalid_ip": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "matched_before": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "matched_after": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "matched_after_problem_responses": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              }
+            },
+            "required": [
+              "status",
+              "claimed_requests",
+              "matched_current_ranges",
+              "outside_current_ranges",
+              "missing_or_invalid_ip",
+              "matched_before",
+              "matched_after",
+              "matched_after_problem_responses"
+            ],
+            "additionalProperties": false
+          },
           "crawler_identities_verified": {
             "type": "boolean",
             "const": false
@@ -2673,7 +2742,10 @@
                     "unparsed_log_entries",
                     "query_variants_observed",
                     "user_agents_unverified",
-                    "sample_only"
+                    "sample_only",
+                    "googlebot_range_match",
+                    "googlebot_range_mismatch",
+                    "googlebot_ranges_unavailable"
                   ]
                 },
                 "severity": {
@@ -2725,6 +2797,7 @@
           "failure_rate_delta_percentage_points",
           "per_url",
           "claimed_crawler_profiles",
+          "googlebot_ip_evidence",
           "crawler_identities_verified",
           "coverage_limited",
           "limitations",

@@ -14,6 +14,7 @@ import type { HttpDirectiveReview } from "./modules/http-crawl/non-html-directiv
 import type { HttpsSecurityReview } from "./modules/http-crawl/https-security.js";
 import type { UrlVariantReview } from "./modules/http-crawl/url-variants.js";
 import type { HistoricalReview } from "./modules/change-regression/historical-comparisons.js";
+import type { ProductionChangeReview } from "./modules/change-regression/production-change-comparison.js";
 import type { MonitorPreview } from "./modules/change-regression/regression-alerts.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
@@ -614,6 +615,32 @@ export function historicalComparisonContent(review: HistoricalReview): string {
       message: `${finding.code}: ${finding.message}`,
     })),
     nextStep: "Review the per-version complete-cohort error/warning totals and changes, then collect comparable authorized audits where coverage is missing. Unobserved pages and unavailable validators cannot establish fixes, website-wide improvement, ranking changes or causality.",
+  });
+}
+
+export function productionChangeContent(review: ProductionChangeReview): string {
+  const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
+  const changed = review.html_fingerprint_changed === null
+    ? "Full HTML byte comparison unavailable."
+    : review.html_fingerprint_changed
+      ? "Supplied HTML bytes differ."
+      : "Supplied HTML bytes match.";
+  return toolContent({
+    title: "Production HTML baseline comparison",
+    status: review.status === "not_comparable" ? "partial" :
+      warnings ? "attention needed" : "partial",
+    outcome: `${review.status}: ${changed} ` +
+      (review.main_words_added === null || review.main_words_removed === null
+        ? "Comparable sampled main-text word changes are unavailable. "
+        : `${review.main_words_added} sampled main-text words added, ` +
+          `${review.main_words_removed} removed. `) +
+      "No production fetch, deployment or search-ranking attribution was performed.",
+    actions: review.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: "Supplied baseline versus current HTML",
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Confirm capture timestamps and HTTP statuses against independent delivery evidence. Compare source deployments and crawler observations separately before attributing a production or Google visibility change.",
   });
 }
 

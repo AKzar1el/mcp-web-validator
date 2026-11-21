@@ -65,10 +65,32 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "audit.monitor", "audit.trends", "availability.history", "browser.dom_diff", "browser.resource_failures", "browser.viewport_parity", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
+      "audit.history", "audit.monitor", "audit.production_change", "audit.trends", "availability.history", "browser.dom_diff", "browser.resource_failures", "browser.viewport_parity", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.link_graph", "site.links", "site.sitemaps",
     ],
   );
+
+  phase = "v10_production_html_comparison";
+  const change = await client.callTool({
+    name: "audit.production_change",
+    arguments: {
+      page_url: "https://example.com/hidden-package-path",
+      baseline: {
+        observed_at: "2026-11-20T09:00:00Z", http_status: 200,
+        html: "<html><head><title>Private before V10</title></head><body><main><h1>Before</h1><p>alpha beta</p></main></body></html>",
+      },
+      current: {
+        observed_at: "2026-11-21T09:00:00Z", http_status: 200,
+        html: "<html><head><title>Private after V10</title><meta name='robots' content='noindex'></head><body><main><h1>After</h1><p>alpha gamma</p></main></body></html>",
+      },
+    },
+  });
+  assert.notEqual(change.isError, true);
+  assert.equal(change.structuredContent?.status, "comparable_snapshot");
+  assert.equal(change.structuredContent?.title_changed, true);
+  assert.equal(change.structuredContent?.noindex_added, true);
+  assert(!JSON.stringify(change).includes("Private after V10"));
+  assert(!JSON.stringify(change).includes("hidden-package-path"));
 
   phase = "v09_mobile_desktop_viewport";
   const viewport = await client.callTool({

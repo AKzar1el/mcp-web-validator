@@ -29,6 +29,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.deepEqual(names, [
       "audit.history",
       "audit.monitor",
+      "audit.production_change",
       "audit.trends",
       "availability.history",
       "browser.dom_diff",
@@ -63,6 +64,38 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "site.links",
       "site.sitemaps",
     ]);
+
+    const productionTool = tools.find((tool) => tool.name === "audit.production_change");
+    assert.equal(productionTool?.annotations?.readOnlyHint, true);
+    assert.equal(productionTool?.outputSchema?.properties?.findings?.maxItems, 14);
+    const baselineHtml = '<html><head><title>Private V10 title</title></head><body><main><h1>Original</h1><p>alpha beta</p></main></body></html>';
+    const currentHtml = '<html><head><title>Private V10 new title</title><meta name="robots" content="noindex"></head><body><main><h1>Updated</h1><p>alpha gamma</p></main></body></html>';
+    const production = await client.callTool({
+      name: "audit.production_change",
+      arguments: {
+        page_url: "https://example.com/private-v10",
+        baseline: { observed_at: "2026-11-20T09:00:00Z", http_status: 200, html: baselineHtml },
+        current: { observed_at: "2026-11-21T09:00:00Z", http_status: 200, html: currentHtml },
+      },
+    });
+    assert.equal(production.isError, undefined);
+    assert.equal(production.structuredContent?.status, "comparable_snapshot");
+    assert.equal(production.structuredContent?.html_fingerprint_changed, true);
+    assert.equal(production.structuredContent?.title_changed, true);
+    assert.equal(production.structuredContent?.noindex_added, true);
+    assert(!JSON.stringify(production).includes("Private V10"));
+    assert(!JSON.stringify(production).includes("/private-v10"));
+    const failedProduction = await client.callTool({
+      name: "audit.production_change",
+      arguments: {
+        page_url: "https://example.com/private-v10",
+        baseline: { observed_at: "2026-11-20T09:00:00Z", http_status: 200, html: baselineHtml },
+        current: { observed_at: "2026-11-21T09:00:00Z", http_status: 403, html: "challenge" },
+      },
+    });
+    assert.equal(failedProduction.isError, undefined);
+    assert.equal(failedProduction.structuredContent?.status, "not_comparable");
+    assert.equal(failedProduction.structuredContent?.title_changed, null);
 
     const viewportTool = tools.find((tool) => tool.name === "browser.viewport_parity");
     assert.equal(viewportTool?.annotations?.readOnlyHint, true);

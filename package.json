@@ -51,8 +51,8 @@
   },
   "mcpName": "io.github.AKzar1el/mcp-web-validator",
   "dependencies": {
-    "@puppeteer/browsers": "3.2.7",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@puppeteer/browsers": "3.2.7",
     "cheerio": "^1.0.0",
     "encoding-sniffer": "1.0.2",
     "puppeteer-core": "25.17.0",
@@ -64,5 +64,8 @@
     "puppeteer": "25.17.0",
     "tsx": "^4.23.0",
     "typescript": "^7.0.2"
+  },
+  "optionalDependencies": {
+    "lighthouse": "13.6.0"
   }
 }

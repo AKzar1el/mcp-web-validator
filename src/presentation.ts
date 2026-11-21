@@ -14,6 +14,10 @@ import type { HttpDirectiveReview } from "./modules/http-crawl/non-html-directiv
 import type { HttpsSecurityReview } from "./modules/http-crawl/https-security.js";
 import type { UrlVariantReview } from "./modules/http-crawl/url-variants.js";
 import type { HistoricalReview } from "./modules/change-regression/historical-comparisons.js";
+import type { ProductionChangeReview } from "./modules/change-regression/production-change-comparison.js";
+import type { LabReview } from "./modules/browser-ux/lighthouse-lab.js";
+import type { CruxFieldReview } from "./modules/external-metrics/crux-field.js";
+import type { CrawlerLogReview } from "./modules/change-regression/crawler-log-correlation.js";
 import type { MonitorPreview } from "./modules/change-regression/regression-alerts.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
@@ -614,6 +618,105 @@ export function historicalComparisonContent(review: HistoricalReview): string {
       message: `${finding.code}: ${finding.message}`,
     })),
     nextStep: "Review the per-version complete-cohort error/warning totals and changes, then collect comparable authorized audits where coverage is missing. Unobserved pages and unavailable validators cannot establish fixes, website-wide improvement, ranking changes or causality.",
+  });
+}
+
+export function productionChangeContent(review: ProductionChangeReview): string {
+  const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
+  const changed = review.html_fingerprint_changed === null
+    ? "Full HTML byte comparison unavailable."
+    : review.html_fingerprint_changed
+      ? "Supplied HTML bytes differ."
+      : "Supplied HTML bytes match.";
+  return toolContent({
+    title: "Production HTML baseline comparison",
+    status: review.status === "not_comparable" ? "partial" :
+      warnings ? "attention needed" : "partial",
+    outcome: `${review.status}: ${changed} ` +
+      (review.main_words_added === null || review.main_words_removed === null
+        ? "Comparable sampled main-text word changes are unavailable. "
+        : `${review.main_words_added} sampled main-text words added, ` +
+          `${review.main_words_removed} removed. `) +
+      "No production fetch, deployment or search-ranking attribution was performed.",
+    actions: review.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: "Supplied baseline versus current HTML",
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Confirm capture timestamps and HTTP statuses against independent delivery evidence. Compare source deployments and crawler observations separately before attributing a production or Google visibility change.",
+  });
+}
+
+export function lighthouseLabContent(review: LabReview): string {
+  const score = review.performance_score_percent === null
+    ? "unavailable" : String(review.performance_score_percent) + "/100";
+  const metric = (value: number | null, unit = "ms") =>
+    value === null ? "unavailable" : String(value) + unit;
+  return toolContent({
+    title: "Isolated Lighthouse performance laboratory",
+    status: review.status === "failed" ? "partial" :
+      review.findings.some((finding) => finding.severity === "warning")
+        ? "attention needed" : "partial",
+    outcome: `${review.status}: Lighthouse ${review.form_factor} lab score ${score}; ` +
+      `FCP ${metric(review.metrics.fcp_ms)}, LCP ${metric(review.metrics.lcp_ms)}, ` +
+      `TBT ${metric(review.metrics.tbt_ms)}, Speed Index ${metric(review.metrics.speed_index_ms)}, ` +
+      `CLS ${metric(review.metrics.cls, "")}. ` +
+      `${review.requests_blocked} requests blocked by the offline security policy.`,
+    actions: review.findings.map((finding) => ({
+      priority: finding.severity === "warning" ? 1 : 2,
+      location: "One isolated static-HTML lab run",
+      message: `${finding.code}: ${finding.message}`,
+    })),
+    nextStep: "Repeat consistent Lighthouse runs for trends. This sandboxed static HTML audit did not load live production JavaScript, CSS, network assets or real-user CrUX field data; it cannot establish production Core Web Vitals, SEO rankings or visibility-cause conclusions.",
+  });
+}
+
+export function cruxFieldContent(review: CruxFieldReview): string {
+  const display=(value:number|null,unit="ms")=>value===null?"unavailable":String(value)+unit;
+  const warning=review.findings.some(x=>x.severity==="warning");
+  return toolContent({
+    title:"Real-user CrUX Core Web Vitals",
+    status: warning?"attention needed":"partial",
+    outcome: `${review.source==="verified_crux_api"?"Direct CrUX API":"Caller-supplied CrUX"} ` +
+      `${review.mode} ${review.granularity} ${review.form_factor} field data: ` +
+      `CWV verdict ${review.core_web_vitals}; p75 LCP ${display(review.p75.largest_contentful_paint)}, ` +
+      `INP ${display(review.p75.interaction_to_next_paint)}, CLS ${display(review.p75.cumulative_layout_shift,"")}, ` +
+      `FCP ${display(review.p75.first_contentful_paint)}, ` +
+      `TTFB ${display(review.p75.experimental_time_to_first_byte)}. ` +
+      `${review.periods_available} source period(s), ${review.periods_returned} historical excerpts.`,
+    actions: review.findings.map(f=>({
+      priority:f.severity==="warning"?1:2,
+      location:"Aggregated real-user CrUX evidence",
+      message:`${f.code}: ${f.message}`,
+    })),
+    nextStep:"Interpret p75 metrics by page-versus-origin and device cohort, repeat after additional eligible collection periods and correlate with independent deployment records; rolling 28-day CrUX data do not prove a Google ranking or traffic cause.",
+  });
+}
+
+export function crawlerLogContent(review: CrawlerLogReview): string {
+  const percent=(value:number|null)=>value===null?"unavailable":String(value)+"%";
+  const delta=review.failure_rate_delta_percentage_points===null
+    ?"unavailable":String(review.failure_rate_delta_percentage_points)+" percentage points";
+  const ip=review.googlebot_ip_evidence;
+  const ipEvidence=ip.status==="not_requested"
+    ?" Source-IP range check was not requested."
+    :ip.status==="unavailable"
+      ?" Official Google common-crawler IP ranges were unavailable; no source IP check was completed."
+      :` Current Google common-crawler ranges matched ${ip.matched_current_ranges}/${ip.claimed_requests} claimed Googlebot requests; ${ip.outside_current_ranges} outside and ${ip.missing_or_invalid_ip} missing/invalid source IPs. ${ip.matched_after_problem_responses} matched-source requests had post-cutover 4xx/5xx.`;
+  return toolContent({
+    title:"Crawler access-log correlation with optional Googlebot IP evidence",
+    status:review.findings.some(f=>f.severity==="warning")?"attention needed":"partial",
+    outcome:`${review.status}: ${review.matched_requests}/${review.source_records} source records matched ` +
+      `${review.important_urls_supplied} supplied important URL labels. ` +
+      `Observed before ${review.before.requests} requests (${percent(review.before.failure_rate_percent)} 4xx/5xx), ` +
+      `after ${review.after.requests} (${percent(review.after.failure_rate_percent)} 4xx/5xx); ` +
+      `failure-rate change ${delta}. ${review.invalid_records} unparsed/unsafe records.`+ipEvidence,
+    actions:review.findings.map(f=>({
+      priority:f.severity==="warning"?1:2,
+      location:f.url_index===undefined?"Supplied sampled logs":`Important URL #${f.url_index}`,
+      message:`${f.code}: ${f.message}`,
+    })),
+    nextStep:"Review access logs privately, confirm the log field contains actual visitor source IP (not a proxy), and corroborate current IP-range matches with forward/reverse DNS and contemporaneous evidence. Compare delivery, deployments and Search Console before attributing visibility changes. No target site or log provider was contacted.",
   });
 }
 

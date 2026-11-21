@@ -7,6 +7,7 @@ import { captureScreenshots } from "../dist/screenshot.js";
 import { reviewWcagInteractions } from "../dist/modules/browser-ux/wcag-interactions.js";
 import { renderInlineHtml } from "../dist/modules/browser-ux/raw-rendered-probe.js";
 import { inspectViewportParity } from "../dist/modules/browser-ux/viewport-parity-probe.js";
+import { inspectOfflineLighthouseLab } from "../dist/modules/browser-ux/lighthouse-lab-probe.js";
 
 const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "mcp-web-validator-screenshot-smoke-"));
 
@@ -103,6 +104,31 @@ try {
   assert(viewport.findings.some((f) => f.code === "mobile_navigation_less"));
   assert(viewport.findings.some((f) => f.code === "mobile_horizontal_overflow"));
   assert(!JSON.stringify(viewport).includes("/desktop-only-visible"));
+
+  const lab = await inspectOfflineLighthouseLab(
+    '<!doctype html><html><head><title>V11 lab fixture</title>'
+      + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+      + '<style>body{font-family:Arial,sans-serif;margin:16px;}h1{font-size:34px;}</style>'
+      + '</head><body><main><h1>V11 isolated test</h1>'
+      + '<p>Real Lighthouse metrics from a static fixture with no external assets.</p>'
+      + '<script>throw new Error("Untrusted V11 code must not run")</script>'
+      + '<img src="http://127.0.0.1:49999/secret">'
+      + '</main></body></html>',
+    "mobile",
+  );
+  assert.equal(lab.browser_executed, true);
+  assert.equal(lab.network_isolated, true);
+  assert.equal(lab.scripts_disabled, true);
+  assert.equal(lab.form_factor, "mobile");
+  assert.equal(lab.status, "complete");
+  assert.ok(lab.performance_score_percent !== null);
+  assert.ok(lab.metrics.fcp_ms !== null);
+  assert.ok(lab.metrics.lcp_ms !== null);
+  assert.ok(lab.metrics.tbt_ms !== null);
+  assert.ok(lab.metrics.speed_index_ms !== null);
+  assert.ok(lab.metrics.cls !== null);
+  assert(!JSON.stringify(lab).includes("Untrusted V11"));
+  assert(!JSON.stringify(lab).includes("/secret"));
 } finally {
   await rm(temporaryDirectory, { recursive: true, force: true });
 }

@@ -39,6 +39,14 @@ import {
   HISTORICAL_FINDING_CODES,
 } from "./modules/change-regression/historical-comparisons";
 import {
+  analyzeProductionChange,
+  emptyProductionChangeReview,
+  MAX_CHANGE_HTML_BYTES,
+  MAX_CHANGE_FINDINGS,
+  CHANGE_STATUSES,
+  CHANGE_FINDING_CODES,
+} from "./modules/change-regression/production-change-comparison";
+import {
   previewRegressionAlerts,
   emptyMonitorPreview,
   MONITOR_RULES,
@@ -1400,6 +1408,64 @@ const historicalOutputSchema = z.object({
     severity: z.enum(["warning", "info"]),
     message: z.string().max(330),
   })).max(MAX_HISTORICAL_FINDINGS),
+  findings_truncated: z.boolean(),
+  overview: overviewSchema,
+  error: z.string().optional(),
+});
+
+const productionVersionInputSchema = z.object({
+  observed_at: z.string().min(20).max(40)
+    .describe("Offset-aware ISO capture timestamp claimed by caller; not independently observed."),
+  http_status: z.number().int().min(200).max(599).optional()
+    .describe("Observed HTTP status code, optional when the delivery status was not captured."),
+  html: z.string().max(MAX_CHANGE_HTML_BYTES)
+    .refine((value) => new TextEncoder().encode(value).byteLength <= MAX_CHANGE_HTML_BYTES)
+    .describe("Caller-supplied static HTML body, at most 180,000 UTF-8 bytes."),
+});
+const productionFingerprintSchema = z.object({
+  http_status: z.number().int().min(200).max(599).nullable(),
+  html_bytes: z.number().int().nonnegative().max(MAX_CHANGE_HTML_BYTES),
+  html_sha256: z.string().regex(/^[a-f0-9]{64}$/u).nullable(),
+  main_text_sha256: z.string().regex(/^[a-f0-9]{64}$/u).nullable(),
+  main_words: z.number().int().nonnegative().nullable(),
+  same_origin_link_targets: z.number().int().nonnegative().nullable(),
+  title_present: z.boolean().nullable(),
+  description_present: z.boolean().nullable(),
+  h1_count: z.number().int().nonnegative().nullable(),
+  canonical_state: z.enum(["missing", "self", "different", "ambiguous"]).nullable(),
+  noindex_declared: z.boolean().nullable(),
+  jsonld_blocks: z.number().int().nonnegative().nullable(),
+  sample_truncated: z.boolean(),
+});
+const productionChangeOutputSchema = z.object({
+  scope: z.literal("two_caller_supplied_html_observations"),
+  status: z.enum(CHANGE_STATUSES),
+  time_order_ambiguous: z.boolean(),
+  baseline: productionFingerprintSchema,
+  current: productionFingerprintSchema,
+  http_status_changed: z.boolean().nullable(),
+  html_fingerprint_changed: z.boolean().nullable(),
+  main_text_fingerprint_changed: z.boolean().nullable(),
+  title_changed: z.boolean().nullable(),
+  description_changed: z.boolean().nullable(),
+  h1_changed: z.boolean().nullable(),
+  canonical_changed: z.boolean().nullable(),
+  robots_changed: z.boolean().nullable(),
+  noindex_added: z.boolean().nullable(),
+  noindex_removed: z.boolean().nullable(),
+  main_words_added: z.number().int().nonnegative().nullable(),
+  main_words_removed: z.number().int().nonnegative().nullable(),
+  links_added: z.number().int().nonnegative().nullable(),
+  links_removed: z.number().int().nonnegative().nullable(),
+  jsonld_blocks_changed: z.boolean().nullable(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(340)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(CHANGE_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(320),
+  })).max(MAX_CHANGE_FINDINGS),
   findings_truncated: z.boolean(),
   overview: overviewSchema,
   error: z.string().optional(),
@@ -2892,6 +2958,78 @@ function createServer(env: Env, siteAuditRateLimitKey: string) {
           "The manual-only preview could not be evaluated.", error);
         return {
           structuredContent: { ...emptyMonitorPreview("caller_supplied_snapshots"), overview, error },
+          content: contentForOverview(overview),
+          isError: true,
+        };
+      }
+    },
+  );
+
+  registerAppTool(
+    server,
+    "compare_production_snapshots",
+    {
+      title: "Compare captured production HTML changes",
+      description:
+        "V10 offline comparison of two caller-supplied HTML versions of one safe page, oldest first. SHA-256 page/content fingerprints, static metadata/robots/canonicals, links and bounded main text differences. Failed HTTP delivery suppresses HTML repair claims. No fetch, browser, storage, deployment, Google indexing, traffic or ranking inference.",
+      inputSchema: {
+        page_url: z.string().max(512).refine((value) => Boolean(safeMetadataLabel(value)))
+          .describe("Exact same safe URL of both observations, not fetched."),
+        baseline: productionVersionInputSchema.describe("Earlier captured HTML and claimed response time/status."),
+        current: productionVersionInputSchema.describe("Later captured HTML and claimed response time/status."),
+      },
+      outputSchema: productionChangeOutputSchema.shape,
+      annotations: localReadOnlyAnnotations,
+      ...withNoAuthPlainTool({
+        invoking: "Comparing captured production HTML...",
+        invoked: "Production HTML comparison complete.",
+      }),
+    },
+    async (input) => {
+      try {
+        const review = await analyzeProductionChange(input);
+        const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
+        const overview: ResultOverview = {
+          kind: "site",
+          status: review.status === "not_comparable" ? "partial" :
+            warnings ? "needs_attention" : "partial",
+          title: "Production HTML change comparison",
+          headline: review.status + ": " + (review.html_fingerprint_changed === null
+            ? "HTML fingerprint unavailable"
+            : review.html_fingerprint_changed ? "HTML bytes changed" : "HTML bytes match") +
+            "; " + (review.main_text_fingerprint_changed === null ? "main text unverified"
+              : review.main_text_fingerprint_changed ? "main text changed" : "main text unchanged") + ".",
+          detail: "Two supplied observations only. HTTP status, timestamps and snapshots are caller claims. No fetch, persistence, deployment, Google ranking or indexing causation was verified.",
+          total: review.total_findings,
+          shown: review.findings.length,
+          truncated: review.findings_truncated,
+          counts: [
+            metric("findings", "Change observations", review.total_findings, "info"),
+            ...(review.main_words_added === null ? [] :
+              [metric("added_words", "Added sampled words", review.main_words_added, "info")]),
+            ...(review.main_words_removed === null ? [] :
+              [metric("removed_words", "Removed sampled words", review.main_words_removed, "info")]),
+            ...(review.links_added === null ? [] :
+              [metric("added_links", "Added link targets", review.links_added, "info")]),
+            ...(review.links_removed === null ? [] :
+              [metric("removed_links", "Removed link targets", review.links_removed, "info")]),
+          ],
+          next_action: "Review the source HTML snapshots, delivery logs and deployment timeline independently; a content fingerprint or metadata change does not establish a ranking or Googlebot cause.",
+        };
+        return {
+          structuredContent: { ...review, overview },
+          content: contentForOverview(overview, review.findings.map((finding) => ({
+            severity: finding.severity,
+            label: finding.code,
+            message: finding.message,
+          }))),
+        };
+      } catch {
+        const error = "Production HTML versions could not be safely compared within evidence, URL, chronology and size limits.";
+        const overview = failedOverview("site", "Production HTML change comparison",
+          "The supplied observations are not safely comparable.", error);
+        return {
+          structuredContent: { ...emptyProductionChangeReview(), overview, error },
           content: contentForOverview(overview),
           isError: true,
         };

@@ -19,7 +19,13 @@ buttons or links are activated and no forms are submitted. Full dynamic
 JavaScript behavior, assistive-technology coverage and WCAG certification
 remain outside the tool; see `docs/p1-12-browser-wcag-interactions.md`.
 
-Lighthouse lab measurements remain separate M03 work.
+V11-LAB now adds local-only `browser.lighthouse_lab` using the genuine
+Lighthouse engine against one caller-supplied static HTML document in the
+existing pinned sandboxed Chromium. A single-response loopback-only proxy
+blocks all external requests; executable scripts, frames and network loads
+are removed. The numeric performance score and FCP/LCP/TBT/CLS/Speed Index
+are strictly isolated **lab** evidence, not a real production or CrUX result.
+See `docs/v11-lighthouse-lab.md` for limits and sample use.
 
 V07 adds local `browser.dom_diff`: compare caller-supplied raw versus rendered
 HTML snapshots, or obtain a bounded DOM snapshot with only inline scripts in

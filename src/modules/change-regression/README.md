@@ -7,6 +7,24 @@
 - **Reuse:** `src/audit-history.ts` stores at most 10 compact local snapshots; hosted comparison is `chatgpt-plugin/src/site-comparison.ts`.
 - **Guardrail:** No new storage, scheduler or alerts without authorization; retain only redacted bounded observations. HTTP observations remain M01.
 
+V10 is the shared offline `production-change-comparison.ts` analyzer, exposed as
+local `audit.production_change` and hosted `compare_production_snapshots`.
+Two caller-supplied timestamped HTML bodies of one page are compared for
+SHA-256 byte/main-text fingerprints, static metadata, canonical/noindex and
+bounded link differences. Failed HTTP delivery suppresses content-delta claims.
+V10 does not save or fetch any HTML, infer the deployment responsible or
+replace P2-01's compact multi-page audit history. See
+`docs/v10-production-change-comparison.md`.
+
+V12 adds the local `crawler.logs` tool backed by the bounded pure
+`crawler-log-correlation.ts` analyzer. It compares up to 500 user-supplied
+structured or Apache/Nginx combined HTTP access log lines around a supplied
+cutover on 1–16 important same-origin paths, counting 401/403, 429, 404/410,
+5xx and claimed crawler user-agent categories without returning source text,
+IP, UA, URLs or timestamps. Crawler identities remain unverified and no live
+server/Cloudflare log connection, storage or Google indexing/SEO causality is
+part of this capability. See `docs/v12-crawler-log-correlation.md`.
+
 P2-01 implements the **shared pure** `historical-comparisons.ts` analyzer,
 exposed through local read-only `audit.trends` (2–10 exact existing saved IDs,
 oldest first). The local `audit-history.ts` batch read preserves the existing

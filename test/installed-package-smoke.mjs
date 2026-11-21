@@ -65,10 +65,38 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "audit.monitor", "audit.production_change", "audit.trends", "availability.history", "browser.dom_diff", "browser.lighthouse_lab", "browser.resource_failures", "browser.viewport_parity", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
+      "audit.history", "audit.monitor", "audit.production_change", "audit.trends", "availability.history", "browser.dom_diff", "browser.lighthouse_lab", "browser.resource_failures", "browser.viewport_parity", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "performance.crux_field", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.link_graph", "site.links", "site.sitemaps",
     ],
   );
+
+  phase = "v11_crux_field_offline_contract";
+  const cruxTool = tools.find((tool) => tool.name === "performance.crux_field");
+  assert.equal(cruxTool?.annotations?.readOnlyHint, true);
+  assert.equal(cruxTool?.outputSchema?.properties?.findings?.maxItems, 12);
+  const offlineCrux = await client.callTool({
+    name: "performance.crux_field",
+    arguments: {
+      source_mode: "supplied_record", mode: "daily", granularity: "origin",
+      target: "https://example.com", form_factor: "PHONE",
+      record_json: JSON.stringify({ record: {
+        key: { origin: "https://example.com", formFactor: "PHONE" },
+        collectionPeriod: {
+          firstDate: { year: 2026, month: 9, day: 1 },
+          lastDate: { year: 2026, month: 9, day: 28 },
+        },
+        metrics: {
+          largest_contentful_paint: { percentiles: { p75: 2300 } },
+          interaction_to_next_paint: { percentiles: { p75: 170 } },
+          cumulative_layout_shift: { percentiles: { p75: "0.05" } },
+        },
+      }, secret: "SENSITIVE CRUX PAYLOAD" }),
+    },
+  });
+  assert.notEqual(offlineCrux.isError, true);
+  assert.equal(offlineCrux.structuredContent?.source, "caller_supplied");
+  assert.equal(offlineCrux.structuredContent?.core_web_vitals, "good");
+  assert(!JSON.stringify(offlineCrux).includes("SENSITIVE CRUX"));
 
   phase = "v11_lighthouse_lab_contract";
   const labTool = tools.find((tool) => tool.name === "browser.lighthouse_lab");

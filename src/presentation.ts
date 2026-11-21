@@ -16,6 +16,7 @@ import type { UrlVariantReview } from "./modules/http-crawl/url-variants.js";
 import type { HistoricalReview } from "./modules/change-regression/historical-comparisons.js";
 import type { ProductionChangeReview } from "./modules/change-regression/production-change-comparison.js";
 import type { LabReview } from "./modules/browser-ux/lighthouse-lab.js";
+import type { CruxFieldReview } from "./modules/external-metrics/crux-field.js";
 import type { MonitorPreview } from "./modules/change-regression/regression-alerts.js";
 import type { MultilingualClusterAnalysis } from "./modules/site-architecture/multilingual-clusters.js";
 import { isHttpRedirectStatus, isUnverifiedLinkStatus, type AuditCounts, type LinkStatus, type SEOIssue } from "./seo-auditor.js";
@@ -666,6 +667,28 @@ export function lighthouseLabContent(review: LabReview): string {
       message: `${finding.code}: ${finding.message}`,
     })),
     nextStep: "Repeat consistent Lighthouse runs for trends. This sandboxed static HTML audit did not load live production JavaScript, CSS, network assets or real-user CrUX field data; it cannot establish production Core Web Vitals, SEO rankings or visibility-cause conclusions.",
+  });
+}
+
+export function cruxFieldContent(review: CruxFieldReview): string {
+  const display=(value:number|null,unit="ms")=>value===null?"unavailable":String(value)+unit;
+  const warning=review.findings.some(x=>x.severity==="warning");
+  return toolContent({
+    title:"Real-user CrUX Core Web Vitals",
+    status: warning?"attention needed":"partial",
+    outcome: `${review.source==="verified_crux_api"?"Direct CrUX API":"Caller-supplied CrUX"} ` +
+      `${review.mode} ${review.granularity} ${review.form_factor} field data: ` +
+      `CWV verdict ${review.core_web_vitals}; p75 LCP ${display(review.p75.largest_contentful_paint)}, ` +
+      `INP ${display(review.p75.interaction_to_next_paint)}, CLS ${display(review.p75.cumulative_layout_shift,"")}, ` +
+      `FCP ${display(review.p75.first_contentful_paint)}, ` +
+      `TTFB ${display(review.p75.experimental_time_to_first_byte)}. ` +
+      `${review.periods_available} source period(s), ${review.periods_returned} historical excerpts.`,
+    actions: review.findings.map(f=>({
+      priority:f.severity==="warning"?1:2,
+      location:"Aggregated real-user CrUX evidence",
+      message:`${f.code}: ${f.message}`,
+    })),
+    nextStep:"Interpret p75 metrics by page-versus-origin and device cohort, repeat after additional eligible collection periods and correlate with independent deployment records; rolling 28-day CrUX data do not prove a Google ranking or traffic cause.",
   });
 }
 

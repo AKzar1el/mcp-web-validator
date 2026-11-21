@@ -168,6 +168,12 @@ import {
   metadataConsistencyContent,
   mediaDiagnosticsContent,
   wcagInteractionsContent,
+  httpDeliveryContent,
+  browserResourceContent,
+  sitemapInventoryContent,
+  crawlerAccessContent,
+  redirectCanonicalContent,
+  availabilityReviewContent,
   httpDirectivesContent,
   httpsSecurityContent,
   urlVariantsContent,
@@ -3062,15 +3068,7 @@ export function createServer(): McpServer {
             ...(additional_budget_blocked === undefined ? {} : { additional_budget_blocked }),
             ...(navigation_completed === undefined ? {} : { navigation_completed }),
           });
-        return result(review,
-          "V08 browser resources: " + review.requests_recorded + " observed requests, "
-          + review.http_responses + " HTTP responses, " + review.http_4xx
-          + " HTTP 4xx, " + review.http_5xx + " HTTP 5xx, "
-          + review.transport_failures + " transport failures, "
-          + review.tool_blocked_requests + " explicit validator-policy blocks, "
-          + review.pending_requests + " unverified pending resources, "
-          + review.critical_resource_failures + " sampled critical document/script/style failures. "
-          + "Tool-policy blocks and unfinished requests are not site defects; Google WRS and indexing were not verified.");
+        return result(review, browserResourceContent(review));
       } catch {
         const error = "Browser resource evidence could not be inspected within public URL, robots, event or isolated Chromium limits.";
         const scope = mode === "live_browser"
@@ -3272,17 +3270,7 @@ export function createServer(): McpServer {
             ...(discovered_complete === undefined ? {} : { discovered_complete }),
             ...(observed_at ? { observed_at } : {}),
           });
-        return result(review,
-          "Sitemap inventory: " + review.documents_observed + " document(s), "
-          + review.distinct_page_urls + " distinct URL(s), "
-          + review.missing_child_documents + " unseen child sitemap(s), "
-          + review.duplicate_url_entries + " duplicates, "
-          + review.invalid_url_entries + " invalid entries, "
-          + review.lastmod_invalid_count + " invalid lastmod and "
-          + review.known_indexability_conflicts + " confirmed observed indexability conflicts. "
-          + (review.inventory_complete ? "The supplied sitemap collection is complete by its provided evidence."
-            : "The bounded sitemap collection is incomplete or completeness is unverified.")
-          + " Search-engine crawl and indexing status are not verified.");
+        return result(review, sitemapInventoryContent(review));
       } catch {
         const error = "Sitemap inventory evidence could not be inspected within public URL, safe XML, byte and request limits.";
         return result({ ...emptySitemapInventoryReview(), error }, failureContent(
@@ -3325,16 +3313,7 @@ export function createServer(): McpServer {
             source_url: source_url!, observations: observations!,
             ...(expected_destination ? { expected_destination } : {}),
           });
-        return result(review,
-          "Redirect and canonical chain: " + review.hops_observed + " observed response(s), "
-          + review.redirects_observed + " redirect(s), "
-          + review.conflicting_canonical_hops + " canonical conflict(s), "
-          + review.canonical_cycles + " canonical cycle(s). "
-          + (review.chain_complete ? "Observed chain complete. " : "Observed chain incomplete. ")
-          + (review.nonindexable_destination ? "The sampled destination has a blocking or HTTP-error signal. " : "")
-          + (review.expected_destination_match === false
-            ? "The completed chain differs from the caller's expected destination. " : "")
-          + "Google's actual canonical selection or indexing state was not verified.");
+        return result(review, redirectCanonicalContent(review));
       } catch {
         const error = "Redirect/canonical evidence could not be assessed within public URL, response and source limits.";
         return result({ ...emptyRedirectCanonicalReview(), error }, failureContent(
@@ -3382,13 +3361,7 @@ export function createServer(): McpServer {
             ...(robots_status_code === undefined ? {} : { robots_status_code }),
             ...(profiles ? { profiles } : {}),
           });
-        return result(review, "Crawler access matrix: " + review.rows_checked
-          + " profile/page pairs, " + review.crawler_disallowed_rows
-          + " robots-disallowed, " + review.noindex_declared_rows
-          + " with declared noindex, " + review.unknown_access_rows
-          + " unknown robots decisions and " + review.unknown_indexing_rows
-          + " unknown indexing directives. Crawl access and indexing are different. "
-          + "These are declared or sampled signals, never a verified search-index status.");
+        return result(review, crawlerAccessContent(review));
       } catch {
         const error = "Crawler access could not be reviewed within public URL, robots, source and sampling limits.";
         return result({ ...emptyCrawlerAccessReview(), error }, failureContent(
@@ -3425,15 +3398,7 @@ export function createServer(): McpServer {
           observations ?? await collectPublicAvailability(url!, checks ?? 3),
           url ? "live_bounded_burst" : "caller_supplied_history",
         );
-        return result(review,
-          "Availability observations: " + review.observed_successes + "/" + review.observations_count
-          + " sampled HTTP 2xx responses (" + review.observed_success_percent + "% of samples), "
-          + review.observed_http_5xx + " HTTP 5xx, "
-          + review.observed_rate_limits + " HTTP 429, "
-          + review.observed_transport_failures + " no-response results and "
-          + review.http_status_changes + " status transition(s). "
-          + (review.intermittent_non_success ? "Intermittent responses observed. " : "")
-          + "This is a sampled result, not measured continuous uptime or Googlebot history.");
+        return result(review, availabilityReviewContent(review));
       } catch {
         const error = "Availability cannot be evaluated within the public URL, chronology, sample and network safety limits.";
         return result({ ...emptyAvailabilityReview(), error }, failureContent(
@@ -3523,16 +3488,7 @@ export function createServer(): McpServer {
         const review = observations
           ? analyzeHttpDelivery(observations)
           : await probeHttpDelivery(url!);
-        const warnings = review.findings.filter((item) => item.severity === "warning");
-        const text = "HTTP delivery: " + review.hops_observed + " observed response(s), "
-          + review.redirects_observed + " followed redirect(s), "
-          + review.errors_observed + " HTTP error response(s) and "
-          + review.challenges_observed + " confirmed Cloudflare challenge header(s). "
-          + (warnings.length > 0
-            ? "Review " + warnings.map((finding) => finding.code).slice(0, 4).join(", ") + ". "
-            : "No error or explicit challenge header observed. ")
-          + "This is point-in-time evidence, not a Googlebot or availability-history verdict.";
-        return result(review, text, Boolean(review.error));
+        return result(review, httpDeliveryContent(review), Boolean(review.error));
       } catch {
         const error = "HTTP delivery could not be assessed within the safe URL, response and input limits.";
         return result({ ...emptyDeliveryReview(), error }, failureContent(

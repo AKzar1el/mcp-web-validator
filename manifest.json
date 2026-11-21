@@ -77,12 +77,28 @@
       "description": "Manual, offline, read-only P2-02 regression/optional-alert PREVIEW for two to ten existing saved audit.history IDs in oldest-first order. Configurable 1–8 sampled regressed pages, net error/warning increases, 1–4 step regression streak and review-only coverage loss/sitemap drift. Candidate alerts require complete comparable observations with unambiguous chronology; nothing is sent, scheduled, persisted, fetched or connected to GSC/GA4."
     },
     {
+      "name": "crawler.logs",
+      "description": "V12/V13 local-only: correlate 1–16 important URLs across 500 supplied access observations, grouping failures and claimed crawlers. Optional verify_googlebot_ip_ranges=true downloads one fixed Google official common-crawler CIDR list and compares caller-supplied source IPs locally. Default is offline. No IPs, UAs, paths, logs, query or timestamps returned; no target-site fetch, log-provider connection, storage, DNS verification, Search Console or Google ranking causation."
+    },
+    {
+      "name": "audit.production_change",
+      "description": "V10 offline exact-page comparison of two explicitly supplied timestamped HTML observations: SHA-256 HTML/main-text fingerprints, title/description/H1/canonical/robots, JSON-LD block counts and bounded internal-link and main-word changes. Non-200 delivery and incomplete evidence suppress content-change claims. No live fetches, storage, deployment, source-text output, Google indexing or ranking causation."
+    },
+    {
       "name": "audit.trends",
       "description": "Read-only, offline longitudinal comparison of 2–10 previously saved local audit.history version IDs (oldest first). Uses only the existing compact audit archive, compares adjacent and first/last snapshots plus an exact fully-checked all-version cohort, separates coverage loss from real changes and gates issue-group disappearance on identical complete selected samples. No new site requests, archive mutations, scheduled checks or Google-indexing claims. Returns only redacted numeric evidence, never page URLs, issue messages or stored snapshots."
     },
     {
       "name": "audit.history",
       "description": "Opt-in local-only site-audit snapshot history. Save a previous hosted audit_public_site structured result as JSON, list saved IDs, or retrieve an exact version. A single compact local JSON file retains at most 10 versions; saving the 11th removes the oldest. No database, background task, or network request."
+    },
+    {
+      "name": "performance.crux_field",
+      "description": "V11-FIELD local: offline analyze an already-obtained Google CrUX daily or history JSON record, or make ONE explicitly requested free Google Chrome UX Report API query using an existing local CRUX_API_KEY environment variable. Reports origin/page, device-class p75 LCP/INP/CLS/FCP/TTFB and bounded historical points. Missing eligible data stays null. No GSC, GA4, visitor tracking, storage, scheduled requests, URL fetch, API-key echo or Google ranking/traffic causation."
+    },
+    {
+      "name": "browser.lighthouse_lab",
+      "description": "V11-LAB local-only: run the real Lighthouse engine once in pinned sandboxed Chromium against caller-supplied HTML served at a synthetic, isolated local proxy origin. Reports redacted Lighthouse performance score, FCP, LCP, TBT, Speed Index and CLS. All supplied executable page scripts and embedded frames are stripped, and all outbound resource requests are denied; no production URL, remote CSS/JS, CrUX field INP, ranking or indexing verdict. Chrome/Lighthouse may incur CPU and memory load; fixed 75-second deadline and 180 KB HTML cap."
     },
     {
       "name": "browser.viewport_parity",

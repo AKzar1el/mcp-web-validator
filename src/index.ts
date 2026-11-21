@@ -45,6 +45,20 @@ import {
   inspectViewportParity, inspectPublicViewportParity,
 } from "./modules/browser-ux/viewport-parity-probe.js";
 import {
+  emptyLighthouseLabReview, MAX_LAB_HTML_BYTES, MAX_LAB_FINDINGS,
+  LAB_FACTORS, LAB_STATUSES, LAB_FINDING_CODES,
+} from "./modules/browser-ux/lighthouse-lab.js";
+import {
+  inspectOfflineLighthouseLab, lighthouseSupportedNode,
+} from "./modules/browser-ux/lighthouse-lab-probe.js";
+import {
+  analyzeCruxField, emptyCruxFieldReview, validateCruxQuery,
+  CRUX_FORMS, CRUX_MODES, CRUX_SOURCES,
+  CRUX_FINDING_CODES, MAX_CRUX_FINDINGS, MAX_CRUX_HISTORY_PERIODS,
+  MAX_CRUX_RETURNED_PERIODS, MAX_CRUX_RESPONSE_BYTES,
+} from "./modules/external-metrics/crux-field.js";
+import { queryCruxField, CruxRequestError } from "./modules/external-metrics/crux-field-probe.js";
+import {
   analyzeHttpDirectives,
   emptyHttpDirectiveReview,
   safeHttpResourceUrl,
@@ -154,10 +168,20 @@ import {
   metadataConsistencyContent,
   mediaDiagnosticsContent,
   wcagInteractionsContent,
+  httpDeliveryContent,
+  browserResourceContent,
+  sitemapInventoryContent,
+  crawlerAccessContent,
+  redirectCanonicalContent,
+  availabilityReviewContent,
   httpDirectivesContent,
   httpsSecurityContent,
   urlVariantsContent,
   historicalComparisonContent,
+  productionChangeContent,
+  lighthouseLabContent,
+  cruxFieldContent,
+  crawlerLogContent,
   regressionPreviewContent,
   multilingualClusterContent,
   failureContent,
@@ -251,6 +275,22 @@ import {
   HISTORICAL_STATUSES,
   HISTORICAL_FINDING_CODES,
 } from "./modules/change-regression/historical-comparisons.js";
+import {
+  analyzeCrawlerLogs, emptyCrawlerLogReview,
+  safeLogOrigin,
+  MAX_CRAWL_LOG_RECORDS, MAX_CRAWL_LOG_TOTAL_BYTES,
+  MAX_CRAWL_IMPORTANT_URLS, MAX_CRAWL_FINDINGS,
+  CRAWL_LOG_FORMATS, CRAWL_PROFILES, CRAWL_FINDING_CODES,
+} from "./modules/change-regression/crawler-log-correlation.js";
+import { fetchOfficialGoogleCommonRanges } from "./modules/change-regression/google-common-crawler-ip.js";
+import {
+  analyzeProductionChange,
+  emptyProductionChangeReview,
+  MAX_CHANGE_HTML_BYTES,
+  MAX_CHANGE_FINDINGS,
+  CHANGE_STATUSES,
+  CHANGE_FINDING_CODES,
+} from "./modules/change-regression/production-change-comparison.js";
 import {
   previewRegressionAlerts,
   emptyMonitorPreview,
@@ -852,6 +892,147 @@ const viewportParityOutputShape = {
   error: z.string().optional(),
 };
 
+const lighthouseLabOutputShape = {
+  scope: z.literal("isolated_caller_supplied_html_lighthouse_lab"),
+  status: z.enum(LAB_STATUSES),
+  form_factor: z.enum(LAB_FACTORS),
+  browser_executed: z.boolean(),
+  scripts_disabled: z.literal(true),
+  network_isolated: z.literal(true),
+  lighthouse_version: z.string().max(50).nullable(),
+  performance_score_percent: z.number().int().min(0).max(100).nullable(),
+  metrics: z.object({
+    fcp_ms: z.number().min(0).max(600_000).nullable(),
+    lcp_ms: z.number().min(0).max(600_000).nullable(),
+    tbt_ms: z.number().min(0).max(600_000).nullable(),
+    speed_index_ms: z.number().min(0).max(600_000).nullable(),
+    cls: z.number().min(0).max(100).nullable(),
+  }),
+  requests_blocked: z.number().int().min(0).max(80),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(420)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(LAB_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(320),
+  })).max(MAX_LAB_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const cruxMetricOutputSchema = z.object({
+  largest_contentful_paint: z.number().min(-600_000).max(600_000).nullable(),
+  interaction_to_next_paint: z.number().min(-600_000).max(600_000).nullable(),
+  cumulative_layout_shift: z.number().min(-100).max(100).nullable(),
+  first_contentful_paint: z.number().min(-600_000).max(600_000).nullable(),
+  experimental_time_to_first_byte: z.number().min(-600_000).max(600_000).nullable(),
+});
+const cruxVerdictOutputSchema = z.object({
+  largest_contentful_paint: z.enum(["good","needs_improvement","poor","unavailable"]),
+  interaction_to_next_paint: z.enum(["good","needs_improvement","poor","unavailable"]),
+  cumulative_layout_shift: z.enum(["good","needs_improvement","poor","unavailable"]),
+  first_contentful_paint: z.enum(["good","needs_improvement","poor","unavailable"]),
+  experimental_time_to_first_byte: z.enum(["good","needs_improvement","poor","unavailable"]),
+});
+const cruxFieldOutputShape = {
+  scope: z.literal("crux_real_user_field_p75"),
+  mode: z.enum(CRUX_MODES),
+  source: z.enum(CRUX_SOURCES),
+  granularity: z.enum(["origin","url"]),
+  form_factor: z.enum(CRUX_FORMS),
+  status: z.enum(["complete","partial","unavailable"]),
+  period_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).nullable(),
+  p75: cruxMetricOutputSchema,
+  metric_verdicts: cruxVerdictOutputSchema,
+  core_web_vitals: z.enum(["good","needs_improvement","poor","insufficient_data"]),
+  periods_available: z.number().int().min(0).max(MAX_CRUX_HISTORY_PERIODS),
+  periods_returned: z.number().int().min(0).max(MAX_CRUX_RETURNED_PERIODS),
+  history_points: z.array(z.object({
+    period: z.number().int().min(1).max(MAX_CRUX_HISTORY_PERIODS),
+    period_end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+    p75: cruxMetricOutputSchema,
+    core_web_vitals: z.enum(["good","needs_improvement","poor","insufficient_data"]),
+  })).max(MAX_CRUX_RETURNED_PERIODS),
+  first_last_delta: cruxMetricOutputSchema,
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(370)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(CRUX_FINDING_CODES),
+    severity: z.enum(["warning","info"]),
+    message: z.string().max(320),
+  })).max(MAX_CRUX_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const crawlerLogPeriodOutputSchema = z.object({
+  requests: z.number().int().nonnegative().max(MAX_CRAWL_LOG_RECORDS),
+  http_2xx: z.number().int().nonnegative(),
+  redirects_3xx: z.number().int().nonnegative(),
+  block_401_403: z.number().int().nonnegative(),
+  rate_limited_429: z.number().int().nonnegative(),
+  missing_404_410: z.number().int().nonnegative(),
+  server_5xx: z.number().int().nonnegative(),
+  other_4xx: z.number().int().nonnegative(),
+  problem_responses: z.number().int().nonnegative(),
+  failure_rate_percent: z.number().min(0).max(100).nullable(),
+});
+const crawlerLogOutputShape = {
+  scope: z.literal("caller_supplied_access_log_sample"),
+  format: z.enum(CRAWL_LOG_FORMATS),
+  status: z.enum(["comparable_sample","partial","not_comparable"]),
+  important_urls_supplied: z.number().int().min(0).max(MAX_CRAWL_IMPORTANT_URLS),
+  source_records: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+  parsed_records: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+  invalid_records: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+  ignored_methods: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+  unmatched_requests: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+  query_variants_observed: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+  matched_requests: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+  before: crawlerLogPeriodOutputSchema,
+  after: crawlerLogPeriodOutputSchema,
+  failure_rate_delta_percentage_points: z.number().min(-100).max(100).nullable(),
+  per_url: z.array(z.object({
+    url_index: z.number().int().min(1).max(MAX_CRAWL_IMPORTANT_URLS),
+    before_requests: z.number().int().nonnegative(),
+    after_requests: z.number().int().nonnegative(),
+    after_problem_responses: z.number().int().nonnegative(),
+    after_block_401_403: z.number().int().nonnegative(),
+    after_rate_limited_429: z.number().int().nonnegative(),
+    after_server_5xx: z.number().int().nonnegative(),
+  })).max(MAX_CRAWL_IMPORTANT_URLS),
+  claimed_crawler_profiles: z.array(z.object({
+    profile: z.enum(CRAWL_PROFILES),
+    before_requests: z.number().int().nonnegative(),
+    after_requests: z.number().int().nonnegative(),
+    after_problem_responses: z.number().int().nonnegative(),
+  })).max(CRAWL_PROFILES.length),
+  googlebot_ip_evidence: z.object({
+    status: z.enum(["not_requested","checked_current_official_ranges","unavailable"]),
+    claimed_requests: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+    matched_current_ranges: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+    outside_current_ranges: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+    missing_or_invalid_ip: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+    matched_before: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+    matched_after: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+    matched_after_problem_responses: z.number().int().min(0).max(MAX_CRAWL_LOG_RECORDS),
+  }),
+  crawler_identities_verified: z.literal(false),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(380)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(CRAWL_FINDING_CODES),
+    severity: z.enum(["warning","info"]),
+    url_index: z.number().int().min(1).max(MAX_CRAWL_IMPORTANT_URLS).optional(),
+    message: z.string().max(330),
+  })).max(MAX_CRAWL_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
 const browserResourceInputSchema = z.object({
   resource_type: z.enum(RESOURCE_TYPES)
     .describe("Browser observed resource class, such as script, stylesheet, image or fetch."),
@@ -952,6 +1133,54 @@ const domDiffOutputShape = {
     severity: z.enum(["warning", "info"]),
     message: z.string().max(320),
   })).max(MAX_RENDER_FINDINGS),
+  findings_truncated: z.boolean(),
+  error: z.string().optional(),
+};
+
+const productionFingerprintSchema = z.object({
+  http_status: z.number().int().min(200).max(599).nullable(),
+  html_bytes: z.number().int().nonnegative().max(MAX_CHANGE_HTML_BYTES),
+  html_sha256: z.string().regex(/^[a-f0-9]{64}$/u).nullable(),
+  main_text_sha256: z.string().regex(/^[a-f0-9]{64}$/u).nullable(),
+  main_words: z.number().int().nonnegative().nullable(),
+  same_origin_link_targets: z.number().int().nonnegative().nullable(),
+  title_present: z.boolean().nullable(),
+  description_present: z.boolean().nullable(),
+  h1_count: z.number().int().nonnegative().nullable(),
+  canonical_state: z.enum(["missing", "self", "different", "ambiguous"]).nullable(),
+  noindex_declared: z.boolean().nullable(),
+  jsonld_blocks: z.number().int().nonnegative().nullable(),
+  sample_truncated: z.boolean(),
+});
+const productionChangeOutputSchema = {
+  scope: z.literal("two_caller_supplied_html_observations"),
+  status: z.enum(CHANGE_STATUSES),
+  time_order_ambiguous: z.boolean(),
+  baseline: productionFingerprintSchema,
+  current: productionFingerprintSchema,
+  http_status_changed: z.boolean().nullable(),
+  html_fingerprint_changed: z.boolean().nullable(),
+  main_text_fingerprint_changed: z.boolean().nullable(),
+  title_changed: z.boolean().nullable(),
+  description_changed: z.boolean().nullable(),
+  h1_changed: z.boolean().nullable(),
+  canonical_changed: z.boolean().nullable(),
+  robots_changed: z.boolean().nullable(),
+  noindex_added: z.boolean().nullable(),
+  noindex_removed: z.boolean().nullable(),
+  main_words_added: z.number().int().nonnegative().nullable(),
+  main_words_removed: z.number().int().nonnegative().nullable(),
+  links_added: z.number().int().nonnegative().nullable(),
+  links_removed: z.number().int().nonnegative().nullable(),
+  jsonld_blocks_changed: z.boolean().nullable(),
+  coverage_limited: z.literal(true),
+  limitations: z.array(z.string().max(340)).max(4),
+  total_findings: z.number().int().nonnegative(),
+  findings: z.array(z.object({
+    code: z.enum(CHANGE_FINDING_CODES),
+    severity: z.enum(["warning", "info"]),
+    message: z.string().max(320),
+  })).max(MAX_CHANGE_FINDINGS),
   findings_truncated: z.boolean(),
   error: z.string().optional(),
 };
@@ -2459,6 +2688,117 @@ export function createServer(): McpServer {
   );
 
   server.registerTool(
+    "crawler.logs",
+    {
+      title: "Correlate supplied crawler access-log failures around a cutover",
+      description:
+        "V12/V13 local-only: correlate 1–16 important URLs across 500 supplied access observations, grouping failures and claimed crawlers. Optional verify_googlebot_ip_ranges=true downloads one fixed Google official common-crawler CIDR list and compares caller-supplied source IPs locally. Default is offline. No IPs, UAs, paths, logs, query or timestamps returned; no target-site fetch, log-provider connection, storage, DNS verification, Search Console or Google ranking causation.",
+      inputSchema: {
+        site_origin: z.string().min(1).max(300)
+          .refine(value => Boolean(safeLogOrigin(value)),
+            "Supply a safe public HTTPS origin with no path, query, private hostname or credentials.")
+          .describe("Public HTTPS origin shared by all important URLs and log paths, used only for local matching; never contacted."),
+        important_urls: z.array(z.string().min(1).max(512))
+          .min(1).max(MAX_CRAWL_IMPORTANT_URLS)
+          .describe("One to sixteen explicit same-origin public important URL labels without query/fragment; output uses index numbers, not URLs."),
+        cutover_at: z.string().min(20).max(40)
+          .describe("Offset-aware ISO cutover timestamp dividing supplied request evidence into before versus after; never echoed."),
+        format: z.enum(CRAWL_LOG_FORMATS)
+          .describe("Use structured observations or Apache/Nginx combined access-log lines; exactly one source must be supplied."),
+        observations: z.array(z.object({
+          timestamp: z.string().min(1).max(40)
+            .describe("Request timestamp with explicit timezone offset or Z; invalid values reduce coverage rather than being guessed."),
+          method: z.string().min(1).max(12)
+            .describe("HTTP method as observed; only GET/HEAD are correlated for crawl evidence."),
+          path: z.string().min(1).max(1024)
+            .describe("Observed same-origin request path including optional query, never echoed. Unsafe encoded separators are excluded."),
+          status: z.number().int().min(200).max(599)
+            .describe("Actual caller-observed HTTP response status."),
+          user_agent: z.string().max(300).optional()
+            .describe("Optional unverified User-Agent text, classified only as claimed crawler profile and never echoed."),
+          client_ip: z.string().max(64).optional()
+            .describe("Optional source client IP for Googlebot range matching. Use trusted visitor IP, not reverse-proxy edge IP; never returned."),
+        })).min(1).max(MAX_CRAWL_LOG_RECORDS).optional()
+          .describe("Only structured mode: 1–500 previously captured HTTP observations, not fetched or saved."),
+        access_log: z.string().min(1).max(MAX_CRAWL_LOG_TOTAL_BYTES)
+          .refine(value => Buffer.byteLength(value,"utf8") <= MAX_CRAWL_LOG_TOTAL_BYTES)
+          .optional()
+          .describe("Only combined_access: up to 256 KB of Apache/Nginx combined access lines, max 500; IPs/referers/URLs/UA are not returned or stored."),
+        verify_googlebot_ip_ranges: z.boolean().default(false)
+          .describe("False by default. True requests one bounded GET of the current common-crawlers.json from fixed developers.google.com URL. All log IPs stay local; no other sites contacted, historical source IPs cannot be proven by current ranges."),
+      },
+      outputSchema: crawlerLogOutputShape,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({site_origin,important_urls,cutover_at,format,observations,access_log,verify_googlebot_ip_ranges}) => {
+      try {
+        const sample={
+          site_origin, important_urls, cutover_at, format,
+          observations, access_log,
+        };
+        let review=analyzeCrawlerLogs(sample);
+        if(verify_googlebot_ip_ranges){
+          let ranges;
+          try{ranges=await fetchOfficialGoogleCommonRanges();}catch{ /* Preserve offline results if Google is unavailable. */ }
+          review=analyzeCrawlerLogs(sample,{requested:true,ranges});
+        }
+        return result(review,crawlerLogContent(review));
+      }catch{
+        const error="Crawler access logs could not be safely correlated within same-origin, timestamp, format, record-count or privacy limits.";
+        return result({ ...emptyCrawlerLogReview(format),error },failureContent(
+          "Supplied crawler log correlation",error,
+          "Provide 1–16 safe important URL labels and up to 500 authorized structured/combined request observations around a valid offset-aware cutover. No source data was changed.",
+        ),true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "audit.production_change",
+    {
+      title: "Compare two captured production HTML versions",
+      description:
+        "V10 offline exact-page comparison of two explicitly supplied timestamped HTML observations: SHA-256 HTML/main-text fingerprints, title/description/H1/canonical/robots, JSON-LD block counts and bounded internal-link and main-word changes. Non-200 delivery and incomplete evidence suppress content-change claims. No live fetches, storage, deployment, source-text output, Google indexing or ranking causation.",
+      inputSchema: {
+        page_url: z.string().max(512).refine((value) => Boolean(safeMetadataLabel(value)))
+          .describe("Exact safe page URL without query, fragment, credentials or custom port; not fetched."),
+        baseline: z.object({
+          observed_at: z.string().min(20).max(40)
+            .describe("Earlier offset-aware ISO capture timestamp; supplied by caller, not independently verified."),
+          http_status: z.number().int().min(200).max(599).optional()
+            .describe("Earlier observed HTTP response status; omit if unknown."),
+          html: z.string().max(MAX_CHANGE_HTML_BYTES)
+            .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_CHANGE_HTML_BYTES)
+            .describe("Earlier captured HTML body, up to 180,000 UTF-8 bytes; empty only for a failed response."),
+        }).describe("Earlier caller-supplied captured response. A non-200 status can have empty HTML."),
+        current: z.object({
+          observed_at: z.string().min(20).max(40)
+            .describe("Later offset-aware ISO capture timestamp; supplied by caller, not independently verified."),
+          http_status: z.number().int().min(200).max(599).optional()
+            .describe("Later observed HTTP response status; omit if unknown."),
+          html: z.string().max(MAX_CHANGE_HTML_BYTES)
+            .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_CHANGE_HTML_BYTES)
+            .describe("Later captured HTML body, up to 180,000 UTF-8 bytes; empty only for a failed response."),
+        }).describe("Later caller-supplied captured response. Timestamps are validated but not verified."),
+      },
+      outputSchema: productionChangeOutputSchema,
+      annotations: localReadOnlyAnnotations,
+    },
+    async (input) => {
+      try {
+        const review = await analyzeProductionChange(input);
+        return result(review, productionChangeContent(review));
+      } catch {
+        const error = "Production HTML versions could not be compared within URL, timestamp, delivery and evidence limits.";
+        return result({ ...emptyProductionChangeReview(), error }, failureContent(
+          "Production HTML change comparison", error,
+          "Supply one safe page URL and two bounded, oldest-first HTML observations; no network requests or saved data were changed.",
+        ), true);
+      }
+    },
+  );
+
+  server.registerTool(
     "audit.trends",
     {
       title: "Compare two to ten locally saved site-audit history versions",
@@ -2537,6 +2877,93 @@ export function createServer(): McpServer {
           failureContent("Audit history", error, "Review snapshot JSON or local history file permissions and retry."),
           true,
         );
+      }
+    },
+  );
+
+  server.registerTool(
+    "performance.crux_field",
+    {
+      title: "Analyze Chrome UX Report real-user Core Web Vitals and trends",
+      description:
+        "V11-FIELD local: offline analyze an already-obtained Google CrUX daily or history JSON record, or make ONE explicitly requested free Google Chrome UX Report API query using an existing local CRUX_API_KEY environment variable. Reports origin/page, device-class p75 LCP/INP/CLS/FCP/TTFB and bounded historical points. Missing eligible data stays null. No GSC, GA4, visitor tracking, storage, scheduled requests, URL fetch, API-key echo or Google ranking/traffic causation.",
+      inputSchema: {
+        source_mode: z.enum(["supplied_record","live_crux"])
+          .describe("Use caller-provided JSON entirely offline or explicitly authorize one fixed-endpoint Google CrUX API request with local CRUX_API_KEY."),
+        mode: z.enum(CRUX_MODES).default("daily")
+          .describe("Daily 28-day aggregated p75 data or up to 40 overlapping historical 28-day weekly windows."),
+        granularity: z.enum(["origin","url"])
+          .describe("Origin aggregates eligible Chrome experiences across the whole origin; url requests one exact page."),
+        target: z.string().min(1).max(512)
+          .describe("Safe public HTTPS origin or exact page label; query strings, fragments, private hosts and credentials are rejected. Never fetched directly."),
+        form_factor: z.enum(CRUX_FORMS).default("ALL")
+          .describe("ALL aggregated devices, PHONE, DESKTOP or TABLET. Missing device data is not treated as zero."),
+        record_json: z.string().min(2).max(MAX_CRUX_RESPONSE_BYTES)
+          .refine(value => Buffer.byteLength(value,"utf8") <= MAX_CRUX_RESPONSE_BYTES)
+          .optional()
+          .describe("Only supplied_record: original CrUX API JSON (max 300 KB UTF-8), containing matching record identity, metrics and collection period. Never stored or echoed."),
+      },
+      outputSchema: cruxFieldOutputShape,
+      annotations: externalReadOnlyAnnotations,
+    },
+    async ({source_mode,mode,granularity,target,form_factor,record_json}) => {
+      const source=source_mode==="live_crux"?"verified_crux_api":"caller_supplied";
+      try {
+        const query=validateCruxQuery({mode,granularity,target,form_factor});
+        if (source_mode==="live_crux" ? record_json!==undefined : !record_json) {
+          throw new Error("CrUX input modes must be exclusive");
+        }
+        const review=source_mode==="live_crux"
+          ? await queryCruxField(query)
+          : analyzeCruxField(JSON.parse(record_json!),query,source);
+        return result(review,cruxFieldContent(review));
+      }catch(cause){
+        const code=cause instanceof CruxRequestError?cause.code:"invalid_response";
+        const error=code==="missing_key"
+          ? "Live CrUX requires a locally configured CRUX_API_KEY; no requests were sent."
+          : code==="rate_limited" ? "CrUX request was rate-limited; no retries were made."
+          : code==="access_denied" ? "The CrUX API rejected the configured access key or project authorization."
+          : code==="api_unavailable" ? "The single fixed-endpoint CrUX request could not complete."
+          : "CrUX record identity, time series, bounds or source mode could not be safely validated.";
+        return result({
+          ...emptyCruxFieldReview(mode,source,granularity,form_factor),error,
+        },failureContent(
+          "CrUX field Core Web Vitals",error,
+          "For offline analysis supply a matching CrUX record; for opt-in live mode configure CRUX_API_KEY for the free Google Chrome UX Report API.",
+        ),true);
+      }
+    },
+  );
+
+  server.registerTool(
+    "browser.lighthouse_lab",
+    {
+      title: "Run isolated Lighthouse performance lab on supplied static HTML",
+      description:
+        "V11-LAB local-only: run the real Lighthouse engine once in pinned sandboxed Chromium against caller-supplied HTML served at a synthetic, isolated local proxy origin. Reports redacted Lighthouse performance score, FCP, LCP, TBT, Speed Index and CLS. All supplied executable page scripts and embedded frames are stripped, and all outbound resource requests are denied; no production URL, remote CSS/JS, CrUX field INP, ranking or indexing verdict. Chrome/Lighthouse may incur CPU and memory load; fixed 75-second deadline and 180 KB HTML cap.",
+      inputSchema: {
+        html: z.string().min(1).max(MAX_LAB_HTML_BYTES)
+          .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_LAB_HTML_BYTES,
+            "The static HTML sample must be within 180,000 UTF-8 bytes.")
+          .describe("Authorized static HTML markup for the isolated lab. It is not fetched or stored."),
+        form_factor: z.enum(LAB_FACTORS).default("mobile")
+          .describe("Run one real Lighthouse performance-only lab simulation using mobile or desktop viewport emulation."),
+      },
+      outputSchema: lighthouseLabOutputShape,
+      annotations: localReadOnlyAnnotations,
+    },
+    async ({ html, form_factor }) => {
+      try {
+        const review = await inspectOfflineLighthouseLab(html, form_factor);
+        return result(review, lighthouseLabContent(review), review.status === "failed");
+      } catch {
+        const error = !lighthouseSupportedNode()
+          ? "V11 Lighthouse lab requires Node.js 22.19 or newer; existing non-Lighthouse tools retain the Node 22.12 minimum."
+          : "The sandboxed Lighthouse lab could not run within the fixed HTML, Chromium, network and time limits.";
+        return result({ ...emptyLighthouseLabReview(form_factor), error }, failureContent(
+          "Lighthouse isolated lab", error,
+          "Supply static HTML within 180 KB and verify the pinned Chromium sandbox is available; do not disable browser sandboxing.",
+        ), true);
       }
     },
   );
@@ -2641,15 +3068,7 @@ export function createServer(): McpServer {
             ...(additional_budget_blocked === undefined ? {} : { additional_budget_blocked }),
             ...(navigation_completed === undefined ? {} : { navigation_completed }),
           });
-        return result(review,
-          "V08 browser resources: " + review.requests_recorded + " observed requests, "
-          + review.http_responses + " HTTP responses, " + review.http_4xx
-          + " HTTP 4xx, " + review.http_5xx + " HTTP 5xx, "
-          + review.transport_failures + " transport failures, "
-          + review.tool_blocked_requests + " explicit validator-policy blocks, "
-          + review.pending_requests + " unverified pending resources, "
-          + review.critical_resource_failures + " sampled critical document/script/style failures. "
-          + "Tool-policy blocks and unfinished requests are not site defects; Google WRS and indexing were not verified.");
+        return result(review, browserResourceContent(review));
       } catch {
         const error = "Browser resource evidence could not be inspected within public URL, robots, event or isolated Chromium limits.";
         const scope = mode === "live_browser"
@@ -2851,17 +3270,7 @@ export function createServer(): McpServer {
             ...(discovered_complete === undefined ? {} : { discovered_complete }),
             ...(observed_at ? { observed_at } : {}),
           });
-        return result(review,
-          "Sitemap inventory: " + review.documents_observed + " document(s), "
-          + review.distinct_page_urls + " distinct URL(s), "
-          + review.missing_child_documents + " unseen child sitemap(s), "
-          + review.duplicate_url_entries + " duplicates, "
-          + review.invalid_url_entries + " invalid entries, "
-          + review.lastmod_invalid_count + " invalid lastmod and "
-          + review.known_indexability_conflicts + " confirmed observed indexability conflicts. "
-          + (review.inventory_complete ? "The supplied sitemap collection is complete by its provided evidence."
-            : "The bounded sitemap collection is incomplete or completeness is unverified.")
-          + " Search-engine crawl and indexing status are not verified.");
+        return result(review, sitemapInventoryContent(review));
       } catch {
         const error = "Sitemap inventory evidence could not be inspected within public URL, safe XML, byte and request limits.";
         return result({ ...emptySitemapInventoryReview(), error }, failureContent(
@@ -2904,16 +3313,7 @@ export function createServer(): McpServer {
             source_url: source_url!, observations: observations!,
             ...(expected_destination ? { expected_destination } : {}),
           });
-        return result(review,
-          "Redirect and canonical chain: " + review.hops_observed + " observed response(s), "
-          + review.redirects_observed + " redirect(s), "
-          + review.conflicting_canonical_hops + " canonical conflict(s), "
-          + review.canonical_cycles + " canonical cycle(s). "
-          + (review.chain_complete ? "Observed chain complete. " : "Observed chain incomplete. ")
-          + (review.nonindexable_destination ? "The sampled destination has a blocking or HTTP-error signal. " : "")
-          + (review.expected_destination_match === false
-            ? "The completed chain differs from the caller's expected destination. " : "")
-          + "Google's actual canonical selection or indexing state was not verified.");
+        return result(review, redirectCanonicalContent(review));
       } catch {
         const error = "Redirect/canonical evidence could not be assessed within public URL, response and source limits.";
         return result({ ...emptyRedirectCanonicalReview(), error }, failureContent(
@@ -2961,13 +3361,7 @@ export function createServer(): McpServer {
             ...(robots_status_code === undefined ? {} : { robots_status_code }),
             ...(profiles ? { profiles } : {}),
           });
-        return result(review, "Crawler access matrix: " + review.rows_checked
-          + " profile/page pairs, " + review.crawler_disallowed_rows
-          + " robots-disallowed, " + review.noindex_declared_rows
-          + " with declared noindex, " + review.unknown_access_rows
-          + " unknown robots decisions and " + review.unknown_indexing_rows
-          + " unknown indexing directives. Crawl access and indexing are different. "
-          + "These are declared or sampled signals, never a verified search-index status.");
+        return result(review, crawlerAccessContent(review));
       } catch {
         const error = "Crawler access could not be reviewed within public URL, robots, source and sampling limits.";
         return result({ ...emptyCrawlerAccessReview(), error }, failureContent(
@@ -3004,15 +3398,7 @@ export function createServer(): McpServer {
           observations ?? await collectPublicAvailability(url!, checks ?? 3),
           url ? "live_bounded_burst" : "caller_supplied_history",
         );
-        return result(review,
-          "Availability observations: " + review.observed_successes + "/" + review.observations_count
-          + " sampled HTTP 2xx responses (" + review.observed_success_percent + "% of samples), "
-          + review.observed_http_5xx + " HTTP 5xx, "
-          + review.observed_rate_limits + " HTTP 429, "
-          + review.observed_transport_failures + " no-response results and "
-          + review.http_status_changes + " status transition(s). "
-          + (review.intermittent_non_success ? "Intermittent responses observed. " : "")
-          + "This is a sampled result, not measured continuous uptime or Googlebot history.");
+        return result(review, availabilityReviewContent(review));
       } catch {
         const error = "Availability cannot be evaluated within the public URL, chronology, sample and network safety limits.";
         return result({ ...emptyAvailabilityReview(), error }, failureContent(
@@ -3102,16 +3488,7 @@ export function createServer(): McpServer {
         const review = observations
           ? analyzeHttpDelivery(observations)
           : await probeHttpDelivery(url!);
-        const warnings = review.findings.filter((item) => item.severity === "warning");
-        const text = "HTTP delivery: " + review.hops_observed + " observed response(s), "
-          + review.redirects_observed + " followed redirect(s), "
-          + review.errors_observed + " HTTP error response(s) and "
-          + review.challenges_observed + " confirmed Cloudflare challenge header(s). "
-          + (warnings.length > 0
-            ? "Review " + warnings.map((finding) => finding.code).slice(0, 4).join(", ") + ". "
-            : "No error or explicit challenge header observed. ")
-          + "This is point-in-time evidence, not a Googlebot or availability-history verdict.";
-        return result(review, text, Boolean(review.error));
+        return result(review, httpDeliveryContent(review), Boolean(review.error));
       } catch {
         const error = "HTTP delivery could not be assessed within the safe URL, response and input limits.";
         return result({ ...emptyDeliveryReview(), error }, failureContent(

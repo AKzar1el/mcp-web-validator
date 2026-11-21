@@ -2215,6 +2215,1217 @@
       }
     },
     {
+      "name": "crawler.logs",
+      "title": "Correlate supplied crawler access-log failures around a cutover",
+      "description": "V12/V13 local-only: correlate 1–16 important URLs across 500 supplied access observations, grouping failures and claimed crawlers. Optional verify_googlebot_ip_ranges=true downloads one fixed Google official common-crawler CIDR list and compares caller-supplied source IPs locally. Default is offline. No IPs, UAs, paths, logs, query or timestamps returned; no target-site fetch, log-provider connection, storage, DNS verification, Search Console or Google ranking causation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "site_origin": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "Public HTTPS origin shared by all important URLs and log paths, used only for local matching; never contacted."
+          },
+          "important_urls": {
+            "minItems": 1,
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "description": "One to sixteen explicit same-origin public important URL labels without query/fragment; output uses index numbers, not URLs."
+          },
+          "cutover_at": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 40,
+            "description": "Offset-aware ISO cutover timestamp dividing supplied request evidence into before versus after; never echoed."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "structured",
+              "combined_access"
+            ],
+            "description": "Use structured observations or Apache/Nginx combined access-log lines; exactly one source must be supplied."
+          },
+          "observations": {
+            "description": "Only structured mode: 1–500 previously captured HTTP observations, not fetched or saved.",
+            "minItems": 1,
+            "maxItems": 500,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "timestamp": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40,
+                  "description": "Request timestamp with explicit timezone offset or Z; invalid values reduce coverage rather than being guessed."
+                },
+                "method": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 12,
+                  "description": "HTTP method as observed; only GET/HEAD are correlated for crawl evidence."
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "description": "Observed same-origin request path including optional query, never echoed. Unsafe encoded separators are excluded."
+                },
+                "status": {
+                  "type": "integer",
+                  "minimum": 200,
+                  "maximum": 599,
+                  "description": "Actual caller-observed HTTP response status."
+                },
+                "user_agent": {
+                  "description": "Optional unverified User-Agent text, classified only as claimed crawler profile and never echoed.",
+                  "type": "string",
+                  "maxLength": 300
+                },
+                "client_ip": {
+                  "description": "Optional source client IP for Googlebot range matching. Use trusted visitor IP, not reverse-proxy edge IP; never returned.",
+                  "type": "string",
+                  "maxLength": 64
+                }
+              },
+              "required": [
+                "timestamp",
+                "method",
+                "path",
+                "status"
+              ]
+            }
+          },
+          "access_log": {
+            "description": "Only combined_access: up to 256 KB of Apache/Nginx combined access lines, max 500; IPs/referers/URLs/UA are not returned or stored.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256000
+          },
+          "verify_googlebot_ip_ranges": {
+            "default": false,
+            "description": "False by default. True requests one bounded GET of the current common-crawlers.json from fixed developers.google.com URL. All log IPs stay local; no other sites contacted, historical source IPs cannot be proven by current ranges.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "site_origin",
+          "important_urls",
+          "cutover_at",
+          "format"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "caller_supplied_access_log_sample"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "structured",
+              "combined_access"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "comparable_sample",
+              "partial",
+              "not_comparable"
+            ]
+          },
+          "important_urls_supplied": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16
+          },
+          "source_records": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "parsed_records": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "invalid_records": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "ignored_methods": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "unmatched_requests": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "query_variants_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "matched_requests": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "before": {
+            "type": "object",
+            "properties": {
+              "requests": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "http_2xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "redirects_3xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "block_401_403": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "rate_limited_429": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "missing_404_410": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "server_5xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "other_4xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "problem_responses": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "failure_rate_percent": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "requests",
+              "http_2xx",
+              "redirects_3xx",
+              "block_401_403",
+              "rate_limited_429",
+              "missing_404_410",
+              "server_5xx",
+              "other_4xx",
+              "problem_responses",
+              "failure_rate_percent"
+            ],
+            "additionalProperties": false
+          },
+          "after": {
+            "type": "object",
+            "properties": {
+              "requests": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "http_2xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "redirects_3xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "block_401_403": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "rate_limited_429": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "missing_404_410": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "server_5xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "other_4xx": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "problem_responses": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "failure_rate_percent": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "requests",
+              "http_2xx",
+              "redirects_3xx",
+              "block_401_403",
+              "rate_limited_429",
+              "missing_404_410",
+              "server_5xx",
+              "other_4xx",
+              "problem_responses",
+              "failure_rate_percent"
+            ],
+            "additionalProperties": false
+          },
+          "failure_rate_delta_percentage_points": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "per_url": {
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url_index": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 16
+                },
+                "before_requests": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "after_requests": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "after_problem_responses": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "after_block_401_403": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "after_rate_limited_429": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "after_server_5xx": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "url_index",
+                "before_requests",
+                "after_requests",
+                "after_problem_responses",
+                "after_block_401_403",
+                "after_rate_limited_429",
+                "after_server_5xx"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "claimed_crawler_profiles": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "profile": {
+                  "type": "string",
+                  "enum": [
+                    "claimed_googlebot",
+                    "claimed_bingbot",
+                    "claimed_gptbot",
+                    "claimed_other_bot",
+                    "other"
+                  ]
+                },
+                "before_requests": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "after_requests": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "after_problem_responses": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "profile",
+                "before_requests",
+                "after_requests",
+                "after_problem_responses"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "googlebot_ip_evidence": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "not_requested",
+                  "checked_current_official_ranges",
+                  "unavailable"
+                ]
+              },
+              "claimed_requests": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "matched_current_ranges": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "outside_current_ranges": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "missing_or_invalid_ip": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "matched_before": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "matched_after": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              },
+              "matched_after_problem_responses": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 500
+              }
+            },
+            "required": [
+              "status",
+              "claimed_requests",
+              "matched_current_ranges",
+              "outside_current_ranges",
+              "missing_or_invalid_ip",
+              "matched_before",
+              "matched_after",
+              "matched_after_problem_responses"
+            ],
+            "additionalProperties": false
+          },
+          "crawler_identities_verified": {
+            "type": "boolean",
+            "const": false
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 380
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "no_important_url_matches",
+                    "incomplete_before_after_sample",
+                    "failed_requests_increased",
+                    "post_block_challenge",
+                    "post_rate_limiting",
+                    "post_server_errors",
+                    "post_missing_pages",
+                    "important_url_post_failures",
+                    "unparsed_log_entries",
+                    "query_variants_observed",
+                    "user_agents_unverified",
+                    "sample_only",
+                    "googlebot_range_match",
+                    "googlebot_range_mismatch",
+                    "googlebot_ranges_unavailable"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "url_index": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 16
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 330
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "format",
+          "status",
+          "important_urls_supplied",
+          "source_records",
+          "parsed_records",
+          "invalid_records",
+          "ignored_methods",
+          "unmatched_requests",
+          "query_variants_observed",
+          "matched_requests",
+          "before",
+          "after",
+          "failure_rate_delta_percentage_points",
+          "per_url",
+          "claimed_crawler_profiles",
+          "googlebot_ip_evidence",
+          "crawler_identities_verified",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "audit.production_change",
+      "title": "Compare two captured production HTML versions",
+      "description": "V10 offline exact-page comparison of two explicitly supplied timestamped HTML observations: SHA-256 HTML/main-text fingerprints, title/description/H1/canonical/robots, JSON-LD block counts and bounded internal-link and main-word changes. Non-200 delivery and incomplete evidence suppress content-change claims. No live fetches, storage, deployment, source-text output, Google indexing or ranking causation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page_url": {
+            "type": "string",
+            "maxLength": 512,
+            "description": "Exact safe page URL without query, fragment, credentials or custom port; not fetched."
+          },
+          "baseline": {
+            "type": "object",
+            "properties": {
+              "observed_at": {
+                "type": "string",
+                "minLength": 20,
+                "maxLength": 40,
+                "description": "Earlier offset-aware ISO capture timestamp; supplied by caller, not independently verified."
+              },
+              "http_status": {
+                "description": "Earlier observed HTTP response status; omit if unknown.",
+                "type": "integer",
+                "minimum": 200,
+                "maximum": 599
+              },
+              "html": {
+                "type": "string",
+                "maxLength": 180000,
+                "description": "Earlier captured HTML body, up to 180,000 UTF-8 bytes; empty only for a failed response."
+              }
+            },
+            "required": [
+              "observed_at",
+              "html"
+            ],
+            "description": "Earlier caller-supplied captured response. A non-200 status can have empty HTML."
+          },
+          "current": {
+            "type": "object",
+            "properties": {
+              "observed_at": {
+                "type": "string",
+                "minLength": 20,
+                "maxLength": 40,
+                "description": "Later offset-aware ISO capture timestamp; supplied by caller, not independently verified."
+              },
+              "http_status": {
+                "description": "Later observed HTTP response status; omit if unknown.",
+                "type": "integer",
+                "minimum": 200,
+                "maximum": 599
+              },
+              "html": {
+                "type": "string",
+                "maxLength": 180000,
+                "description": "Later captured HTML body, up to 180,000 UTF-8 bytes; empty only for a failed response."
+              }
+            },
+            "required": [
+              "observed_at",
+              "html"
+            ],
+            "description": "Later caller-supplied captured response. Timestamps are validated but not verified."
+          }
+        },
+        "required": [
+          "page_url",
+          "baseline",
+          "current"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "two_caller_supplied_html_observations"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "comparable_snapshot",
+              "partial",
+              "not_comparable"
+            ]
+          },
+          "time_order_ambiguous": {
+            "type": "boolean"
+          },
+          "baseline": {
+            "type": "object",
+            "properties": {
+              "http_status": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 200,
+                    "maximum": 599
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "html_bytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 180000
+              },
+              "html_sha256": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "main_text_sha256": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "main_words": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "same_origin_link_targets": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "title_present": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "description_present": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "h1_count": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "canonical_state": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "missing",
+                      "self",
+                      "different",
+                      "ambiguous"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "noindex_declared": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "jsonld_blocks": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sample_truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "http_status",
+              "html_bytes",
+              "html_sha256",
+              "main_text_sha256",
+              "main_words",
+              "same_origin_link_targets",
+              "title_present",
+              "description_present",
+              "h1_count",
+              "canonical_state",
+              "noindex_declared",
+              "jsonld_blocks",
+              "sample_truncated"
+            ],
+            "additionalProperties": false
+          },
+          "current": {
+            "type": "object",
+            "properties": {
+              "http_status": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 200,
+                    "maximum": 599
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "html_bytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 180000
+              },
+              "html_sha256": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "main_text_sha256": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "main_words": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "same_origin_link_targets": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "title_present": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "description_present": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "h1_count": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "canonical_state": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "missing",
+                      "self",
+                      "different",
+                      "ambiguous"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "noindex_declared": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "jsonld_blocks": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sample_truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "http_status",
+              "html_bytes",
+              "html_sha256",
+              "main_text_sha256",
+              "main_words",
+              "same_origin_link_targets",
+              "title_present",
+              "description_present",
+              "h1_count",
+              "canonical_state",
+              "noindex_declared",
+              "jsonld_blocks",
+              "sample_truncated"
+            ],
+            "additionalProperties": false
+          },
+          "http_status_changed": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "html_fingerprint_changed": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "main_text_fingerprint_changed": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "title_changed": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "description_changed": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "h1_changed": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "canonical_changed": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "robots_changed": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "noindex_added": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "noindex_removed": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "main_words_added": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "main_words_removed": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "links_added": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "links_removed": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "jsonld_blocks_changed": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 340
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 14,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "status_changed",
+                    "delivery_not_comparable",
+                    "delivery_unverified",
+                    "time_ambiguous",
+                    "extraction_limited",
+                    "noindex_added",
+                    "noindex_removed",
+                    "canonical_changed",
+                    "title_changed",
+                    "description_changed",
+                    "h1_changed",
+                    "robots_changed",
+                    "main_content_changed",
+                    "links_changed",
+                    "jsonld_changed",
+                    "html_only_changed"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "status",
+          "time_order_ambiguous",
+          "baseline",
+          "current",
+          "http_status_changed",
+          "html_fingerprint_changed",
+          "main_text_fingerprint_changed",
+          "title_changed",
+          "description_changed",
+          "h1_changed",
+          "canonical_changed",
+          "robots_changed",
+          "noindex_added",
+          "noindex_removed",
+          "main_words_added",
+          "main_words_removed",
+          "links_added",
+          "links_removed",
+          "jsonld_blocks_changed",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "audit.trends",
       "title": "Compare two to ten locally saved site-audit history versions",
       "description": "Read-only, offline longitudinal comparison of 2–10 previously saved local audit.history version IDs (oldest first). Uses only the existing compact audit archive, compares adjacent and first/last snapshots plus an exact fully-checked all-version cohort, separates coverage loss from real changes and gates issue-group disappearance on identical complete selected samples. No new site requests, archive mutations, scheduled checks or Google-indexing claims. Returns only redacted numeric evidence, never page URLs, issue messages or stored snapshots.",
@@ -2925,6 +4136,807 @@
         "readOnlyHint": false,
         "destructiveHint": true,
         "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "performance.crux_field",
+      "title": "Analyze Chrome UX Report real-user Core Web Vitals and trends",
+      "description": "V11-FIELD local: offline analyze an already-obtained Google CrUX daily or history JSON record, or make ONE explicitly requested free Google Chrome UX Report API query using an existing local CRUX_API_KEY environment variable. Reports origin/page, device-class p75 LCP/INP/CLS/FCP/TTFB and bounded historical points. Missing eligible data stays null. No GSC, GA4, visitor tracking, storage, scheduled requests, URL fetch, API-key echo or Google ranking/traffic causation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_mode": {
+            "type": "string",
+            "enum": [
+              "supplied_record",
+              "live_crux"
+            ],
+            "description": "Use caller-provided JSON entirely offline or explicitly authorize one fixed-endpoint Google CrUX API request with local CRUX_API_KEY."
+          },
+          "mode": {
+            "default": "daily",
+            "description": "Daily 28-day aggregated p75 data or up to 40 overlapping historical 28-day weekly windows.",
+            "type": "string",
+            "enum": [
+              "daily",
+              "history"
+            ]
+          },
+          "granularity": {
+            "type": "string",
+            "enum": [
+              "origin",
+              "url"
+            ],
+            "description": "Origin aggregates eligible Chrome experiences across the whole origin; url requests one exact page."
+          },
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "Safe public HTTPS origin or exact page label; query strings, fragments, private hosts and credentials are rejected. Never fetched directly."
+          },
+          "form_factor": {
+            "default": "ALL",
+            "description": "ALL aggregated devices, PHONE, DESKTOP or TABLET. Missing device data is not treated as zero.",
+            "type": "string",
+            "enum": [
+              "ALL",
+              "PHONE",
+              "DESKTOP",
+              "TABLET"
+            ]
+          },
+          "record_json": {
+            "description": "Only supplied_record: original CrUX API JSON (max 300 KB UTF-8), containing matching record identity, metrics and collection period. Never stored or echoed.",
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 300000
+          }
+        },
+        "required": [
+          "source_mode",
+          "granularity",
+          "target"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "crux_real_user_field_p75"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "history"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "caller_supplied",
+              "verified_crux_api"
+            ]
+          },
+          "granularity": {
+            "type": "string",
+            "enum": [
+              "origin",
+              "url"
+            ]
+          },
+          "form_factor": {
+            "type": "string",
+            "enum": [
+              "ALL",
+              "PHONE",
+              "DESKTOP",
+              "TABLET"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "complete",
+              "partial",
+              "unavailable"
+            ]
+          },
+          "period_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "p75": {
+            "type": "object",
+            "properties": {
+              "largest_contentful_paint": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": -600000,
+                    "maximum": 600000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "interaction_to_next_paint": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": -600000,
+                    "maximum": 600000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cumulative_layout_shift": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": -100,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "first_contentful_paint": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": -600000,
+                    "maximum": 600000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "experimental_time_to_first_byte": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": -600000,
+                    "maximum": 600000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "largest_contentful_paint",
+              "interaction_to_next_paint",
+              "cumulative_layout_shift",
+              "first_contentful_paint",
+              "experimental_time_to_first_byte"
+            ],
+            "additionalProperties": false
+          },
+          "metric_verdicts": {
+            "type": "object",
+            "properties": {
+              "largest_contentful_paint": {
+                "type": "string",
+                "enum": [
+                  "good",
+                  "needs_improvement",
+                  "poor",
+                  "unavailable"
+                ]
+              },
+              "interaction_to_next_paint": {
+                "type": "string",
+                "enum": [
+                  "good",
+                  "needs_improvement",
+                  "poor",
+                  "unavailable"
+                ]
+              },
+              "cumulative_layout_shift": {
+                "type": "string",
+                "enum": [
+                  "good",
+                  "needs_improvement",
+                  "poor",
+                  "unavailable"
+                ]
+              },
+              "first_contentful_paint": {
+                "type": "string",
+                "enum": [
+                  "good",
+                  "needs_improvement",
+                  "poor",
+                  "unavailable"
+                ]
+              },
+              "experimental_time_to_first_byte": {
+                "type": "string",
+                "enum": [
+                  "good",
+                  "needs_improvement",
+                  "poor",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "largest_contentful_paint",
+              "interaction_to_next_paint",
+              "cumulative_layout_shift",
+              "first_contentful_paint",
+              "experimental_time_to_first_byte"
+            ],
+            "additionalProperties": false
+          },
+          "core_web_vitals": {
+            "type": "string",
+            "enum": [
+              "good",
+              "needs_improvement",
+              "poor",
+              "insufficient_data"
+            ]
+          },
+          "periods_available": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 40
+          },
+          "periods_returned": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          },
+          "history_points": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "period": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 40
+                },
+                "period_end": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "p75": {
+                  "type": "object",
+                  "properties": {
+                    "largest_contentful_paint": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": -600000,
+                          "maximum": 600000
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "interaction_to_next_paint": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": -600000,
+                          "maximum": 600000
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "cumulative_layout_shift": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": -100,
+                          "maximum": 100
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "first_contentful_paint": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": -600000,
+                          "maximum": 600000
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "experimental_time_to_first_byte": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": -600000,
+                          "maximum": 600000
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "largest_contentful_paint",
+                    "interaction_to_next_paint",
+                    "cumulative_layout_shift",
+                    "first_contentful_paint",
+                    "experimental_time_to_first_byte"
+                  ],
+                  "additionalProperties": false
+                },
+                "core_web_vitals": {
+                  "type": "string",
+                  "enum": [
+                    "good",
+                    "needs_improvement",
+                    "poor",
+                    "insufficient_data"
+                  ]
+                }
+              },
+              "required": [
+                "period",
+                "period_end",
+                "p75",
+                "core_web_vitals"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "first_last_delta": {
+            "type": "object",
+            "properties": {
+              "largest_contentful_paint": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": -600000,
+                    "maximum": 600000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "interaction_to_next_paint": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": -600000,
+                    "maximum": 600000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cumulative_layout_shift": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": -100,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "first_contentful_paint": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": -600000,
+                    "maximum": 600000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "experimental_time_to_first_byte": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": -600000,
+                    "maximum": 600000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "largest_contentful_paint",
+              "interaction_to_next_paint",
+              "cumulative_layout_shift",
+              "first_contentful_paint",
+              "experimental_time_to_first_byte"
+            ],
+            "additionalProperties": false
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 370
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "metric_missing",
+                    "core_web_vitals_good",
+                    "core_web_vitals_poor",
+                    "core_web_vitals_needs_improvement",
+                    "insufficient_core_web_vitals",
+                    "historical_gaps",
+                    "historical_change",
+                    "field_sample_only"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "mode",
+          "source",
+          "granularity",
+          "form_factor",
+          "status",
+          "period_end",
+          "p75",
+          "metric_verdicts",
+          "core_web_vitals",
+          "periods_available",
+          "periods_returned",
+          "history_points",
+          "first_last_delta",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "browser.lighthouse_lab",
+      "title": "Run isolated Lighthouse performance lab on supplied static HTML",
+      "description": "V11-LAB local-only: run the real Lighthouse engine once in pinned sandboxed Chromium against caller-supplied HTML served at a synthetic, isolated local proxy origin. Reports redacted Lighthouse performance score, FCP, LCP, TBT, Speed Index and CLS. All supplied executable page scripts and embedded frames are stripped, and all outbound resource requests are denied; no production URL, remote CSS/JS, CrUX field INP, ranking or indexing verdict. Chrome/Lighthouse may incur CPU and memory load; fixed 75-second deadline and 180 KB HTML cap.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "html": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180000,
+            "description": "Authorized static HTML markup for the isolated lab. It is not fetched or stored."
+          },
+          "form_factor": {
+            "default": "mobile",
+            "description": "Run one real Lighthouse performance-only lab simulation using mobile or desktop viewport emulation.",
+            "type": "string",
+            "enum": [
+              "mobile",
+              "desktop"
+            ]
+          }
+        },
+        "required": [
+          "html"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "const": "isolated_caller_supplied_html_lighthouse_lab"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "complete",
+              "partial",
+              "failed"
+            ]
+          },
+          "form_factor": {
+            "type": "string",
+            "enum": [
+              "mobile",
+              "desktop"
+            ]
+          },
+          "browser_executed": {
+            "type": "boolean"
+          },
+          "scripts_disabled": {
+            "type": "boolean",
+            "const": true
+          },
+          "network_isolated": {
+            "type": "boolean",
+            "const": true
+          },
+          "lighthouse_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "performance_score_percent": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metrics": {
+            "type": "object",
+            "properties": {
+              "fcp_ms": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 600000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "lcp_ms": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 600000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "tbt_ms": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 600000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "speed_index_ms": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 600000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cls": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "fcp_ms",
+              "lcp_ms",
+              "tbt_ms",
+              "speed_index_ms",
+              "cls"
+            ],
+            "additionalProperties": false
+          },
+          "requests_blocked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 80
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 420
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "lab_score_review",
+                    "lcp_review",
+                    "cls_review",
+                    "tbt_review",
+                    "metric_unavailable",
+                    "run_incomplete",
+                    "runtime_failed",
+                    "external_resources_blocked"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "status",
+          "form_factor",
+          "browser_executed",
+          "scripts_disabled",
+          "network_isolated",
+          "lighthouse_version",
+          "performance_score_percent",
+          "metrics",
+          "requests_blocked",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
         "openWorldHint": false
       },
       "execution": {

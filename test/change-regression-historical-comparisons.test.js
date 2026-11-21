@@ -56,6 +56,17 @@ test("P2-01: identical complete three-version same-sample history is comparable,
   assert(r.limitations.join(" ").includes("not site-wide") || r.limitations.join(" ").includes("not full-site"));
 });
 
+test("P2-01: impossible calendar dates cannot enter historical audit comparisons", () => {
+  for (const invalid of [
+    "2026-02-30T09:00:00Z",
+    "2026-04-31T09:00:00Z",
+    "2025-02-29T09:00:00Z",
+  ]) {
+    assert.throws(() => compare({...v(0), saved_at:invalid},v(1)), /timestamp|date|time/i);
+  }
+  assert.equal(compare({...v(0),saved_at:"2024-02-29T09:00:00+01:00"},v(1)).status,"comparable_sample");
+});
+
 test("P2-01: one stable page across 4 versions has accurate errors, warnings and mean-score trends", () => {
   const r = compare(v(0), v(1, snapshot([pg(base, { seo_errors: 2, seo_warnings: 1, health_score: 82 })])),
     v(2, snapshot([pg(base, { seo_errors: 2, seo_warnings: 0, health_score: 85 })])),

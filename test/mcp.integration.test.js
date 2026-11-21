@@ -29,9 +29,11 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.deepEqual(names, [
       "audit.history",
       "audit.monitor",
+      "audit.production_change",
       "audit.trends",
       "availability.history",
       "browser.dom_diff",
+      "browser.lighthouse_lab",
       "browser.resource_failures",
       "browser.viewport_parity",
       "browser.wcag",
@@ -41,6 +43,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "content.provenance",
       "content.quality",
       "crawler.access",
+      "crawler.logs",
       "css.local",
       "html.local",
       "html.url",
@@ -52,6 +55,7 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "http.variants",
       "links.broken",
       "media.diagnostics",
+      "performance.crux_field",
       "product.claims",
       "report.validation",
       "schema.markup",
@@ -64,6 +68,133 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
       "site.sitemaps",
     ]);
 
+    const crawlerLogsTool = tools.find((tool) => tool.name === "crawler.logs");
+    assert.equal(crawlerLogsTool?.annotations?.readOnlyHint, true);
+    assert.equal(crawlerLogsTool?.outputSchema?.properties?.findings?.maxItems, 16);
+    assert.equal(crawlerLogsTool?.inputSchema?.properties?.verify_googlebot_ip_ranges?.default, false);
+    assert(crawlerLogsTool?.outputSchema?.properties?.googlebot_ip_evidence);
+    const crawlLogs = await client.callTool({
+      name: "crawler.logs",
+      arguments: {
+        site_origin: "https://example.com",
+        important_urls: ["https://example.com/private-log-path"],
+        cutover_at: "2026-11-12T00:00:00Z",
+        format: "structured",
+        observations: [
+          { timestamp: "2026-11-11T11:00:00Z", method: "GET",
+            path: "/private-log-path?private-token=should-not-echo",
+            status: 200, user_agent: "Googlebot secret-user-agent",client_ip:"203.0.113.9" },
+          { timestamp: "2026-11-12T11:00:00Z", method: "GET",
+            path: "/private-log-path",status: 403,
+            user_agent: "Googlebot secret-user-agent" },
+        ],
+      },
+    });
+    assert.equal(crawlLogs.isError, undefined);
+    assert.equal(crawlLogs.structuredContent?.status, "comparable_sample");
+    assert.equal(crawlLogs.structuredContent?.after?.block_401_403, 1);
+    assert.equal(crawlLogs.structuredContent?.crawler_identities_verified, false);
+    assert.equal(crawlLogs.structuredContent?.googlebot_ip_evidence?.status, "not_requested");
+    assert(!JSON.stringify(crawlLogs).includes("private-log-path"));
+    assert(!JSON.stringify(crawlLogs).includes("private-token"));
+    assert(!JSON.stringify(crawlLogs).includes("secret-user-agent"));
+    assert(!JSON.stringify(crawlLogs).includes("203.0.113.9"));
+    const invalidCrawlerLogs = await client.callTool({
+      name: "crawler.logs",
+      arguments: {
+        site_origin: "https://127.0.0.1",
+        important_urls: ["https://127.0.0.1/"],
+        cutover_at: "2026-11-12T00:00:00Z",
+        format: "structured",
+        observations: [
+          { timestamp: "2026-11-11T11:00:00Z",method: "GET",path: "/",status:200 },
+        ],
+      },
+    });
+    assert.equal(invalidCrawlerLogs.isError, true);
+
+    const cruxTool = tools.find((tool) => tool.name === "performance.crux_field");
+    assert.equal(cruxTool?.annotations?.readOnlyHint, true);
+    assert.equal(cruxTool?.outputSchema?.properties?.findings?.maxItems, 12);
+    const cruxJson = JSON.stringify({
+      record: {
+        key: { origin: "https://example.com", formFactor: "PHONE" },
+        collectionPeriod: {
+          firstDate: { year: 2026, month: 9, day: 1 },
+          lastDate: { year: 2026, month: 9, day: 28 },
+        },
+        metrics: {
+          largest_contentful_paint: { percentiles: { p75: 2500 } },
+          interaction_to_next_paint: { percentiles: { p75: 120 } },
+          cumulative_layout_shift: { percentiles: { p75: "0.08" } },
+          first_contentful_paint: { percentiles: { p75: 1000 } },
+          experimental_time_to_first_byte: { percentiles: { p75: 300 } },
+        },
+      },
+      raw_secret: "PRIVATE CRUX SOURCE STRING",
+    });
+    const crux = await client.callTool({
+      name: "performance.crux_field",
+      arguments: {
+        source_mode: "supplied_record", mode: "daily", granularity: "origin",
+        target: "https://example.com", form_factor: "PHONE", record_json: cruxJson,
+      },
+    });
+    assert.equal(crux.isError, undefined);
+    assert.equal(crux.structuredContent?.source, "caller_supplied");
+    assert.equal(crux.structuredContent?.core_web_vitals, "good");
+    assert.equal(crux.structuredContent?.p75?.cumulative_layout_shift, 0.08);
+    assert(!JSON.stringify(crux).includes("PRIVATE CRUX"));
+    assert(!JSON.stringify(crux).includes("https://example.com"));
+    const badCrux = await client.callTool({
+      name: "performance.crux_field",
+      arguments: {
+        source_mode: "live_crux", mode: "daily", granularity: "origin",
+        target: "https://127.0.0.1", form_factor: "PHONE",
+      },
+    });
+    assert.equal(badCrux.isError, true);
+
+    const productionTool = tools.find((tool) => tool.name === "audit.production_change");
+    assert.equal(productionTool?.annotations?.readOnlyHint, true);
+    assert.equal(productionTool?.outputSchema?.properties?.findings?.maxItems, 14);
+    const baselineHtml = '<html><head><title>Private V10 title</title></head><body><main><h1>Original</h1><p>alpha beta</p></main></body></html>';
+    const currentHtml = '<html><head><title>Private V10 new title</title><meta name="robots" content="noindex"></head><body><main><h1>Updated</h1><p>alpha gamma</p></main></body></html>';
+    const production = await client.callTool({
+      name: "audit.production_change",
+      arguments: {
+        page_url: "https://example.com/private-v10",
+        baseline: { observed_at: "2026-11-20T09:00:00Z", http_status: 200, html: baselineHtml },
+        current: { observed_at: "2026-11-21T09:00:00Z", http_status: 200, html: currentHtml },
+      },
+    });
+    assert.equal(production.isError, undefined);
+    assert.equal(production.structuredContent?.status, "comparable_snapshot");
+    assert.equal(production.structuredContent?.html_fingerprint_changed, true);
+    assert.equal(production.structuredContent?.title_changed, true);
+    assert.equal(production.structuredContent?.noindex_added, true);
+    assert(!JSON.stringify(production).includes("Private V10"));
+    assert(!JSON.stringify(production).includes("/private-v10"));
+    const failedProduction = await client.callTool({
+      name: "audit.production_change",
+      arguments: {
+        page_url: "https://example.com/private-v10",
+        baseline: { observed_at: "2026-11-20T09:00:00Z", http_status: 200, html: baselineHtml },
+        current: { observed_at: "2026-11-21T09:00:00Z", http_status: 403, html: "challenge" },
+      },
+    });
+    assert.equal(failedProduction.isError, undefined);
+    assert.equal(failedProduction.structuredContent?.status, "not_comparable");
+    assert.equal(failedProduction.structuredContent?.title_changed, null);
+
+    const lighthouseTool = tools.find((tool) => tool.name === "browser.lighthouse_lab");
+    assert.equal(lighthouseTool?.annotations?.readOnlyHint, true);
+    assert.equal(lighthouseTool?.outputSchema?.properties?.findings?.maxItems, 10);
+    const invalidLab = await client.callTool({
+      name: "browser.lighthouse_lab",
+      arguments: { html: " ", form_factor: "mobile" },
+    });
+    assert.equal(invalidLab.isError, true);
     const viewportTool = tools.find((tool) => tool.name === "browser.viewport_parity");
     assert.equal(viewportTool?.annotations?.readOnlyHint, true);
     assert.equal(viewportTool?.outputSchema?.properties?.findings?.maxItems, 16);

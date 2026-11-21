@@ -65,10 +65,98 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "audit.monitor", "audit.trends", "availability.history", "browser.dom_diff", "browser.resource_failures", "browser.viewport_parity", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
+      "audit.history", "audit.monitor", "audit.production_change", "audit.trends", "availability.history", "browser.dom_diff", "browser.lighthouse_lab", "browser.resource_failures", "browser.viewport_parity", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "crawler.logs", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "performance.crux_field", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.link_graph", "site.links", "site.sitemaps",
     ],
   );
+
+  phase = "v12_crawler_access_log_correlation";
+  const crawlerLogsTool = tools.find((tool) => tool.name === "crawler.logs");
+  assert.equal(crawlerLogsTool?.annotations?.readOnlyHint, true);
+  assert.equal(crawlerLogsTool?.outputSchema?.properties?.findings?.maxItems, 16);
+  const crawlerLogs = await client.callTool({
+    name: "crawler.logs",
+    arguments: {
+      site_origin: "https://example.com",
+      important_urls: ["https://example.com/private-crawler-log"],
+      cutover_at: "2026-11-12T00:00:00Z",
+      format: "structured",
+      observations: [
+        { timestamp: "2026-11-11T08:00:00Z", method: "GET",
+          path: "/private-crawler-log", status: 200,
+          user_agent: "Googlebot-secret-identity" },
+        { timestamp: "2026-11-12T08:00:00Z", method: "GET",
+          path: "/private-crawler-log", status: 429,
+          user_agent: "Googlebot-secret-identity" },
+      ],
+    },
+  });
+  assert.notEqual(crawlerLogs.isError, true);
+  assert.equal(crawlerLogs.structuredContent?.after?.rate_limited_429, 1);
+  assert.equal(crawlerLogs.structuredContent?.crawler_identities_verified, false);
+  assert(!JSON.stringify(crawlerLogs).includes("private-crawler-log"));
+  assert(!JSON.stringify(crawlerLogs).includes("Googlebot-secret-identity"));
+
+  phase = "v11_crux_field_offline_contract";
+  const cruxTool = tools.find((tool) => tool.name === "performance.crux_field");
+  assert.equal(cruxTool?.annotations?.readOnlyHint, true);
+  assert.equal(cruxTool?.outputSchema?.properties?.findings?.maxItems, 12);
+  const offlineCrux = await client.callTool({
+    name: "performance.crux_field",
+    arguments: {
+      source_mode: "supplied_record", mode: "daily", granularity: "origin",
+      target: "https://example.com", form_factor: "PHONE",
+      record_json: JSON.stringify({ record: {
+        key: { origin: "https://example.com", formFactor: "PHONE" },
+        collectionPeriod: {
+          firstDate: { year: 2026, month: 9, day: 1 },
+          lastDate: { year: 2026, month: 9, day: 28 },
+        },
+        metrics: {
+          largest_contentful_paint: { percentiles: { p75: 2300 } },
+          interaction_to_next_paint: { percentiles: { p75: 170 } },
+          cumulative_layout_shift: { percentiles: { p75: "0.05" } },
+        },
+      }, secret: "SENSITIVE CRUX PAYLOAD" }),
+    },
+  });
+  assert.notEqual(offlineCrux.isError, true);
+  assert.equal(offlineCrux.structuredContent?.source, "caller_supplied");
+  assert.equal(offlineCrux.structuredContent?.core_web_vitals, "good");
+  assert(!JSON.stringify(offlineCrux).includes("SENSITIVE CRUX"));
+
+  phase = "v11_lighthouse_lab_contract";
+  const labTool = tools.find((tool) => tool.name === "browser.lighthouse_lab");
+  assert.equal(labTool?.annotations?.readOnlyHint, true);
+  assert.equal(labTool?.outputSchema?.properties?.findings?.maxItems, 10);
+  const malformedLab = await client.callTool({
+    name: "browser.lighthouse_lab",
+    arguments: { html: " ", form_factor: "mobile" },
+  });
+  assert.equal(malformedLab.isError, true);
+  assert(!JSON.stringify(malformedLab).includes("PRIVATE V11"));
+
+  phase = "v10_production_html_comparison";
+  const change = await client.callTool({
+    name: "audit.production_change",
+    arguments: {
+      page_url: "https://example.com/hidden-package-path",
+      baseline: {
+        observed_at: "2026-11-20T09:00:00Z", http_status: 200,
+        html: "<html><head><title>Private before V10</title></head><body><main><h1>Before</h1><p>alpha beta</p></main></body></html>",
+      },
+      current: {
+        observed_at: "2026-11-21T09:00:00Z", http_status: 200,
+        html: "<html><head><title>Private after V10</title><meta name='robots' content='noindex'></head><body><main><h1>After</h1><p>alpha gamma</p></main></body></html>",
+      },
+    },
+  });
+  assert.notEqual(change.isError, true);
+  assert.equal(change.structuredContent?.status, "comparable_snapshot");
+  assert.equal(change.structuredContent?.title_changed, true);
+  assert.equal(change.structuredContent?.noindex_added, true);
+  assert(!JSON.stringify(change).includes("Private after V10"));
+  assert(!JSON.stringify(change).includes("hidden-package-path"));
 
   phase = "v09_mobile_desktop_viewport";
   const viewport = await client.callTool({

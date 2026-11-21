@@ -9,6 +9,16 @@ All notable changes to this project are documented here. The project follows [Se
 - Accept public webpage URLs in `validate_html` (including legacy URL-as-HTML input) via the existing safe page fetch, avoiding misleading Nu diagnostics for URL text.
 - Fix Nu HTML validation in the Cloudflare Worker by using supported manual redirect handling and rejecting non-success responses without forwarding submitted markup.
 
+## [1.3.53] - 2026-11-21
+
+### Release engineering
+
+- Provision the pinned Chrome Headless Shell and its narrowly scoped AppArmor
+  user-namespace allowance in npm publishing CI before running the complete
+  MCP integration test suite. The v1.3.52 tag failed its release gate before
+  publication because this setup was missing; v1.3.53 supersedes that tag
+  without rewriting its history or bypassing the validation gate.
+
 ## [1.3.52] - 2026-11-21
 
 ### Added

@@ -12,7 +12,7 @@ permissions:
 jobs:
   publish:
     name: Publish tagged npm release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
@@ -39,6 +39,35 @@ jobs:
 
       - name: Install locked dependencies
         run: npm ci
+
+      # Keep release qualification in parity with the local-server CI job.
+      # Browser-dependent MCP contracts must pass before npm publication.
+      - name: Build screenshot runtime
+        run: npm run build
+
+      - name: Install pinned screenshot browser
+        run: node --input-type=module -e "import { resolveScreenshotBrowserExecutable } from './dist/screenshot.js'; console.log(await resolveScreenshotBrowserExecutable())"
+
+      - name: Allow only the pinned browser binary to create sandbox user namespaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="$(node --input-type=module -e "import { resolveScreenshotBrowserExecutable } from './dist/screenshot.js'; process.stdout.write(await resolveScreenshotBrowserExecutable())")"
+          case "$binary" in
+            "$HOME"/.cache/puppeteer/chrome-headless-shell/linux-*/chrome-headless-shell-linux64/chrome-headless-shell) ;;
+            *) echo "Unexpected browser executable path; refusing AppArmor exception" >&2; exit 1 ;;
+          esac
+          test -x "$binary"
+          test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = "1"
+          sudo tee /etc/apparmor.d/mcp-web-validator-publish-shell >/dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile mcp-web-validator-publish-shell "$binary" flags=(unconfined) {
+            userns,
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/mcp-web-validator-publish-shell
+          test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = "1"
 
       - name: Run package qualification
         run: npm run check

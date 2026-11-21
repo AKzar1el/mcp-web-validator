@@ -6,6 +6,7 @@ import path from "node:path";
 import { captureScreenshots } from "../dist/screenshot.js";
 import { reviewWcagInteractions } from "../dist/modules/browser-ux/wcag-interactions.js";
 import { renderInlineHtml } from "../dist/modules/browser-ux/raw-rendered-probe.js";
+import { inspectViewportParity } from "../dist/modules/browser-ux/viewport-parity-probe.js";
 
 const temporaryDirectory = await mkdtemp(path.join(tmpdir(), "mcp-web-validator-screenshot-smoke-"));
 
@@ -67,6 +68,41 @@ try {
   assert.equal(rendered.link_targets_added, 1);
   assert.equal(rendered.coverage_limited, true);
   assert(!JSON.stringify(rendered).includes("/client-only"));
+
+  const viewport = await inspectViewportParity(
+    '<!doctype html><html><head>'
+    + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<title>Viewport test</title>'
+    + '<script type="application/ld+json">{"@type":"WebPage"}</script>'
+    + '<style>@media(max-width:600px){.desktop-nav{display:none}.wide{width:650px}}'
+    + 'summary{padding:16px;display:list-item}</style></head><body>'
+    + '<nav class="desktop-nav"><a href="/desktop-only-visible">Desktop</a></nav>'
+    + '<main><h1>Identical primary heading</h1><p>'
+    + 'Identical descriptive sample content stays in the DOM for desktop and '
+    + 'mobile views despite layout-dependent visibility of navigation controls.'
+    + '</p><details><summary>Safe disclosure</summary><p>Details text</p></details>'
+    + '<div class="wide">Wide mobile CSS fixture</div>'
+    + '<button aria-label="Keyboard fixture">Button</button></main>'
+    + '<script>throw Error("this script must not execute")</script>'
+    + '</body></html>',
+    "https://example.com/",
+  );
+  assert.equal(viewport.browser_executed, true);
+  assert.equal(viewport.scripts_disabled, true);
+  assert.equal(viewport.mobile.width, 375);
+  assert.equal(viewport.desktop.width, 1440);
+  assert.equal(viewport.mobile.jsonld_blocks, 1);
+  assert.equal(viewport.desktop.jsonld_blocks, 1);
+  assert.equal(viewport.mobile_missing_dom_tokens, 0);
+  assert.equal(viewport.mobile_missing_internal_links, 0);
+  assert.equal(viewport.mobile.visible_nav_links, 0);
+  assert.equal(viewport.desktop.visible_nav_links, 1);
+  assert(viewport.mobile.horizontal_overflow_px >= 20);
+  assert.equal(viewport.mobile.disclosure_toggled, true);
+  assert.equal(viewport.desktop.disclosure_toggled, true);
+  assert(viewport.findings.some((f) => f.code === "mobile_navigation_less"));
+  assert(viewport.findings.some((f) => f.code === "mobile_horizontal_overflow"));
+  assert(!JSON.stringify(viewport).includes("/desktop-only-visible"));
 } finally {
   await rm(temporaryDirectory, { recursive: true, force: true });
 }

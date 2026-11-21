@@ -65,10 +65,34 @@ try {
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "audit.history", "audit.monitor", "audit.trends", "availability.history", "browser.dom_diff", "browser.resource_failures", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
+      "audit.history", "audit.monitor", "audit.trends", "availability.history", "browser.dom_diff", "browser.resource_failures", "browser.viewport_parity", "browser.wcag", "content.competitors", "content.duplicates", "content.metadata", "content.provenance", "content.quality", "crawler.access", "css.local", "html.local", "html.url", "http.availability", "http.delivery", "http.directives", "http.redirect_chain", "http.security", "http.variants", "links.broken", "media.diagnostics", "product.claims",
       "report.validation", "schema.markup", "schema.supported", "screenshot.capture", "seo.metadata", "site.hreflang", "site.link_graph", "site.links", "site.sitemaps",
     ],
   );
+
+  phase = "v09_mobile_desktop_viewport";
+  const viewport = await client.callTool({
+    name: "browser.viewport_parity",
+    arguments: {
+      mode: "supplied_html", page_url: "https://example.com/",
+      html: '<!doctype html><html><head>'
+        + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        + '<title>Package V09</title>'
+        + '<style>@media(max-width:600px){nav{display:none}}</style></head>'
+        + '<body><nav><a href="/private-v09">Guide</a></nav>'
+        + '<main><h1>Both viewports</h1>'
+        + '<details><summary>Expand safely</summary><p>Details</p></details>'
+        + '</main></body></html>',
+    },
+  });
+  assert.notEqual(viewport.isError, true);
+  assert.equal(viewport.structuredContent?.scope, "isolated_supplied_html_viewports");
+  assert.equal(viewport.structuredContent?.mobile?.visible_nav_links, 0);
+  assert.equal(viewport.structuredContent?.desktop?.visible_nav_links, 1);
+  assert.equal(viewport.structuredContent?.mobile_missing_internal_links, 0);
+  assert.equal(viewport.structuredContent?.mobile?.disclosure_toggled, true);
+  assert.equal(viewport.structuredContent?.desktop?.disclosure_toggled, true);
+  assert(!JSON.stringify(viewport).includes("/private-v09"));
 
   phase = "v08_resource_failure_classification";
   const resources = await client.callTool({

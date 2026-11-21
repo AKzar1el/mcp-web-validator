@@ -269,6 +269,9 @@ test("P1-14: safe label parses raw query tokens but rejects fragments and creden
     "file:///etc/passwd", "javascript:alert(1)",
     "https://example.test/Products/../Products/Widget",
     "https://example.test/Products/%2FWidget",
+    "https://example.test/Products/%2fA",
+    "https://example.test/Products/%5cA",
+    "https://example.test/Products/%2eA",
     "https://example.test/Products/Widget\\backslash",
     "https://example.test/Products/Widget\nInjected: yep",
   ]) assert.equal(safeVariantLabel(url), null, url);

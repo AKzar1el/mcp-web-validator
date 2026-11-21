@@ -133,7 +133,7 @@ function suspiciousPath(value: string, allowRelativeSegments = false): boolean {
   const beforeQuery = value.split("?")[0];
   const path = beforeQuery.replace(/^https?:\/\/[^/]+/iu, "");
   return /\\/u.test(value) ||
-    /%(?:2f|5c|2e)(?![0-9a-f])/iu.test(path) ||
+    /%(?:2f|5c|2e)/iu.test(path) ||
     (!allowRelativeSegments && /(?:^|\/)\.{1,2}(?=\/|$)/u.test(path));
 }
 

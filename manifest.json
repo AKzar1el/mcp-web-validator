@@ -85,6 +85,10 @@
       "description": "Opt-in local-only site-audit snapshot history. Save a previous hosted audit_public_site structured result as JSON, list saved IDs, or retrieve an exact version. A single compact local JSON file retains at most 10 versions; saving the 11th removes the oldest. No database, background task, or network request."
     },
     {
+      "name": "browser.viewport_parity",
+      "description": "V09 local-only: compare the SAME authorized HTML in two fresh, network-denied Chromium viewports (375x812 touch/mobile and 1440x900 desktop), or fetch one robots-allowed public HTML 200 response for that isolated comparison. Detects mobile main content hidden vs absent in DOM, visible navigation/link differences, title/description/H1/robots/canonical/JSON-LD counts, horizontal overflow, bounded keyboard tab targets, small control dimensions and one safe native details tap/Enter. All page scripts and external CSS/JS/API assets are disabled, no arbitrary links/buttons clicked or forms submitted. Fixed counts/codes only, no raw text, URLs, IDs or screenshots in output. Not Google WRS, full-site SEO parity, full accessibility certification, or real hydrated browser behavior."
+    },
+    {
       "name": "browser.resource_failures",
       "description": "V08 local-only: analyze up to 64 observed browser HTTP/network outcomes or navigate one robots-allowed public URL in fresh sandboxed Chromium with DNS-pinned proxy. Distinguishes real HTTP 4xx/5xx resource responses from transport failures, pending requests, and explicit tool-policy blocks. Groups script/CSS/document/API/image/font issues without returning URLs, headers, error text, response bodies or credentials. Browser allows same-origin assets by default, never private IPs; optional public third-party resource access is capped. Does not impersonate Google WRS or establish actual indexing, user experience, performance guarantees or causation."
     },

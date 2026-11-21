@@ -2932,6 +2932,514 @@
       }
     },
     {
+      "name": "browser.viewport_parity",
+      "title": "Compare isolated mobile and desktop rendering and native interaction evidence",
+      "description": "V09 local-only: compare the SAME authorized HTML in two fresh, network-denied Chromium viewports (375x812 touch/mobile and 1440x900 desktop), or fetch one robots-allowed public HTML 200 response for that isolated comparison. Detects mobile main content hidden vs absent in DOM, visible navigation/link differences, title/description/H1/robots/canonical/JSON-LD counts, horizontal overflow, bounded keyboard tab targets, small control dimensions and one safe native details tap/Enter. All page scripts and external CSS/JS/API assets are disabled, no arbitrary links/buttons clicked or forms submitted. Fixed counts/codes only, no raw text, URLs, IDs or screenshots in output. Not Google WRS, full-site SEO parity, full accessibility certification, or real hydrated browser behavior.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "supplied_html",
+              "public_html"
+            ],
+            "description": "Supplied HTML is rendered twice offline; public mode first fetches one robots-allowed page HTML response then compares it offline."
+          },
+          "page_url": {
+            "description": "Only supplied_html: public same-origin page URL label for resolving links/canonicals; never fetched.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "html": {
+            "description": "Only supplied_html: static/inline-CSS markup evaluated without scripts, network or remote assets.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 400000
+          },
+          "url": {
+            "description": "Only public_html: safe query-free HTTP(S) URL; robots.txt checked before a single public HTML GET.",
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "isolated_supplied_html_viewports",
+              "isolated_public_html_viewports"
+            ]
+          },
+          "browser_executed": {
+            "type": "boolean"
+          },
+          "scripts_disabled": {
+            "type": "boolean",
+            "const": true
+          },
+          "mobile": {
+            "type": "object",
+            "properties": {
+              "width": {
+                "type": "integer",
+                "minimum": 320,
+                "maximum": 1440
+              },
+              "height": {
+                "type": "integer",
+                "minimum": 360,
+                "maximum": 1080
+              },
+              "effective_layout_width": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 5000
+              },
+              "viewport_meta_present": {
+                "type": "boolean"
+              },
+              "title_present": {
+                "type": "boolean"
+              },
+              "description_present": {
+                "type": "boolean"
+              },
+              "h1_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "main_dom_words": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "main_visible_words": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "internal_links": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "visible_links": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "visible_nav_links": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "canonical": {
+                "type": "string",
+                "enum": [
+                  "missing",
+                  "self",
+                  "different",
+                  "unverified"
+                ]
+              },
+              "noindex_declared": {
+                "type": "boolean"
+              },
+              "jsonld_blocks": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "controls_seen": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "visible_controls": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "keyboard_focusable_controls": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "small_visible_controls": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_keyboard_targets": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 12
+              },
+              "keyboard_incomplete": {
+                "type": "boolean"
+              },
+              "disclosure_toggled": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "horizontal_overflow_px": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "sample_truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "width",
+              "height",
+              "effective_layout_width",
+              "viewport_meta_present",
+              "title_present",
+              "description_present",
+              "h1_count",
+              "main_dom_words",
+              "main_visible_words",
+              "internal_links",
+              "visible_links",
+              "visible_nav_links",
+              "canonical",
+              "noindex_declared",
+              "jsonld_blocks",
+              "controls_seen",
+              "visible_controls",
+              "keyboard_focusable_controls",
+              "small_visible_controls",
+              "observed_keyboard_targets",
+              "keyboard_incomplete",
+              "disclosure_toggled",
+              "horizontal_overflow_px",
+              "sample_truncated"
+            ],
+            "additionalProperties": false
+          },
+          "desktop": {
+            "type": "object",
+            "properties": {
+              "width": {
+                "type": "integer",
+                "minimum": 320,
+                "maximum": 1440
+              },
+              "height": {
+                "type": "integer",
+                "minimum": 360,
+                "maximum": 1080
+              },
+              "effective_layout_width": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 5000
+              },
+              "viewport_meta_present": {
+                "type": "boolean"
+              },
+              "title_present": {
+                "type": "boolean"
+              },
+              "description_present": {
+                "type": "boolean"
+              },
+              "h1_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "main_dom_words": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "main_visible_words": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "internal_links": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "visible_links": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "visible_nav_links": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "canonical": {
+                "type": "string",
+                "enum": [
+                  "missing",
+                  "self",
+                  "different",
+                  "unverified"
+                ]
+              },
+              "noindex_declared": {
+                "type": "boolean"
+              },
+              "jsonld_blocks": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "controls_seen": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "visible_controls": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "keyboard_focusable_controls": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "small_visible_controls": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "observed_keyboard_targets": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 12
+              },
+              "keyboard_incomplete": {
+                "type": "boolean"
+              },
+              "disclosure_toggled": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "horizontal_overflow_px": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "sample_truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "width",
+              "height",
+              "effective_layout_width",
+              "viewport_meta_present",
+              "title_present",
+              "description_present",
+              "h1_count",
+              "main_dom_words",
+              "main_visible_words",
+              "internal_links",
+              "visible_links",
+              "visible_nav_links",
+              "canonical",
+              "noindex_declared",
+              "jsonld_blocks",
+              "controls_seen",
+              "visible_controls",
+              "keyboard_focusable_controls",
+              "small_visible_controls",
+              "observed_keyboard_targets",
+              "keyboard_incomplete",
+              "disclosure_toggled",
+              "horizontal_overflow_px",
+              "sample_truncated"
+            ],
+            "additionalProperties": false
+          },
+          "titles_equivalent": {
+            "type": "boolean"
+          },
+          "descriptions_equivalent": {
+            "type": "boolean"
+          },
+          "h1_equivalent": {
+            "type": "boolean"
+          },
+          "canonicals_equivalent": {
+            "type": "boolean"
+          },
+          "robots_equivalent": {
+            "type": "boolean"
+          },
+          "structured_data_count_equivalent": {
+            "type": "boolean"
+          },
+          "mobile_missing_dom_tokens": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "mobile_missing_visible_tokens": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "mobile_missing_internal_links": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "mobile_missing_visible_links": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "blocked_resources": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "coverage_limited": {
+            "type": "boolean",
+            "const": true
+          },
+          "limitations": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 400
+            }
+          },
+          "total_findings": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "findings": {
+            "maxItems": 16,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "mobile_viewport_meta_missing",
+                    "mobile_horizontal_overflow",
+                    "mobile_title_missing",
+                    "mobile_description_missing",
+                    "title_mismatch",
+                    "description_mismatch",
+                    "mobile_h1_missing",
+                    "h1_mismatch",
+                    "mobile_main_text_less",
+                    "mobile_visible_main_text_less",
+                    "mobile_content_visibility_gap",
+                    "mobile_navigation_less",
+                    "mobile_links_less",
+                    "mobile_canonical_mismatch",
+                    "mobile_robots_mismatch",
+                    "mobile_structured_data_less",
+                    "mobile_controls_less",
+                    "mobile_keyboard_targets_less",
+                    "mobile_small_targets",
+                    "native_disclosure_parity",
+                    "resource_loads_blocked",
+                    "sample_limited"
+                  ]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "info"
+                  ]
+                },
+                "count": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 320
+                }
+              },
+              "required": [
+                "code",
+                "severity",
+                "count",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "findings_truncated": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "browser_executed",
+          "scripts_disabled",
+          "mobile",
+          "desktop",
+          "titles_equivalent",
+          "descriptions_equivalent",
+          "h1_equivalent",
+          "canonicals_equivalent",
+          "robots_equivalent",
+          "structured_data_count_equivalent",
+          "mobile_missing_dom_tokens",
+          "mobile_missing_visible_tokens",
+          "mobile_missing_internal_links",
+          "mobile_missing_visible_links",
+          "blocked_resources",
+          "coverage_limited",
+          "limitations",
+          "total_findings",
+          "findings",
+          "findings_truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
       "name": "browser.resource_failures",
       "title": "Inspect bounded browser resource responses and loading failures",
       "description": "V08 local-only: analyze up to 64 observed browser HTTP/network outcomes or navigate one robots-allowed public URL in fresh sandboxed Chromium with DNS-pinned proxy. Distinguishes real HTTP 4xx/5xx resource responses from transport failures, pending requests, and explicit tool-policy blocks. Groups script/CSS/document/API/image/font issues without returning URLs, headers, error text, response bodies or credentials. Browser allows same-origin assets by default, never private IPs; optional public third-party resource access is capped. Does not impersonate Google WRS or establish actual indexing, user experience, performance guarantees or causation.",

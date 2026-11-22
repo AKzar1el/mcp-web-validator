@@ -252,9 +252,9 @@ export function analyzeHttpDelivery(
     const cacheRaw = head["cf-cache-status"]?.trim().toUpperCase() ??
       (/\bHIT\b/i.test(head["x-cache"] ?? "") ? "HIT" :
         /\bMISS\b/i.test(head["x-cache"] ?? "") ? "MISS" : "");
-    const maxAgeMatch = control.map((part) => /^max-age\s*=\s*(\d{1,9})$/u.exec(part))
+    const maxAgeMatch = control.map((part) => /^max-age\s*=\s*(?:(\d{1,9})|"(\d{1,9})")$/u.exec(part))
       .find((match) => match !== null);
-    const maxAge = safeIntegerHeader(maxAgeMatch?.[1]);
+    const maxAge = safeIntegerHeader(maxAgeMatch?.[1] ?? maxAgeMatch?.[2]);
     const age = safeIntegerHeader(head.age);
     const retryAfter = safeIntegerHeader(head["retry-after"]);
     const mediaType = (head["content-type"] ?? "").split(";", 1)[0].trim().toLowerCase();

@@ -24,7 +24,7 @@ const textBytes = (s: string) => new TextEncoder().encode(s).byteLength;
 const normalizedMarkup = (raw: string): string => {
   const $ = load(raw);
   $("script").filter((_, el) => {
-    const type = ($(el).attr("type") ?? "").trim().toLowerCase();
+    const type = ($(el).attr("type") ?? "").split(";", 1)[0].trim().toLowerCase();
     // Structured data is inert JSON, not executable JavaScript. Retain it for
     // equivalent mobile/desktop SEO metadata counts.
     return type !== "application/ld+json" && type !== "application/json";
@@ -185,7 +185,10 @@ export async function inspectViewportParity(
         const noindex = robots.some((meta) =>
           ["robots","googlebot"].includes(String(meta.name ?? "").toLowerCase()) &&
           /(?:^|[\s,;])(?:noindex|none)(?:$|[\s,;])/iu.test(String(meta.content ?? "")));
-        const jsonld = Array.from(dom.querySelectorAll('script[type="application/ld+json" i]')).length;
+        const jsonld = Array.from(dom.querySelectorAll("script[type]"))
+          .filter((script: any) => String(script.getAttribute("type") ?? "")
+            .split(";", 1)[0].trim().toLowerCase() === "application/ld+json")
+          .length;
         const effective = Math.round(Number(win.innerWidth) || 0);
         const scrollWidth = Math.round(Number(dom.documentElement?.scrollWidth) || effective);
         return {

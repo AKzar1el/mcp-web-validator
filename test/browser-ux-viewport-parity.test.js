@@ -208,6 +208,33 @@ test("V09 Chromium: inert main scripts and styles are not visible-content gaps",
   }
 });
 
+test("V09 Chromium: JSON-LD media type parameters retain inert structured data", {
+  skip: process.env.WEBVALIDATOR_CHROMIUM_REGRESSION !== "1",
+  timeout: 120_000,
+}, async () => {
+  const marker = "private-jsonld-value-583";
+  const variants = [
+    ["plain", "application/ld+json", 1],
+    ["profile", 'application/ld+json;profile="https://example.org/ld-profile"', 1],
+    ["mixed case", 'APPLICATION/LD+JSON; PROFILE="https://example.org/ld-profile"', 1],
+    ["near miss", "application/ld+json-extra;profile=x", 0],
+    ["executable", "text/javascript", 0],
+  ];
+  for (const [label, mime, expected] of variants) {
+    const html = `<html><head><meta name="viewport" content="width=device-width"></head>
+      <body><main><p>Identical visible text</p>
+      <script type='${mime}'>${JSON.stringify({ "@type": "Product", description: marker })}</script>
+      </main></body></html>`;
+    const report = await inspectViewportParity(html, site);
+    assert.equal(report.browser_executed, true, label);
+    assert.equal(report.scripts_disabled, true, label);
+    assert.equal(report.mobile.jsonld_blocks, expected, label);
+    assert.equal(report.desktop.jsonld_blocks, expected, label);
+    assert.equal(report.findings.some((f) => f.code === "mobile_content_visibility_gap"), false, label);
+    assert(!JSON.stringify(report).includes(marker), label);
+  }
+});
+
 test("V09: native disclosure can be unverified without claiming a failure", () => {
   const r = compare({ disclosure_toggled: null }, { disclosure_toggled: null });
   assert(!codes(r).includes("native_disclosure_parity"));

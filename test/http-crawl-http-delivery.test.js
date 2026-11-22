@@ -59,6 +59,19 @@ test("V01: Cache-Control quoted extension commas do not invent cache directives"
   assert.equal(mixed.hops[0].cache_max_age_seconds, 60);
 });
 
+test("V01: quoted max-age seconds are accepted without accepting malformed arguments", () => {
+  for (const [directive, expected] of [
+    ['max-age="60"', 60],
+    ['custom="max-age=999", max-age="30"', 30],
+    ['max-age="60x"', undefined],
+    ['max-age="60', undefined],
+    ['max-age=60"', undefined],
+  ]) {
+    const review = analyzeHttpDelivery([obs(200, { headers: { "cache-control": directive } })]);
+    assert.equal(review.hops[0].cache_max_age_seconds, expected, `Cache-Control: ${directive}`);
+  }
+});
+
 test("V01: field-qualified no-cache/private and ordinary max-age are recognized", () => {
   const r = analyzeHttpDelivery([obs(200, { headers: {
     "Cache-Control": 'private="Set-Cookie", no-cache="Authorization", max-age=60',

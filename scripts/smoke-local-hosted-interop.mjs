@@ -34,6 +34,8 @@ if (!path.isAbsolute(entrypoint)) {
 await fs.access(entrypoint);
 
 let nextId = 0;
+const startedAt = Date.now();
+const stage = (message) => console.error(`[interop] ${message} (+${Date.now() - startedAt}ms)`);
 async function callHosted(name, args) {
   const id = ++nextId;
   const response = await fetch(hosted, {
@@ -63,8 +65,10 @@ const root = await fs.mkdtemp(path.join(os.tmpdir(), "wv-hosted-local-smoke-"));
 let localClient;
 try {
   // Only one live site audit: avoid surprise crawling and excessive validator traffic.
+  stage("starting single-page hosted audit");
   const audit = await callHosted("audit_public_site", { site_url: site.href, max_pages: 1 });
   assert.ok(audit?.site_url && Array.isArray(audit.pages), "Hosted audit lacked structured result");
+  stage("hosted audit returned structured result");
   const snapshotJson = JSON.stringify(audit);
 
   const transport = new StdioClientTransport({
@@ -74,35 +78,37 @@ try {
     stderr: "pipe",
   });
   localClient = new Client({ name: "web-validator-interop-smoke", version: "1.0.0" });
+  stage("connecting isolated local stdio server");
   await localClient.connect(transport);
+  stage("local stdio connection established");
 
-  const tools = (await localClient.listTools()).tools;
+  const tools = (await localClient.listTools(undefined, { timeout: 90_000 })).tools;
+  stage("local tool inventory received");
   assert.ok(tools.some((tool) => tool.name === "audit.history"), "Local MCP lacks audit.history");
 
-  const empty = await localClient.callTool({ name: "audit.history", arguments: { action: "list" } });
+  const history = (args) => localClient.callTool({ name: "audit.history", arguments: args }, undefined, { timeout: 90_000 });
+  const empty = await history({ action: "list" });
   assert.equal(empty.structuredContent?.count, 0);
   assert.deepEqual(await fs.readdir(root), [], "Read-only listing must not create storage");
 
-  const saved = await localClient.callTool({
-    name: "audit.history",
-    arguments: { action: "save", snapshotJson },
-  });
+  stage("saving one snapshot to disposable local history");
+  const saved = await history({ action: "save", snapshotJson });
   assert.notEqual(saved.isError, true, `Local save rejected the hosted result: ${saved.structuredContent?.error ?? "unknown error"}`);
   assert.equal(saved.structuredContent?.count, 1);
 
-  const restored = await localClient.callTool({
-    name: "audit.history",
-    arguments: { action: "get", id: saved.structuredContent.items[0].id },
-  });
+  stage("restoring saved history snapshot");
+  const restored = await history({ action: "get", id: saved.structuredContent.items[0].id });
   assert.notEqual(restored.isError, true, "Local history could not restore the saved result");
   const baseline = JSON.parse(restored.structuredContent.snapshot_json);
   assert.equal(baseline.site_url, audit.site_url);
   assert.ok(!("indexability_graph" in baseline), "The compact local store must not keep the full graph");
 
   // Compare with exactly the same observed audit: zero regression claims.
+  stage("comparing hosted audit against restored local baseline");
   const comparison = await callHosted("compare_site_audits", { baseline, current: audit });
   assert.ok(comparison?.status, "Comparison lacked structured status");
   assert.equal(comparison.regressed_pages, 0);
+  stage("hosted-to-local interoperability verified");
   console.log(JSON.stringify({
     status: "passed",
     hosted_site: site.origin,

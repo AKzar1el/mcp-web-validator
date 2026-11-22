@@ -257,6 +257,7 @@ export function analyzeHttpDelivery(
     const maxAge = safeIntegerHeader(maxAgeMatch?.[1]);
     const age = safeIntegerHeader(head.age);
     const retryAfter = safeIntegerHeader(head["retry-after"]);
+    const mediaType = (head["content-type"] ?? "").split(";", 1)[0].trim().toLowerCase();
     const hop: DeliveryHop = {
       hop: hopNumber, status, status_code: entry.status_code,
       method: entry.method ?? "unspecified", https: url.protocol === "https:",
@@ -273,7 +274,7 @@ export function analyzeHttpDelivery(
       ...(retryAfter === undefined ? {} : { retry_after_seconds: retryAfter }),
       cf_challenge: cfChallenge, cf_ray_present: Boolean(head["cf-ray"]),
       cloudflare_server: (head.server ?? "").toLowerCase().includes("cloudflare"),
-      content_type_html: /^(text\/html|application\/xhtml\+xml)\b/i.test(head["content-type"] ?? ""),
+      content_type_html: mediaType === "text/html" || mediaType === "application/xhtml+xml",
     };
     output.hops.push(hop);
     if (entry.status_code >= 400) output.errors_observed += 1;

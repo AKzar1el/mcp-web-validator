@@ -27,6 +27,21 @@ test("V01: 200 and bounded cache evidence never return secret header values", ()
   assert(!JSON.stringify(r).includes("secret-ray-id"));
 });
 
+test("V01: HTML classification requires an exact media type", () => {
+  for (const [contentType, expected] of [
+    ["text/html", true],
+    ["text/html; charset=utf-8", true],
+    ["application/xhtml+xml", true],
+    ["application/xhtml+xml; charset=UTF-8", true],
+    ["text/html+json", false],
+    ["text/html.v2", false],
+    ["application/xhtml+xml+binary", false],
+  ]) {
+    const result = analyzeHttpDelivery([obs(200, { headers: { "content-type": contentType } })]);
+    assert.equal(result.hops[0].content_type_html, expected, `content-type=${contentType}`);
+  }
+});
+
 test("V01: Cache-Control quoted extension commas do not invent cache directives", () => {
   const r = analyzeHttpDelivery([obs(200, { headers: {
     "cache-control": 'custom="note, no-store, no-cache, private, max-age=999, tail"',

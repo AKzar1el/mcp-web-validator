@@ -111,7 +111,13 @@ export async function inspectViewportParity(
         const firstH1 = String(dom.querySelector("body h1")?.textContent ?? "")
           .replace(/\s+/gu, " ").trim().slice(0, 256);
         const main: any = dom.querySelector("main,[role='main'],article") ?? dom.body;
-        const rawText = String(main?.textContent ?? "");
+        // Keep CSS-hidden page content in the DOM comparison, but exclude
+        // inert script/style/template text that is not page copy. Clone only
+        // the bounded supplied document so JSON-LD counts stay unchanged.
+        const textOnlyMain: any = main?.cloneNode(true);
+        textOnlyMain?.querySelectorAll("script,style,template")
+          .forEach((node: any) => node.remove());
+        const rawText = String(textOnlyMain?.textContent ?? "");
         const visibleText = String(main?.innerText ?? "");
         const rawTokens = words(rawText);
         const visibleTokens = words(visibleText);

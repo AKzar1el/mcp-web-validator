@@ -183,6 +183,31 @@ test("V09: unsafe or excessive supplied HTML fails before Chromium is launched",
   await assert.rejects(inspectPublicViewportParity("http://localhost/", fake));
 });
 
+// Opt-in real Chromium regression: requires an installed headless shell. The
+// isolated V09 runtime disables scripts and blocks all network requests.
+test("V09 Chromium: inert main scripts and styles are not visible-content gaps", {
+  skip: process.env.WEBVALIDATOR_CHROMIUM_REGRESSION !== "1",
+  timeout: 120_000,
+}, async () => {
+  const visible = "Visible product description available on both screen sizes";
+  const base = `<html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><main><p>${visible}</p>`;
+  const end = "</main></body></html>";
+  const inertWords = Array.from({ length: 45 }, (_, i) => `schemaword${i}`).join(" ");
+  const cases = [
+    ["baseline", base + end, false],
+    ["JSON-LD and style", base + `<script type="application/ld+json">${JSON.stringify({ "@context": "https://schema.org", "@type": "Product", description: inertWords })}</script><style>.notused{--description:${inertWords}}</style>` + end, false],
+    ["CSS-hidden genuine text", base + `<span style="display:none">${inertWords}</span>` + end, true],
+  ];
+  for (const [label, html, shouldWarn] of cases) {
+    const report = await inspectViewportParity(html, site);
+    assert.equal(report.browser_executed, true, label);
+    assert.equal(report.scripts_disabled, true, label);
+    assert.equal(report.findings.some((f) => f.code === "mobile_content_visibility_gap"), shouldWarn, label);
+    assert(!JSON.stringify(report).includes("schemaword"), label);
+    if (label === "JSON-LD and style") assert.equal(report.mobile.jsonld_blocks, 1);
+  }
+});
+
 test("V09: native disclosure can be unverified without claiming a failure", () => {
   const r = compare({ disclosure_toggled: null }, { disclosure_toggled: null });
   assert(!codes(r).includes("native_disclosure_parity"));

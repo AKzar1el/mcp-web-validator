@@ -8,6 +8,7 @@ if (target.protocol !== "https:" || target.username || target.password || target
   throw new Error("The hosted MCP smoke target must be an HTTPS endpoint without credentials or query strings.");
 }
 
+// Keep this public catalog in sync with registerAppTool in chatgpt-plugin/src/worker.ts.
 const expectedTools = [
   "validate_html",
   "validate_css",
@@ -17,7 +18,25 @@ const expectedTools = [
   "generate_validation_report",
   "audit_public_webpage",
   "audit_public_site",
+  "preview_regression_alerts",
+  "compare_production_snapshots",
+  "compare_historical_audits",
   "compare_site_audits",
+  "verify_product_claims",
+  "verify_content_provenance",
+  "compare_competitor_intent",
+  "validate_supported_schema",
+  "review_internal_link_graph",
+  "review_internal_links",
+  "review_metadata_consistency",
+  "review_sitemap_inventory",
+  "review_redirect_canonical_chains",
+  "review_crawler_access",
+  "review_availability_history",
+  "diagnose_http_delivery",
+  "review_url_variants",
+  "review_https_security",
+  "review_http_directives",
 ];
 
 let requestId = 0;

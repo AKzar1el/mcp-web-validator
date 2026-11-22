@@ -139,3 +139,21 @@ test("combined reports survive a single enormous error and original Markdown bod
   assert.match(preview.report, /condensed/);
   assert.ok(preview.errors[0].length <= 400);
 });
+
+test("issue previews reserve the MCP budget for counts and truncation metadata", () => {
+  const details = {
+    issues: [{ code: "seo.test", severity: "error", category: "SEO", message: "x".repeat(15_900) }],
+    totalIssues: 1,
+    truncated: false,
+    counts: { error: 1, warning: 0, info: 0 },
+  };
+  assert.ok(jsonBytes(details.issues) <= MAX_MCP_STRUCTURED_BYTES);
+  assert.ok(jsonBytes(details) > MAX_MCP_STRUCTURED_BYTES);
+
+  const limited = boundedMcpIssues(details);
+  assert.ok(jsonBytes(limited) <= MAX_MCP_STRUCTURED_BYTES);
+  assert.equal(limited.truncated, true);
+  assert.equal(limited.totalIssues, 1);
+  assert.deepEqual(limited.counts, details.counts);
+  assert.deepEqual(limited.issues, []);
+});

@@ -22,9 +22,15 @@ export function boundedMcpArray<T>(items: readonly T[], maxBytes = MAX_MCP_STRUC
 }
 
 export function boundedMcpIssues(details: AuditDetails): AuditDetails {
-  const issues = boundedMcpArray(details.issues);
-  if (issues.length === details.issues.length) return details;
-  return { ...details, issues, truncated: true };
+  if (jsonBytes(details) <= MAX_MCP_STRUCTURED_BYTES) return details;
+
+  const withoutIssues = { ...details, issues: [], truncated: true };
+  const availableBytes = MAX_MCP_STRUCTURED_BYTES - jsonBytes(withoutIssues) + 2;
+  if (availableBytes < 2) {
+    throw new Error("The SEO issue summary could not be bounded for MCP transport.");
+  }
+  const issues = boundedMcpArray(details.issues, availableBytes);
+  return { ...withoutIssues, issues };
 }
 
 /**

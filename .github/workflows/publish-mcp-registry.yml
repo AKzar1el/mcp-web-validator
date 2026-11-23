@@ -40,11 +40,13 @@ jobs:
         run: |
           set -euo pipefail
           package_ref="$(node -e "const s=require('./registry/server.json'); const p=s.packages?.find((item)=>item.registryType==='npm'); if(!p) process.exit(1); process.stdout.write(p.identifier+'@'+p.version)")"
-          for attempt in {1..12}; do
+          # Trusted npm publishing may succeed before the new version becomes
+          # readable through the public registry. Bound retries to six minutes.
+          for attempt in {1..36}; do
             if npm view "$package_ref" version --json >/dev/null 2>&1; then
               exit 0
             fi
-            if [ "$attempt" -lt 12 ]; then
+            if [ "$attempt" -lt 36 ]; then
               sleep 10
             fi
           done

@@ -200,6 +200,22 @@ test("V05: sitemap document malformed/DTD XXE/unsupported roots never become val
   assert(codes(rss).includes("unsupported_format"));
 });
 
+test("V05: invalid numeric XML character references invalidate offline sitemaps", () => {
+  for (const entity of ["&#0;", "&#xD800;", "&#x110000;"]) {
+    const xml = urlset(`<url note="${entity}"><loc>${site_url}page</loc></url>`);
+    const result = analyze({ documents: [doc("/sitemap.xml", xml)] });
+    assert.equal(result.documents[0].kind, "invalid", entity);
+    assert.equal(result.distinct_page_urls, 0, entity);
+    assert(codes(result).includes("xml_malformed"), entity);
+  }
+  for (const entity of ["&#x9;", "&#x1F600;"]) {
+    const xml = urlset(`<url note="${entity}"><loc>${site_url}page</loc></url>`);
+    const result = analyze({ documents: [doc("/sitemap.xml", xml)] });
+    assert.equal(result.documents[0].kind, "urlset", entity);
+    assert.equal(result.distinct_page_urls, 1, entity);
+  }
+});
+
 test("V05: plain text sitemap and path case/query URLs require absolute syntax", () => {
   const r = analyze({
     documents: [doc("/sitemap.txt",

@@ -195,8 +195,22 @@ function isWellFormedXml(source: string): boolean {
   const nameRx = /^[A-Za-z_][A-Za-z0-9_.:-]*$/u;
   function entitiesValid(text: string): boolean {
     const re = /&(?:amp|lt|gt|apos|quot|#(?:[0-9]{1,8}|x[0-9a-fA-F]{1,6}));/gu;
-    const without = text.replace(re, "");
-    return !without.includes("&");
+    let invalidNumericReference = false;
+    const without = text.replace(re, (entity) => {
+      if (entity.startsWith("&#")) {
+        const hex = entity[2] === "x";
+        const point = Number.parseInt(entity.slice(hex ? 3 : 2, -1), hex ? 16 : 10);
+        // XML 1.0 Char production excludes NUL, surrogates and out-of-range code points.
+        if (!(point === 0x9 || point === 0xA || point === 0xD ||
+          (point >= 0x20 && point <= 0xD7FF) ||
+          (point >= 0xE000 && point <= 0xFFFD) ||
+          (point >= 0x10000 && point <= 0x10FFFF))) {
+          invalidNumericReference = true;
+        }
+      }
+      return "";
+    });
+    return !invalidNumericReference && !without.includes("&");
   }
   while (cursor < source.length) {
     const start = source.indexOf("<", cursor);

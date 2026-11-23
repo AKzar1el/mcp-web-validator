@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.55] - 2026-11-23
+
 ### Reliability and optional engines
 
 - Add a private loopback Nu Checker fallback for transient HTML validation failures,

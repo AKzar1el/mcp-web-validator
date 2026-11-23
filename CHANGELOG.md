@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.57] - 2026-11-23
+
 ### Validated optional engines
 
 - Verify official native Nu Checker on Windows with HTML/XHTML, including

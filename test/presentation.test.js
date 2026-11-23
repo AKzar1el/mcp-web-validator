@@ -257,6 +257,36 @@ test("CSS narration presents Jigsaw warnings as review items instead of errors",
   assert.doesNotMatch(output, /\*\*Error\*\*/);
 });
 
+test("offline Stylelint narration never attributes results to the W3C validator", () => {
+  const problems = cssValidationContent([
+    { type: "error", line: 1,
+      message: "Local Stylelint: color-no-invalid-hex requires review" },
+  ], 1, { error: 1, warning: 0, compatibilityLimitation: 0 }, "stylelint_local");
+  assert.match(problems, /Local Stylelint found 1 CSS error/);
+  assert.doesNotMatch(problems, /W3C validator returned|Jigsaw/);
+
+  const clean = cssValidationContent([], 0, {
+    error: 0, warning: 0, compatibilityLimitation: 0,
+  }, "stylelint_local");
+  assert.match(clean, /no lint findings/);
+  assert.match(clean, /W3C CSS conformance was not tested/);
+  assert.doesNotMatch(clean, /W3C validator returned/);
+});
+
+test("local Nu Checker narration correctly attributes local-only diagnostics", () => {
+  const failures = htmlValidationContent([
+    { type: "error", message: "Missing title", lastLine: 1 },
+  ], undefined, 1, { error: 1, warning: 0, info: 0 }, "nu_local");
+  assert.match(failures, /The local Nu HTML Checker returned 1 error/);
+  assert.doesNotMatch(failures, /The W3C validator/);
+
+  const clean = htmlValidationContent([], undefined, 0, {
+    error: 0, warning: 0, info: 0,
+  }, "nu_local");
+  assert.match(clean, /The local Nu HTML Checker returned no HTML diagnostics/);
+  assert.doesNotMatch(clean, /The W3C validator/);
+});
+
 test("report narration separates known CSS limitations from trusted CSS errors", () => {
   const reportData = createValidationReport({
     htmlFilePath: "index.html",

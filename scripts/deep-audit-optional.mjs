@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,6 +46,7 @@ export function buildDeepAuditPlan(options) {
   const args = engine === "siteone"
     ? [
         "--url=" + site.href,
+        "--config-file=" + path.join(directory, "isolated-siteone.conf"),
         ...(maxPages === 1 ? ["--single-page"] : []),
         "--workers=1", "--max-reqs-per-sec=1", "--memory-limit=384M",
         "--max-visited-urls=" + maxPages, "--max-queue-length=16",
@@ -80,6 +81,12 @@ function parseOptions(argv) {
 
 async function executePlan(plan) {
   await mkdir(plan.directory, { recursive: true });
+  if (plan.engine === "siteone") {
+    // Without an explicit config file, SiteOne discovers ~/.siteone-crawler.conf
+    // and can inherit hidden authentication or unsafe crawl configuration.
+    await writeFile(path.join(plan.directory, "isolated-siteone.conf"),
+      "# Intentionally empty isolated audit configuration\n", { flag: "w" });
+  }
   // Do not forward credentials to third-party CLI processes.
   const keys = ["PATH", "Path", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
     "TEMP", "TMP", "SystemRoot", "ComSpec", "ProgramFiles", "ProgramFiles(x86)"];

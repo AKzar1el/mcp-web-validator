@@ -83,8 +83,12 @@ ownership confirmation via --allow-host, and review of site impact.
 
 - SiteOne: one worker, max one request/sec, 384 MB crawler memory cap,
   max four visited pages, bounded queue/timeout and disabled HTTP cache.
+  An explicit empty configuration file prevents loading user-global crawler
+  configuration, including unknown credentials or request settings.
 - Unlighthouse: max four explicit paths, one Lighthouse sample per page,
   mobile-only, time-bounded child process; Chrome and CPU may be expensive.
+  Its newer v1 beta requires Node.js 24.13.1+; the Web Validator's Node 22
+  minimum does not automatically make this optional upstream CLI compatible.
 - Origins must be public HTTPS, exact-host authorized, without credentials,
   nonstandard ports, queries or fragments. Literal IP, local/test/internal
   domains and unsafe paths are rejected.

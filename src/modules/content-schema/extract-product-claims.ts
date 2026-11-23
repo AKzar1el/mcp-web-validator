@@ -51,7 +51,8 @@ export function observeProductClaims(html: string): ProductClaimObservation {
     ...(number && Number.isSafeInteger(number) ? { siteBatchLimit: number } : {}),
     localScreenshotClaim: paragraphs.some((p) => /\blocal\b/.test(p) &&
       /(?:screenshots?|screen captures?)/.test(p) &&
-      !/(?:local[^\n]{0,80}(?:cannot|does not|doesn't)[^\n]{0,80}screenshot)/.test(p)),
+      !/\blocal\b[^\n]{0,80}(?:cannot|can't|does not|doesn't)[^\n]{0,80}(?:screenshots?|screen captures?)/.test(p) &&
+      !/\blocal\b[^\n]{0,80}(?:screenshots?|screen captures?)[^\n]{0,80}(?:cannot|can't|not available|unavailable|not supported|unsupported)/.test(p)),
     hostedReadOnlyClaim: paragraphs.some((p) => /\bhosted\b/.test(p) &&
       /\bread.only\b/.test(p)),
     hostedNoScreenshotsClaim: paragraphs.some((p) => /\bhosted\b/.test(p) &&

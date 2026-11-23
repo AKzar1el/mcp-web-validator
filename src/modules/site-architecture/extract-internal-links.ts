@@ -15,6 +15,18 @@ export function observeInternalLinks(html: string, rawUrl: string): InternalLink
     return empty;
   }
   const $ = cheerio.load(html);
+  const pageUrl = new URL(url);
+  const rawBase = $("head > base[href]").first().attr("href");
+  let documentBase: URL | undefined;
+  if (rawBase && rawBase.length <= 1024) {
+    try {
+      const candidate = new URL(rawBase, pageUrl);
+      if (["http:", "https:"].includes(candidate.protocol) && candidate.hostname &&
+        !candidate.username && !candidate.password && !candidate.port &&
+        (candidate.origin !== pageUrl.origin || candidate.pathname !== pageUrl.pathname ||
+          candidate.search !== pageUrl.search)) documentBase = candidate;
+    } catch { /* Invalid document base: retain the supplied page URL. */ }
+  }
   const titleText = $("head > title").first().text().replace(/\s+/gu, " ").trim();
   let limited = titleText.length > 300;
   const title = titleText.slice(0, 300);
@@ -61,6 +73,20 @@ export function observeInternalLinks(html: string, rawUrl: string): InternalLink
       limited = true;
       continue;
     }
+    let effectiveHref = href;
+    if (documentBase && href.trim() && !/^[a-z][a-z\d+.-]*:/iu.test(href.trim())) {
+      try {
+        const resolved = new URL(href.trim(), documentBase);
+        if (resolved.href.length > 1024) {
+          limited = true;
+          continue;
+        }
+        effectiveHref = resolved.href;
+      } catch {
+        limited = true;
+        continue;
+      }
+    }
     const aria = safeTrim(node.attr("aria-label") ?? "");
     const labelledbyIds = (node.attr("aria-labelledby") ?? "")
       .split(/\s+/u).slice(0, 4).filter((id) => id.length > 0 && id.length <= 80);
@@ -74,7 +100,7 @@ export function observeInternalLinks(html: string, rawUrl: string): InternalLink
     const label = aria || labelledby || visible || alt || titleLabel;
     const rel = new Set((node.attr("rel") ?? "").toLowerCase().split(/\s+/u));
     links.push({
-      href, label,
+      href: effectiveHref, label,
       accessible: Boolean(label),
       nofollow: rel.has("nofollow"),
     });

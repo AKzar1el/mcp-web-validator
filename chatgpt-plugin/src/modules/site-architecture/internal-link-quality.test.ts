@@ -43,6 +43,20 @@ describe("P1-08 hosted offline link and anchor signals", () => {
     expect(r.generic_anchor_links).toBe(1);
     expect(codes(r)).toEqual(expect.arrayContaining(["accessible_anchor_missing", "generic_anchor_text"]));
   });
+  it("names anchors from directly referenced hidden text without including hidden links", () => {
+    const sourcePage = page(source, html("Guide", "Guide",
+      '<a href="/products/chairs" aria-labelledby="hidden-name"></a>'
+      + '<span id="hidden-name" hidden>Ergonomic chairs</span>'
+      + '<a href="/products/chairs" aria-labelledby="aria-hidden-name"></a>'
+      + '<span id="aria-hidden-name" aria-hidden="true">Office chairs</span>'
+      + '<div hidden><a href="/secret">Invisible link</a></div>'));
+    expect(sourcePage.links.map((link) => [link.label, link.accessible])).toEqual([
+      ["Ergonomic chairs", true], ["Office chairs", true],
+    ]);
+    const r = reviewInternalLinks([sourcePage, product]);
+    expect(r.internal_links_observed).toBe(2);
+    expect(r.missing_anchor_labels).toBe(0);
+  });
   it("never judges unknown and query-variant targets broken, nor predicts semantic relevance", () => {
     const sourcePage = page(source, html("Guide", "Guide",
       '<a href="/products/chairs?variant=FAKE_SECRET">Ergonomic chairs</a>'

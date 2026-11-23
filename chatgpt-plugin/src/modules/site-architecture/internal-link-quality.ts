@@ -19,7 +19,10 @@ export function observeInternalLinks(html: string, rawUrl: string): InternalLink
   let limited = titleText.length > 300;
   const title = titleText.slice(0, 300);
   const excludedLinks = $("nav a[href],header a[href],footer a[href],aside a[href]").length;
-  $("template,script,style,noscript,nav,header,footer,aside,[hidden],[aria-hidden='true']").remove();
+  $("template,script,style,noscript,nav,header,footer,aside").remove();
+  // Directly referenced hidden nodes can name an anchor, even though hidden anchors are excluded.
+  const labelCandidates = $("[id]").toArray();
+  $("[hidden],[aria-hidden='true']").remove();
   const main = $("main,[role='main']").first();
   const article = $("article").first();
   const root = main.length ? main : article.length ? article : $("body").first();
@@ -43,12 +46,12 @@ export function observeInternalLinks(html: string, rawUrl: string): InternalLink
   }
   const referencedLabels = new Map<string, string>();
   if (referencedIds.size) {
-    $("[id]").each((_, element) => {
+    for (const element of labelCandidates) {
       const id = $(element).attr("id");
       if (id && referencedIds.has(id) && !referencedLabels.has(id)) {
         referencedLabels.set(id, safeTrim($(element).text()));
       }
-    });
+    }
   }
 
   for (const element of sampledAnchors) {

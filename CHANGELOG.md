@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.56] - 2026-11-23
+
+### Fixed
+
+- Correctly attribute offline Stylelint CSS diagnostics and local Nu HTML
+  Checker results instead of misleadingly describing them as responses from
+  the external W3C validator. Preserve legacy W3C text for remote checks.
+- Supply an isolated empty SiteOne configuration file to avoid accidentally
+  inheriting a user's global crawler credentials or unrelated crawler options.
+- Document Unlighthouse v1 beta's separate Node.js 24.13.1+ requirement.
+
 ## [1.3.55] - 2026-11-23
 
 ### Reliability and optional engines

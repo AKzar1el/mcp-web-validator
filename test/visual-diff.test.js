@@ -63,6 +63,9 @@ test("visual compare flags missing, incomplete, corrupted and dimension-mismatch
       { ...capture, width: 3 }, before)).status, "dimension_mismatch");
     assert.equal((await compareScreenshotWithBaseline(
       { ...capture, width: 1_920, height: 1_200 }, before)).status, "over_budget");
+    await rm(join(after, filename));
+    assert.equal((await compareScreenshotWithBaseline(capture, before)).status,
+      "unavailable", "missing captures must not look like missing baselines");
     await assert.rejects(resolveVisualReferenceDirectory(after, after),
       /must differ/);
   } finally { await rm(temp, { recursive: true, force: true }); }

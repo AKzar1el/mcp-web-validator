@@ -38,6 +38,14 @@ https://web-validator-mcp.digestseo.com/mcp
 
 ## Requirements
 
+- Optional reliability upgrades for local Nu Checker fallback, offline
+  Stylelint CSS checks, axe-core accessibility diagnostics, pixelmatch
+  screenshot comparisons, and capped independent SiteOne/Unlighthouse
+  experiments are documented in
+  [Reliability engines](docs/reliability-engines-20261123.md).
+  They extend existing tool inputs without adding MCP tools. External
+  crawler/browser engines are never enabled in the MCP by default.
+
 - Node.js 22.12.0 or newer
 - An MCP client that supports stdio, or a client that supports Streamable HTTP for the hosted endpoint
 

@@ -22,7 +22,7 @@
     {
       "name": "html.local",
       "title": "Validate local HTML",
-      "description": "Reads a bounded local HTML or .xhtml file and sends its markup to the W3C Nu HTML Checker. .xhtml files use application/xhtml+xml parsing semantics. Use only files the user is authorized to share.",
+      "description": "Validates local HTML/XHTML through W3C Nu, or an explicitly configured loopback Nu checker. Auto mode uses local fallback only for remote transport/transient failures; local mode keeps markup on the machine.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -31,6 +31,16 @@
             "minLength": 1,
             "maxLength": 4096,
             "description": "Absolute or workspace-relative path to an HTML or .xhtml file."
+          },
+          "checker": {
+            "default": "auto",
+            "description": "Default auto: W3C remote, optional configured local fallback. local: never sends file markup remotely.",
+            "type": "string",
+            "enum": [
+              "auto",
+              "remote",
+              "local"
+            ]
           }
         },
         "required": [
@@ -94,6 +104,13 @@
           "truncated": {
             "type": "boolean"
           },
+          "checker": {
+            "type": "string",
+            "enum": [
+              "w3c_remote",
+              "nu_local"
+            ]
+          },
           "error": {
             "type": "string"
           }
@@ -127,6 +144,16 @@
             "type": "string",
             "format": "uri",
             "description": "Public HTTP(S) URL on port 80 or 443."
+          },
+          "checker": {
+            "default": "auto",
+            "description": "Choose Nu remote, local loopback, or auto failover; URL retrieval is still public.",
+            "type": "string",
+            "enum": [
+              "auto",
+              "remote",
+              "local"
+            ]
           }
         },
         "required": [
@@ -193,6 +220,13 @@
           "fetchedUrl": {
             "type": "string"
           },
+          "checker": {
+            "type": "string",
+            "enum": [
+              "w3c_remote",
+              "nu_local"
+            ]
+          },
           "error": {
             "type": "string"
           }
@@ -218,7 +252,7 @@
     {
       "name": "css.local",
       "title": "Validate local CSS",
-      "description": "Reads a bounded local CSS file and sends it to the W3C Jigsaw CSS Validator. Use only files the user is authorized to share.",
+      "description": "Reads local CSS and either sends it to W3C Jigsaw (default), or performs offline Stylelint quality checks. Local lint results are advisory and cannot certify W3C CSS validity.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -227,6 +261,15 @@
             "minLength": 1,
             "maxLength": 4096,
             "description": "Absolute or workspace-relative path to a CSS file."
+          },
+          "checker": {
+            "default": "w3c",
+            "description": "Default W3C standards service; stylelint runs bounded local quality rules without network.",
+            "type": "string",
+            "enum": [
+              "w3c",
+              "stylelint"
+            ]
           }
         },
         "required": [
@@ -308,6 +351,13 @@
           },
           "truncated": {
             "type": "boolean"
+          },
+          "checker": {
+            "type": "string",
+            "enum": [
+              "w3c_remote",
+              "stylelint_local"
+            ]
           },
           "error": {
             "type": "string"
@@ -1427,6 +1477,16 @@
             "minLength": 1,
             "maxLength": 4096,
             "description": "Absolute or workspace-relative HTML or .xhtml file path."
+          },
+          "htmlChecker": {
+            "default": "auto",
+            "description": "Auto W3C remote with optional local Nu fallback; local avoids uploading markup.",
+            "type": "string",
+            "enum": [
+              "auto",
+              "remote",
+              "local"
+            ]
           },
           "cssFilePath": {
             "description": "Optional absolute or workspace-relative CSS file path.",
@@ -6268,7 +6328,7 @@
     {
       "name": "browser.wcag",
       "title": "Review bounded rendered-DOM keyboard and WCAG interaction evidence",
-      "description": "Local-only inert Chromium analysis of supplied HTML: sandboxed pinned headless browser, no external resource requests, scripts disabled and stripped, DOM accessible-name heuristics, aria-hidden focus, positive tabindex, custom role focusability, up to 24 real keyboard Tab focus samples, computed focus indicator review and native summary Enter toggle. Never navigates URLs, clicks links/buttons, submits forms, stores screenshots or certifies WCAG; may provision pinned browser on first use.",
+      "description": "Local-only inert Chromium accessibility evidence: native keyboard focus, named controls and optional axe-core automated WCAG 2.2 rule scan (includeAxe=true). Author scripts and handlers stripped, all resources blocked, only trusted axe engine executes after inert rendering. Does not certify conformance or inspect full live site.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -6295,6 +6355,11 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 24
+          },
+          "includeAxe": {
+            "default": false,
+            "description": "Optional local axe-core WCAG 2.2 automated rules; CPU-intensive and not a conformance certificate. No new network access.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -6474,6 +6539,81 @@
           },
           "findings_truncated": {
             "type": "boolean"
+          },
+          "axe": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "complete",
+                  "unavailable"
+                ]
+              },
+              "engine_version": {
+                "type": "string"
+              },
+              "violations": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "incomplete": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "rules": {
+                "maxItems": 12,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "rule": {
+                      "type": "string",
+                      "maxLength": 60
+                    },
+                    "impact": {
+                      "type": "string",
+                      "enum": [
+                        "minor",
+                        "moderate",
+                        "serious",
+                        "critical",
+                        "unknown"
+                      ]
+                    },
+                    "nodes": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "rule",
+                    "impact",
+                    "nodes"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "rules_truncated": {
+                "type": "boolean"
+              },
+              "coverage_limited": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "required": [
+              "status",
+              "violations",
+              "incomplete",
+              "rules",
+              "rules_truncated",
+              "coverage_limited"
+            ],
+            "additionalProperties": false
           },
           "error": {
             "type": "string"
@@ -10285,7 +10425,7 @@
     {
       "name": "screenshot.capture",
       "title": "Capture responsive screenshots",
-      "description": "Renders a local HTML file or HTTP(S) URL in a sandboxed local Chromium browser and writes PNG screenshots to the requested directory. Downloads the pinned headless browser on first use if it is not already cached. Existing matching files may be replaced. Completed PNG paths are included if a later viewport fails.",
+      "description": "Renders bounded, sandboxed responsive PNGs, with optional pixelmatch comparison against an existing separate baseline directory. Only numeric change metrics leave the comparator; missing, over-budget and asset-incomplete comparisons remain inconclusive.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -10298,6 +10438,12 @@
           "outputDir": {
             "default": ".mcp-validator/screenshots",
             "description": "Directory where PNG screenshots will be written.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "baselineDir": {
+            "description": "Optional existing local folder with matching viewport PNG filenames; must differ from outputDir. No comparison images are saved.",
             "type": "string",
             "minLength": 1,
             "maxLength": 4096
@@ -10369,6 +10515,41 @@
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 9007199254740991
+                },
+                "visualDiff": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "compared",
+                        "missing_baseline",
+                        "dimension_mismatch",
+                        "over_budget",
+                        "incomplete_capture",
+                        "unavailable"
+                      ]
+                    },
+                    "changed_pixels": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "pixels_compared": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "changed_percent": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": false
                 }
               },
               "required": [

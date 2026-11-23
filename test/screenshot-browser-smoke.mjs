@@ -24,6 +24,19 @@ try {
   assert.equal(screenshots[0]?.viewportName, "smoke");
   assert.ok((await stat(screenshots[0].outputPath)).size > 0);
 
+  const compareOutputDirectory = path.join(temporaryDirectory, "compared");
+  const compared = await captureScreenshots(
+    targetPath,
+    compareOutputDirectory,
+    [{ name: "smoke", width: 800, height: 600 }],
+    undefined,
+    outputDirectory,
+  );
+  assert.equal(compared[0]?.visualDiff?.status, "compared");
+  assert.equal(compared[0]?.visualDiff?.pixels_compared, 800 * 600);
+  assert.ok(compared[0]?.visualDiff?.changed_percent >= 0);
+  assert.ok(compared[0]?.visualDiff?.changed_percent <= 100);
+
   const review = await reviewWcagInteractions(
     '<!doctype html><html><head><title>Keyboard fixture</title>'
     + '<style>button:focus-visible { outline: 2px solid blue; }</style></head><body>'
@@ -34,7 +47,7 @@ try {
     + '<script>globalThis.__untrustedRan = true</script>'
     + '<img src="http://127.0.0.1/private-resource.png">'
     + '</body></html>',
-    { maxTabSteps: 8 },
+    { maxTabSteps: 8, includeAxe: true },
   );
   assert.equal(review.browser_executed, true);
   assert.equal(review.scripts_disabled, true);
@@ -52,6 +65,11 @@ try {
   // assert the browser returned the attempt count, not invent a request.
   assert.ok(Number.isInteger(review.resources_blocked));
   assert.ok(review.resources_blocked >= 0);
+  assert.equal(review.axe?.status, "complete");
+  assert.ok(review.axe.violations >= 1);
+  assert.ok(review.axe.rules.length >= 1);
+  assert.equal(review.axe.coverage_limited, true);
+  assert.equal(JSON.stringify(review).includes("127.0.0.1/private-resource"), false);
   assert(!JSON.stringify(review).includes("/private-resource"));
   const rendered = await renderInlineHtml(
     '<!doctype html><html><head><title>Source</title></head><body>'

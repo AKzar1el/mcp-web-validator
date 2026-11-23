@@ -653,6 +653,17 @@ try {
   assert.ok(multilingual.structuredContent?.findings?.some((finding) =>
     finding.code === "multilingual.return_link_missing"));
 
+  phase = "installed_stylelint";
+  const cssFixture = path.join(scratch, "optional-stylelint.css");
+  await writeFile(cssFixture, "a { color: #ggg; color: red; }");
+  const offlineCss = await client.callTool({
+    name: "css.local",
+    arguments: { filePath: cssFixture, checker: "stylelint" },
+  });
+  assert.notEqual(offlineCss.isError, true, "Installed optional CSS linter should run");
+  assert.equal(offlineCss.structuredContent?.checker, "stylelint_local");
+  assert.ok(offlineCss.structuredContent?.totalMessages >= 1);
+
   if (process.env.MCP_SMOKE_SKIP_SCREENSHOT === "1") {
     console.log("Installed npm tarball MCP handshake and offline feature tools: PASS (screenshot intentionally skipped)");
   } else {
@@ -675,6 +686,19 @@ try {
     assert.equal(screenshot.structuredContent?.screenshots?.length, 1);
     const imagePath = screenshot.structuredContent.screenshots[0].outputPath;
     assert.ok((await stat(imagePath)).size > 0);
+    phase = "installed_visual_comparison";
+    const comparison = await client.callTool({
+      name: "screenshot.capture",
+      arguments: {
+        targetPath: fixture,
+        outputDir: path.join(scratch, "comparison"),
+        baselineDir: outputDir,
+        viewports: [{ name: "installed", width: 800, height: 600 }],
+      },
+    });
+    assert.notEqual(comparison.isError, true, "Installed PNG comparison should complete");
+    assert.equal(comparison.structuredContent?.screenshots?.[0]?.visualDiff?.status, "compared");
+    assert.equal(comparison.structuredContent.screenshots[0].visualDiff.pixels_compared, 800 * 600);
     phase = "browser_wcag";
     const wcag = await client.callTool({
       name: "browser.wcag",
@@ -683,6 +707,7 @@ try {
           + '<body><button aria-label="Labeled control">Open</button>'
           + '<details><summary>Show details</summary><p>Additional information</p></details></body></html>',
         maxTabSteps: 4,
+        includeAxe: true,
       },
     });
     assert.notEqual(wcag.isError, true, "Installed MCP browser WCAG tool must launch safely");
@@ -692,6 +717,8 @@ try {
     assert.ok(wcag.structuredContent?.unique_tab_targets >= 1);
     assert.equal(wcag.structuredContent?.native_summaries_tested, 1);
     assert.equal(wcag.structuredContent?.native_summaries_toggled, 1);
+    assert.equal(wcag.structuredContent?.axe?.status, "complete");
+    assert.ok(wcag.structuredContent?.axe?.violations >= 1);
     console.log("Installed npm tarball MCP handshake, offline audits, sandboxed screenshot and real keyboard/browser WCAG smoke: PASS");
   }
 } catch (error) {

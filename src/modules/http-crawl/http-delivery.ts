@@ -252,8 +252,11 @@ export function analyzeHttpDelivery(
     const cacheRaw = head["cf-cache-status"]?.trim().toUpperCase() ??
       (/\bHIT\b/i.test(head["x-cache"] ?? "") ? "HIT" :
         /\bMISS\b/i.test(head["x-cache"] ?? "") ? "MISS" : "");
-    const maxAgeMatch = control.map((part) => /^max-age\s*=\s*(?:(\d{1,9})|"(\d{1,9})")$/u.exec(part))
-      .find((match) => match !== null);
+    // RFC 9111: repeated directives use the first occurrence or are treated as stale.
+    // Never accept a later max-age when the first occurrence is malformed.
+    const firstMaxAge = control.find((part) => /^max-age(?:\s|=|$)/u.test(part));
+    const maxAgeMatch = firstMaxAge === undefined ? null :
+      /^max-age\s*=\s*(?:(\d{1,9})|"(\d{1,9})")$/u.exec(firstMaxAge);
     const maxAge = safeIntegerHeader(maxAgeMatch?.[1] ?? maxAgeMatch?.[2]);
     const age = safeIntegerHeader(head.age);
     const retryAfter = safeIntegerHeader(head["retry-after"]);

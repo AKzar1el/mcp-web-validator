@@ -107,6 +107,23 @@ test("P1-11: Link header comma inside quoted title and angle target is not a sec
   assert.equal(r.unresolved_canonical_references, 0);
 });
 
+test("P1-11: nonparameter text after a Link URI cannot declare canonical", () => {
+  const malformed = analyzeHttpDirectives([item({
+    link: ['<https://example.test/a>junk; rel=canonical',
+      '<https://example.test/b> junk; rel="canonical"'],
+  })]);
+  assert.equal(malformed.resources[0].canonical_declarations, 0);
+  assert.equal(malformed.resources[0].canonical_state, "absent");
+
+  const mixed = analyzeHttpDirectives([item({
+    link: ['<https://example.test/a>junk; rel=canonical, ' +
+      '<https://example.test/b>; rel="alternate canonical"'],
+  })]);
+  assert.equal(mixed.resources[0].canonical_declarations, 1);
+  assert.equal(mixed.resources[0].canonical_valid_targets, 1);
+  assert.equal(mixed.resources[0].canonical_state, "one");
+});
+
 test("P1-11: multi-valued rel and repeated equivalent canonical targets do not conflict", () => {
   const r = analyzeHttpDirectives([item({
     link: ['<https://example.test/a>; rel="alternate canonical"', '<https://example.test/a>; rel=canonical'],

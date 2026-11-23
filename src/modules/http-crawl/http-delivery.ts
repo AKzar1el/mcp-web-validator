@@ -240,7 +240,8 @@ export function analyzeHttpDelivery(
     if (redirect && nextMatches) output.redirects_observed += 1;
     if (redirect && !nextMatches) output.redirect_chain_complete = false;
     if (visited.has(url.href) ||
-      (redirect && target.target !== undefined && visited.has(target.target))) {
+      (redirect && target.target !== undefined &&
+        (target.target === url.href || visited.has(target.target)))) {
       addFinding(hopNumber, "redirect_loop", "warning",
         "The redirect chain points to a previously observed response URL.");
     }

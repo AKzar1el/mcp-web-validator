@@ -2213,7 +2213,10 @@ export function createServer(): McpServer {
         return result(
           { errors: messages, totalMessages: validation.total, truncated,
             checker: validation.checker ?? "w3c_remote" },
-          htmlValidationContent(messages, undefined, validation.total, validation.counts),
+          htmlValidationContent(
+            messages, undefined, validation.total, validation.counts,
+            validation.checker ?? "w3c_remote",
+          ),
         );
       } catch (cause) {
         const error = getErrorMessage(cause);
@@ -2283,7 +2286,10 @@ export function createServer(): McpServer {
             fetchedUrl: fetched.url,
             checker: validation.checker ?? "w3c_remote",
           },
-          htmlValidationContent(messages, fetched.url, validation.total, validation.counts),
+          htmlValidationContent(
+            messages, fetched.url, validation.total, validation.counts,
+            validation.checker ?? "w3c_remote",
+          ),
         );
       } catch (cause) {
         const error = getErrorMessage(cause);
@@ -2337,7 +2343,10 @@ export function createServer(): McpServer {
             truncated,
             checker: checker === "stylelint" ? "stylelint_local" : "w3c_remote",
           },
-          cssValidationContent(messages, validation.total, validation.counts)
+          cssValidationContent(
+            messages, validation.total, validation.counts,
+            checker === "stylelint" ? "stylelint_local" : "w3c_remote",
+          )
             + (checker === "stylelint" ? "\n\nOffline lint rules only; this does not establish W3C CSS conformance." : ""),
         );
       } catch (cause) {

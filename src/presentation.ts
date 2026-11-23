@@ -298,7 +298,9 @@ export function htmlValidationContent(
   source?: string,
   totalMessages = messages.length,
   counts?: { error: number; warning: number; info: number },
+  checker: "w3c_remote" | "nu_local" = "w3c_remote",
 ): string {
+  const validatorLabel = checker === "nu_local" ? "The local Nu HTML Checker" : "The W3C validator";
   const errorCount = counts?.error
     ?? messages.filter((message) => getW3CMessageSeverity(message) === "error").length;
   const warningCount = counts?.warning
@@ -309,7 +311,7 @@ export function htmlValidationContent(
     return toolContent({
       title: "HTML validation",
       status: "clean",
-      outcome: `The W3C validator returned no HTML diagnostics${sourceText}.`,
+      outcome: validatorLabel + " returned no HTML diagnostics" + sourceText + ".",
       nextStep: "Keep this result as a baseline and validate again after the next markup change.",
     });
   }
@@ -318,7 +320,9 @@ export function htmlValidationContent(
   return toolContent({
     title: "HTML validation",
     status: hasActionableDiagnostics ? "attention needed" : "review suggested",
-    outcome: `The W3C validator returned ${countLabel(errorCount, "error")}, ${countLabel(warningCount, "warning")}, and ${countLabel(infoCount, "informational diagnostic")}${sourceText}.`,
+    outcome: validatorLabel + " returned " + countLabel(errorCount, "error") + ", "
+      + countLabel(warningCount, "warning") + ", and "
+      + countLabel(infoCount, "informational diagnostic") + sourceText + ".",
     actions: messages.map((message) => ({
       priority: priorityForSeverity(getW3CMessageSeverity(message)),
       message: message.message,
@@ -337,12 +341,16 @@ export function cssValidationContent(
   messages: CSSMessage[],
   totalMessages = messages.length,
   counts?: { error: number; warning?: number; compatibilityLimitation: number },
+  checker: "w3c_remote" | "stylelint_local" = "w3c_remote",
 ): string {
+  const stylelint = checker === "stylelint_local";
   if (totalMessages === 0) {
     return toolContent({
       title: "CSS validation",
-      status: "clean",
-      outcome: "The W3C validator returned no CSS errors or warnings.",
+      status: stylelint ? "no lint findings" : "clean",
+      outcome: stylelint
+        ? "Local Stylelint found no findings in the selected quality rules; W3C CSS conformance was not tested."
+        : "The W3C validator returned no CSS errors or warnings.",
       nextStep: "Validate again after the next stylesheet change.",
     });
   }
@@ -362,7 +370,10 @@ export function cssValidationContent(
   return toolContent({
     title: "CSS validation",
     status: actionableErrors > 0 ? "attention needed" : "review suggested",
-    outcome: `The W3C validator returned ${countLabel(actionableErrors, "CSS error")}, ${countLabel(warningCount, "CSS warning")}, and ${countLabel(compatibilityLimitationCount, "known validator limitation")}.`,
+    outcome: (stylelint ? "Local Stylelint found " : "The W3C validator returned ")
+      + countLabel(actionableErrors, "CSS error") + ", "
+      + countLabel(warningCount, "CSS warning") + ", and "
+      + countLabel(compatibilityLimitationCount, "known validator limitation") + ".",
     actions: messages.map((message) => ({
       priority: message.compatibility === "known-validator-limitation"
         ? 2
@@ -380,7 +391,9 @@ export function cssValidationContent(
         ? "Jigsaw currently does not recognize the standards-defined @container rule. The upstream diagnostic is preserved and marked as a known validator limitation."
         : undefined,
       totalMessages > messages.length
-        ? `Showing the first ${messages.length} of ${totalMessages} CSS diagnostics in structured output; summary counts include all returned Jigsaw diagnostics.`
+        ? "Showing the first " + messages.length + " of " + totalMessages
+          + " CSS diagnostics in structured output; summary counts include all returned "
+          + (stylelint ? "Stylelint" : "Jigsaw") + " diagnostics."
         : undefined,
     ].filter(Boolean).join(" ") || undefined,
   });

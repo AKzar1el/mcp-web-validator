@@ -7,7 +7,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { boundedMcpArray, boundedMcpIssues, boundedMcpReport } from "./mcp-bounds.js";
 import { z } from "zod";
 import { load as loadCheerio } from "cheerio";
-import { captureScreenshots, PartialScreenshotCaptureError } from "./screenshot.js";
+import { captureScreenshots, defaultScreenshotBrowserRuntime, PartialScreenshotCaptureError } from "./screenshot.js";
 import {
   reviewMediaHtml,
   emptyMediaDiagnostics,
@@ -301,6 +301,7 @@ import {
 } from "./modules/change-regression/regression-alerts.js";
 import {
   getW3CMessageSeverity,
+  type HtmlCheckerMode,
   type HtmlValidationMediaType,
   MAX_CSS_VALIDATION_BYTES,
   validateCssContent,
@@ -308,6 +309,7 @@ import {
   validateHtmlContent,
   validateHtmlContentDetailed,
 } from "./w3c-validator.js";
+import { lintCssLocally } from "./stylelint-validator.js";
 
 export const SERVER_VERSION = PACKAGE_VERSION;
 
@@ -834,6 +836,13 @@ const screenshotSchema = z.object({
   height: z.number().int(),
   outputPath: z.string(),
   incompleteAssetCount: z.number().int().nonnegative().optional(),
+  visualDiff: z.object({
+    status: z.enum(["compared", "missing_baseline", "dimension_mismatch",
+      "over_budget", "incomplete_capture", "unavailable"]),
+    changed_pixels: z.number().int().nonnegative().optional(),
+    pixels_compared: z.number().int().nonnegative().optional(),
+    changed_percent: z.number().min(0).max(100).optional(),
+  }).optional(),
 });
 
 const viewportSummaryOutputSchema = z.object({
@@ -1218,6 +1227,19 @@ const wcagReviewOutputSchema = {
     message: z.string().max(320),
   })).max(MAX_WCAG_FINDINGS),
   findings_truncated: z.boolean(),
+  axe: z.object({
+    status: z.enum(["complete", "unavailable"]),
+    engine_version: z.string().optional(),
+    violations: z.number().int().nonnegative(),
+    incomplete: z.number().int().nonnegative(),
+    rules: z.array(z.object({
+      rule: z.string().max(60),
+      impact: z.enum(["minor", "moderate", "serious", "critical", "unknown"]),
+      nodes: z.number().int().nonnegative(),
+    })).max(12),
+    rules_truncated: z.boolean(),
+    coverage_limited: z.literal(true),
+  }).optional(),
   error: z.string().optional(),
 };
 
@@ -2033,11 +2055,12 @@ export interface GenerateValidationReportOptions {
   htmlFilePath: string;
   cssFilePath?: string;
   baseUrl?: string;
+  htmlChecker?: HtmlCheckerMode;
 }
 
 /** Runs independent validation checks without discarding successful results when another check fails. */
 export async function generateValidationReport(
-  { htmlFilePath, cssFilePath, baseUrl }: GenerateValidationReportOptions,
+  { htmlFilePath, cssFilePath, baseUrl, htmlChecker = "auto" }: GenerateValidationReportOptions,
   dependencies: ValidationReportDependencies = validationReportDependencies,
 ): Promise<ValidationReport> {
   const htmlMediaType = localHtmlValidationMediaType(htmlFilePath);
@@ -2061,8 +2084,8 @@ export async function generateValidationReport(
   }
 
   const htmlValidation = dependencies.validateHtmlContentDetailed
-    ? dependencies.validateHtmlContentDetailed(html, htmlMediaType)
-    : dependencies.validateHtmlContent(html, htmlMediaType).then((messages) => {
+    ? dependencies.validateHtmlContentDetailed(html, htmlMediaType, htmlChecker)
+    : dependencies.validateHtmlContent(html, htmlMediaType, htmlChecker).then((messages) => {
         const counts = { error: 0, warning: 0, info: 0 };
         for (const message of messages) counts[getW3CMessageSeverity(message)] += 1;
         return { messages, total: messages.length, truncated: false, counts };
@@ -2161,30 +2184,35 @@ export function createServer(): McpServer {
     {
       title: "Validate local HTML",
       description:
-        "Reads a bounded local HTML or .xhtml file and sends its markup to the W3C Nu HTML Checker. .xhtml files use application/xhtml+xml parsing semantics. Use only files the user is authorized to share.",
+        "Validates local HTML/XHTML through W3C Nu, or an explicitly configured loopback Nu checker. Auto mode uses local fallback only for remote transport/transient failures; local mode keeps markup on the machine.",
       inputSchema: {
         filePath: filePathSchema.describe("Absolute or workspace-relative path to an HTML or .xhtml file."),
+        checker: z.enum(["auto", "remote", "local"]).default("auto")
+          .describe("Default auto: W3C remote, optional configured local fallback. local: never sends file markup remotely."),
       },
       outputSchema: {
         errors: z.array(w3cMessageSchema),
         totalMessages: z.number().int().nonnegative(),
         truncated: z.boolean(),
+        checker: z.enum(["w3c_remote", "nu_local"]).optional(),
         error: z.string().optional(),
       },
       annotations: externalReadOnlyAnnotations,
     },
-    async ({ filePath }) => {
+    async ({ filePath, checker }) => {
       try {
         const htmlMediaType = localHtmlValidationMediaType(filePath);
         const html = await readTextFile(filePath, HTML_MAX_BYTES, htmlMediaType);
         const validation = await validateHtmlContentDetailed(
           html,
           htmlMediaType,
+          checker,
         );
         const messages = boundedMcpArray(validation.messages);
         const truncated = validation.truncated || messages.length < validation.messages.length;
         return result(
-          { errors: messages, totalMessages: validation.total, truncated },
+          { errors: messages, totalMessages: validation.total, truncated,
+            checker: validation.checker ?? "w3c_remote" },
           htmlValidationContent(messages, undefined, validation.total, validation.counts),
         );
       } catch (cause) {
@@ -2210,17 +2238,20 @@ export function createServer(): McpServer {
         "Fetches a bounded public HTTP(S) page, then sends its markup to the W3C Nu HTML Checker. Private, reserved, credentialed, and nonstandard-port destinations are rejected.",
       inputSchema: {
         url: publicUrlSchema.describe("Public HTTP(S) URL on port 80 or 443."),
+        checker: z.enum(["auto", "remote", "local"]).default("auto")
+          .describe("Choose Nu remote, local loopback, or auto failover; URL retrieval is still public."),
       },
       outputSchema: {
         errors: z.array(w3cMessageSchema),
         totalMessages: z.number().int().nonnegative(),
         truncated: z.boolean(),
         fetchedUrl: z.string().optional(),
+        checker: z.enum(["w3c_remote", "nu_local"]).optional(),
         error: z.string().optional(),
       },
       annotations: externalReadOnlyAnnotations,
     },
-    async ({ url }) => {
+    async ({ url, checker }) => {
       try {
         const fetched = await fetchPublicText(url, {
           maxBytes: HTML_MAX_BYTES,
@@ -2241,7 +2272,7 @@ export function createServer(): McpServer {
           .toLowerCase() === "application/xhtml+xml"
           ? "application/xhtml+xml"
           : "text/html";
-        const validation = await validateHtmlContentDetailed(fetched.text, validationMediaType);
+        const validation = await validateHtmlContentDetailed(fetched.text, validationMediaType, checker);
         const messages = boundedMcpArray(validation.messages);
         const truncated = validation.truncated || messages.length < validation.messages.length;
         return result(
@@ -2250,6 +2281,7 @@ export function createServer(): McpServer {
             totalMessages: validation.total,
             truncated,
             fetchedUrl: fetched.url,
+            checker: validation.checker ?? "w3c_remote",
           },
           htmlValidationContent(messages, fetched.url, validation.total, validation.counts),
         );
@@ -2273,23 +2305,28 @@ export function createServer(): McpServer {
     {
       title: "Validate local CSS",
       description:
-        "Reads a bounded local CSS file and sends it to the W3C Jigsaw CSS Validator. Use only files the user is authorized to share.",
+        "Reads local CSS and either sends it to W3C Jigsaw (default), or performs offline Stylelint quality checks. Local lint results are advisory and cannot certify W3C CSS validity.",
       inputSchema: {
         filePath: filePathSchema.describe("Absolute or workspace-relative path to a CSS file."),
+        checker: z.enum(["w3c", "stylelint"]).default("w3c")
+          .describe("Default W3C standards service; stylelint runs bounded local quality rules without network."),
       },
       outputSchema: {
         errors: z.array(cssMessageSchema),
         warnings: z.array(cssMessageSchema).optional(),
         totalMessages: z.number().int().nonnegative(),
         truncated: z.boolean(),
+        checker: z.enum(["w3c_remote", "stylelint_local"]).optional(),
         error: z.string().optional(),
       },
       annotations: externalReadOnlyAnnotations,
     },
-    async ({ filePath }) => {
+    async ({ filePath, checker }) => {
       try {
         const css = await readTextFile(filePath, CSS_MAX_BYTES, "text/css");
-        const validation = await validateCssContentDetailed(css);
+        const validation = checker === "stylelint"
+          ? await lintCssLocally(css)
+          : await validateCssContentDetailed(css);
         const messages = boundedMcpArray(validation.messages);
         const truncated = validation.truncated || messages.length < validation.messages.length;
         return result(
@@ -2298,8 +2335,10 @@ export function createServer(): McpServer {
             warnings: messages.filter((message) => message.type.toLowerCase() === "warning"),
             totalMessages: validation.total,
             truncated,
+            checker: checker === "stylelint" ? "stylelint_local" : "w3c_remote",
           },
-          cssValidationContent(messages, validation.total, validation.counts),
+          cssValidationContent(messages, validation.total, validation.counts)
+            + (checker === "stylelint" ? "\n\nOffline lint rules only; this does not establish W3C CSS conformance." : ""),
         );
       } catch (cause) {
         const error = getErrorMessage(cause);
@@ -2595,6 +2634,8 @@ export function createServer(): McpServer {
         "Combines W3C HTML/CSS validation, local SEO/accessibility checks, JSON-LD syntax checks, and a bounded public-link check into a Markdown and structured report.",
       inputSchema: {
         htmlFilePath: filePathSchema.describe("Absolute or workspace-relative HTML or .xhtml file path."),
+        htmlChecker: z.enum(["auto", "remote", "local"]).default("auto")
+          .describe("Auto W3C remote with optional local Nu fallback; local avoids uploading markup."),
         cssFilePath: filePathSchema
           .optional()
           .describe("Optional absolute or workspace-relative CSS file path."),
@@ -2623,10 +2664,11 @@ export function createServer(): McpServer {
       },
       annotations: externalReadOnlyAnnotations,
     },
-    async ({ htmlFilePath, cssFilePath, baseUrl }) => {
+    async ({ htmlFilePath, htmlChecker, cssFilePath, baseUrl }) => {
       try {
         const reportData = await generateValidationReport({
           htmlFilePath,
+          htmlChecker,
           cssFilePath,
           baseUrl,
         });
@@ -3159,7 +3201,7 @@ export function createServer(): McpServer {
     {
       title: "Review bounded rendered-DOM keyboard and WCAG interaction evidence",
       description:
-        "Local-only inert Chromium analysis of supplied HTML: sandboxed pinned headless browser, no external resource requests, scripts disabled and stripped, DOM accessible-name heuristics, aria-hidden focus, positive tabindex, custom role focusability, up to 24 real keyboard Tab focus samples, computed focus indicator review and native summary Enter toggle. Never navigates URLs, clicks links/buttons, submits forms, stores screenshots or certifies WCAG; may provision pinned browser on first use.",
+        "Local-only inert Chromium accessibility evidence: native keyboard focus, named controls and optional axe-core automated WCAG 2.2 rule scan (includeAxe=true). Author scripts and handlers stripped, all resources blocked, only trusted axe engine executes after inert rendering. Does not certify conformance or inspect full live site.",
       inputSchema: {
         htmlContent: z.string().min(1).max(MAX_WCAG_HTML_BYTES)
           .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_WCAG_HTML_BYTES,
@@ -3171,14 +3213,16 @@ export function createServer(): McpServer {
           .describe("Optional isolated viewport height in CSS pixels, 360–1080; defaults to 720."),
         maxTabSteps: z.number().int().min(1).max(MAX_WCAG_TAB_STEPS).optional()
           .describe("Maximum real browser Tab key samples (1–24), default 24; no click, form submission or network."),
+        includeAxe: z.boolean().default(false)
+          .describe("Optional local axe-core WCAG 2.2 automated rules; CPU-intensive and not a conformance certificate. No new network access."),
       },
       outputSchema: wcagReviewOutputSchema,
       annotations: localReadOnlyAnnotations,
     },
-    async ({ htmlContent, viewportWidth, viewportHeight, maxTabSteps }) => {
+    async ({ htmlContent, viewportWidth, viewportHeight, maxTabSteps, includeAxe }) => {
       try {
         const review = await reviewWcagInteractions(htmlContent, {
-          viewportWidth, viewportHeight, maxTabSteps,
+          viewportWidth, viewportHeight, maxTabSteps, includeAxe,
         });
         return result(review, wcagInteractionsContent(review));
       } catch {
@@ -3589,7 +3633,7 @@ export function createServer(): McpServer {
     {
       title: "Capture responsive screenshots",
       description:
-        "Renders a local HTML file or HTTP(S) URL in a sandboxed local Chromium browser and writes PNG screenshots to the requested directory. Downloads the pinned headless browser on first use if it is not already cached. Existing matching files may be replaced. Completed PNG paths are included if a later viewport fails.",
+        "Renders bounded, sandboxed responsive PNGs, with optional pixelmatch comparison against an existing separate baseline directory. Only numeric change metrics leave the comparator; missing, over-budget and asset-incomplete comparisons remain inconclusive.",
       inputSchema: {
         targetPath: z
           .string()
@@ -3601,6 +3645,8 @@ export function createServer(): McpServer {
           .optional()
           .default(".mcp-validator/screenshots")
           .describe("Directory where PNG screenshots will be written."),
+        baselineDir: filePathSchema.optional()
+          .describe("Optional existing local folder with matching viewport PNG filenames; must differ from outputDir. No comparison images are saved."),
         viewports: z
           .array(
             z.object({
@@ -3639,11 +3685,25 @@ export function createServer(): McpServer {
         openWorldHint: true,
       },
     },
-    async ({ targetPath, outputDir, viewports }) => {
+    async ({ targetPath, outputDir, baselineDir, viewports }) => {
       const outputDirectory = path.resolve(outputDir);
       try {
-        const screenshots = await captureScreenshots(targetPath, outputDirectory, viewports);
+        const screenshots = await captureScreenshots(
+          targetPath, outputDirectory, viewports, defaultScreenshotBrowserRuntime, baselineDir,
+        );
         const affected = screenshots.filter((capture) => (capture.incompleteAssetCount ?? 0) > 0);
+        const inconclusive = screenshots.filter((capture) =>
+          capture.visualDiff && capture.visualDiff.status !== "compared");
+        if (inconclusive.length > 0) {
+          const error = "Visual comparison was inconclusive for " + inconclusive.length
+            + " viewport(s); inspect missing/over-budget/asset-incomplete baselines. "
+            + "PNG captures were saved but no visual pass is claimed.";
+          return result(
+            { screenshots, outputDirectory, error },
+            screenshotPartialCaptureContent(screenshots.length, outputDirectory, error),
+            true,
+          );
+        }
         if (affected.length > 0) {
           const error = `${affected.length} screenshot viewport(s) have failed or blocked visual assets; files were saved but captures may be incomplete.`;
           return result(
@@ -3654,7 +3714,10 @@ export function createServer(): McpServer {
         }
         return result(
           { screenshots, outputDirectory },
-          screenshotCaptureContent(screenshots.length, outputDirectory),
+          screenshotCaptureContent(screenshots.length, outputDirectory)
+            + (baselineDir ? "\n\nPixelmatch: " +
+              screenshots.filter((capture) => (capture.visualDiff?.changed_pixels ?? 0) > 0).length
+              + " viewport(s) changed; differences require manual review." : ""),
         );
       } catch (cause) {
         const error = getErrorMessage(cause);

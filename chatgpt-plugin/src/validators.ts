@@ -44,7 +44,9 @@ async function validateHtmlDetailedWithSignal(
 ): Promise<HtmlValidationResult> {
   // Workers do not support redirect: "error". Use "manual" and reject all
   // non-success statuses below so submitted markup is never reposted on a redirect.
-  const response = await fetch("https://html5.validator.nu/?out=json", {
+  let response: Response;
+  try {
+    response = await fetch("https://html5.validator.nu/?out=json", {
     method: "POST",
     headers: {
       "content-type": `${mediaType}; charset=utf-8`,
@@ -53,7 +55,30 @@ async function validateHtmlDetailedWithSignal(
     body: html,
     redirect: "manual",
     signal,
-  });
+    });
+  } catch (cause) {
+    if (signal.aborted || (cause instanceof Error
+      && (cause.name === "AbortError" || cause.name === "TimeoutError"))) throw cause;
+    response = await fetch("https://validator.w3.org/nu/?out=json", {
+      method: "POST",
+      headers: { "content-type": mediaType + "; charset=utf-8", "user-agent": SERVICE_USER_AGENT },
+      body: html,
+      redirect: "manual",
+      signal,
+    });
+  }
+  // One fixed alternate Nu endpoint using the SAME 15-second deadline.
+  // Do not retry malformed diagnostics, redirects or incomplete 206 results.
+  if ([429, 500, 502, 503, 504].includes(response.status) && !signal.aborted) {
+    try { await response.body?.cancel(); } catch { /* already closed */ }
+    response = await fetch("https://validator.w3.org/nu/?out=json", {
+      method: "POST",
+      headers: { "content-type": mediaType + "; charset=utf-8", "user-agent": SERVICE_USER_AGENT },
+      body: html,
+      redirect: "manual",
+      signal,
+    });
+  }
   // A partial Nu response may omit diagnostics and must not yield a clean verdict.
   if (!response.ok || response.status === 206) {
     try {

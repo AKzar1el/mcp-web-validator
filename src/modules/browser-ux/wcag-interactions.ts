@@ -1,5 +1,6 @@
 import { defaultScreenshotBrowserRuntime, type ScreenshotBrowserRuntime } from "../../screenshot.js";
 import { load } from "cheerio";
+import { reduceAxeEvidence, unavailableAxeEvidence, type AxeSummary } from "./axe-review.js";
 
 /** P1-12: bounded, browser-backed evidence from an inert, offline HTML sample. */
 export const MAX_WCAG_HTML_BYTES = 180_000;
@@ -85,6 +86,7 @@ export interface WcagInteractionReview {
   total_findings: number;
   findings: WcagFinding[];
   findings_truncated: boolean;
+  axe?: AxeSummary;
   error?: string;
 }
 
@@ -92,6 +94,7 @@ export interface WcagReviewOptions {
   viewportWidth?: number;
   viewportHeight?: number;
   maxTabSteps?: number;
+  includeAxe?: boolean;
 }
 
 function boundedViewport(value: number | undefined, fallback: number, min: number, max: number): number {
@@ -261,6 +264,8 @@ export async function reviewWcagInteractions(
   const strippedScriptCount = $("script").length;
   $("script,iframe,frame,frameset,object,embed,portal").remove();
   $('meta[http-equiv="refresh" i]').remove();
+  // axe runs as trusted local diagnostics only after author content is made inert.
+  if (options.includeAxe) $('meta[http-equiv="Content-Security-Policy" i]').remove();
   $("*").each((_, element) => {
     if (!("attribs" in element) || !element.attribs) return;
     for (const name of Object.keys(element.attribs)) {
@@ -430,13 +435,46 @@ export async function reviewWcagInteractions(
         keyboardIncomplete = true;
       }
     }
-    return analyzeWcagEvidence(snapshot, samples, {
+    const result = analyzeWcagEvidence(snapshot, samples, {
       viewportWidth: config.width, viewportHeight: config.height,
       resourcesBlocked: blocked, tabSteps,
       nativeSummariesTested: summariesTested,
       nativeSummariesToggled: summariesToggled,
       keyboardIncomplete,
     });
+    if (options.includeAxe) {
+      result.axe = unavailableAxeEvidence();
+      try {
+        const engine = await import("axe-core");
+        // Author scripts and event attributes are gone; only our pinned local
+        // axe source executes, with the deny-all network interceptor still on.
+        await page.setJavaScriptEnabled(true);
+        await page.evaluate(engine.default.source);
+        const raw = await page.evaluate(async () => {
+          const axe = (globalThis as any).axe;
+          if (!axe || typeof axe.run !== "function") throw new Error("axe unavailable");
+          const scan = await axe.run((globalThis as any).document, {
+            runOnly: { type: "tag", values: [
+              "wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa",
+            ] },
+            resultTypes: ["violations", "incomplete"],
+          });
+          return {
+            version: axe.version,
+            // Never move user DOM, selectors, URLs, names or HTML across CDP.
+            violations: scan.violations.map((v: any) => ({
+              id: v.id, impact: v.impact, nodes: v.nodes?.length ?? 0,
+            })),
+            incomplete: scan.incomplete.map(() => 0),
+          };
+        });
+        result.axe = reduceAxeEvidence(raw);
+      } catch {
+        // A missing optional package or failed automation is not a clean pass.
+        result.axe = unavailableAxeEvidence();
+      }
+    }
+    return result;
   } catch (cause) {
     pendingError = cause;
     throw cause;

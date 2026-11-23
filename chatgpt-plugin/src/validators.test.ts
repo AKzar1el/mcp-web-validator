@@ -162,6 +162,47 @@ describe("validateHtml", () => {
 });
 
 describe("Nu checker failures", () => {
+  it("retries one fixed alternate Nu endpoint after a transient HTTP 503", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
+      .mockResolvedValueOnce(Response.json({
+        messages: [{ type: "error", message: "Missing accessible name" }],
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const html = "<html><body>private-seed</body></html>";
+    const report = await validateHtmlDetailed(html);
+    expect(report.counts.error).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://html5.validator.nu/?out=json");
+    expect(fetchMock.mock.calls[1][0]).toBe("https://validator.w3.org/nu/?out=json");
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({
+      body: html, method: "POST", redirect: "manual",
+    });
+    expect(fetchMock.mock.calls[0][1].signal).toBe(fetchMock.mock.calls[1][1].signal);
+  });
+
+  it("retries one fixed alternate endpoint on a transport failure", async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(Response.json({ messages: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const report = await validateHtmlDetailed("<!doctype html><title>fixture</title>");
+    expect(report.counts.error).toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("never retries malformed Nu results or a redirect", async () => {
+    const malformed = vi.fn(async () => Response.json({}));
+    vi.stubGlobal("fetch", malformed);
+    await expect(validateHtmlDetailed("<html></html>")).rejects.toThrow("invalid messages");
+    expect(malformed).toHaveBeenCalledTimes(1);
+    const redirect = vi.fn(async () =>
+      new Response(null, { status: 302, headers: { location: "https://evil.example/nu/" } }));
+    vi.stubGlobal("fetch", redirect);
+    await expect(validateHtmlDetailed("<html></html>")).rejects.toThrow("HTTP 302");
+    expect(redirect).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects partial HTTP 206 checker responses instead of treating truncated diagnostics as clean", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ messages: [] }, { status: 206 })));
 

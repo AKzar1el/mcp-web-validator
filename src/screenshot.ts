@@ -14,6 +14,11 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPublicHttpUrl, getErrorMessage, resolveLocalFileWithinWorkspaceRoot } from "./network.js";
 import { startScreenshotTransportProxy } from "./screenshot-proxy.js";
+import {
+  compareScreenshotWithBaseline,
+  resolveVisualReferenceDirectory,
+  type VisualDiffResult,
+} from "./visual-diff.js";
 
 export interface ViewportConfig {
   name: string;
@@ -27,6 +32,7 @@ export interface ScreenshotResult {
   height: number;
   outputPath: string;
   incompleteAssetCount?: number;
+  visualDiff?: VisualDiffResult;
 }
 
 /** Carries paths already written when a later viewport cannot be captured. */
@@ -376,6 +382,7 @@ export async function captureScreenshots(
   outputDirectory: string,
   customViewports?: ViewportConfig[],
   browserRuntime: ScreenshotBrowserRuntime = defaultScreenshotBrowserRuntime,
+  baselineDirectory?: string,
 ): Promise<ScreenshotResult[]> {
   if (typeof targetPath !== "string" || targetPath.trim() === "") {
     throw new Error("targetPath must be a non-empty string");
@@ -403,6 +410,9 @@ export async function captureScreenshots(
 
   const scopedOutput = process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT !== undefined;
   const resolvedOutputDirectory = await prepareScreenshotOutputDirectory(outputDirectory);
+  const baseline = baselineDirectory === undefined
+    ? undefined
+    : await resolveVisualReferenceDirectory(baselineDirectory, resolvedOutputDirectory);
 
   const results: ScreenshotResult[] = [];
   let blockedRequestMessage: string | undefined;
@@ -546,5 +556,14 @@ export async function captureScreenshots(
     if (!captureFailed && cleanupFailed) throw cleanupError;
   }
 
-  return results;
+  if (baseline === undefined) return results;
+  // Keep the PNG decode budget to one viewport at a time on low-RAM hosts.
+  const compared: ScreenshotResult[] = [];
+  for (const capture of results) {
+    compared.push({
+      ...capture,
+      visualDiff: await compareScreenshotWithBaseline(capture, baseline),
+    });
+  }
+  return compared;
 }

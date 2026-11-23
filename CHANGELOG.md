@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+### Reliability and optional engines
+
+- Add a private loopback Nu Checker fallback for transient HTML validation failures,
+  including an explicit local-only mode that never uploads markup.
+- Introduce an offline Stylelint quality option on the existing local CSS tool.
+- Add an optional axe-core WCAG 2.2 automated rule sample to existing inert
+  keyboard checks; unavailable checks never indicate conformance.
+- Compare existing screenshot capture output with an optional PNG baseline using
+  pixelmatch; missing or incomplete evidence stays inconclusive.
+- Retry a fixed second public Nu endpoint on bounded hosted transient errors,
+  preserving the original total timeout, safety checks and partial statuses.
+- Provide capped, separately opted-in SiteOne/Unlighthouse CLI comparisons;
+  do not auto-install or start heavy crawlers, and do not increase MCP tool counts.
+
 ## [1.3.54] - 2026-11-23
 
 ### Fixed

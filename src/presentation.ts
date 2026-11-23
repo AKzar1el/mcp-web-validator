@@ -585,7 +585,7 @@ export function contentQualityContent(analysis: PageContentQualityAnalysis): str
       ? `${countLabel(analysis.total_findings, "potential content-quality finding")} across ${analysis.eligible_pages}/${analysis.sampled_pages} sampled pages.`
       : `No checked content-quality signals were found across ${analysis.eligible_pages}/${analysis.sampled_pages} sampled pages. This is not a usefulness or site-wide verdict.`,
     actions: analysis.findings.map((finding) => ({
-      priority: finding.severity === "warning" ? 1 : 2,
+      priority: (finding.severity === "warning" ? 1 : 2) as ActionPriority,
       location: finding.example_urls.join(", "),
       message: `${finding.code}: ${finding.message}`,
     })),
@@ -704,20 +704,30 @@ export function metadataConsistencyContent(analysis: MetadataReview): string {
 
 export function wcagInteractionsContent(review: WcagInteractionReview): string {
   const warnings = review.findings.filter((finding) => finding.severity === "warning").length;
+  const axeInfo = review.axe ? " Automated axe-core: " + review.axe.status
+    + (review.axe.status === "complete"
+      ? ", " + review.axe.violations + " failed rule groups, " + review.axe.incomplete + " incomplete review groups."
+      : "; checks unavailable, no passing result claimed.") : "";
+  const axeActions = review.axe?.status === "complete"
+    ? review.axe.rules.map((item) => ({
+      priority: (item.impact === "serious" || item.impact === "critical" ? 1 : 2) as ActionPriority,
+      location: "axe-core rule",
+      message: item.rule + ": " + item.nodes + " affected elements (" + item.impact + ").",
+    })) : [];
   return toolContent({
     title: "Browser keyboard and WCAG evidence",
-    status: warnings ? "attention needed" : "partial",
+    status: warnings || (review.axe?.violations ?? 0) > 0 ? "attention needed" : "partial",
     outcome: `In script-disabled, offline Chromium, ${review.controls_inspected} of ${review.controls_seen} ` +
       `controls were sampled at ${review.viewport_width} × ${review.viewport_height}; ` +
       `${review.tab_steps} Tab key steps covered ${review.unique_tab_targets} distinct targets. ` +
       `${review.visible_controls_without_name} accessible-name review leads, ` +
       `${review.focus_indicator_review_leads} possible focus-indicator gaps, ` +
-      `${review.native_summaries_toggled}/${review.native_summaries_tested} native summaries toggled with Enter.`,
-    actions: review.findings.map((finding) => ({
-      priority: finding.severity === "warning" ? 1 : 2,
+      `${review.native_summaries_toggled}/${review.native_summaries_tested} native summaries toggled with Enter.` + axeInfo,
+    actions: [...review.findings.map((finding) => ({
+      priority: (finding.severity === "warning" ? 1 : 2) as ActionPriority,
       location: `Rendered control ${finding.control} · ${finding.evidence}`,
       message: `${finding.code}: ${finding.message}`,
-    })),
+    })), ...axeActions],
     nextStep: "Recheck the flagged focus/name signals in a fully styled, authorized website with JavaScript enabled and a screen reader. This inert sample is not an accessibility audit or WCAG 2.2 compliance determination.",
   });
 }

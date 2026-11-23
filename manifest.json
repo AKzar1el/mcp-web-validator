@@ -30,7 +30,7 @@
   "tools": [
     {
       "name": "html.local",
-      "description": "Reads a bounded local HTML or .xhtml file and sends its markup to the W3C Nu HTML Checker. .xhtml files use application/xhtml+xml parsing semantics. Use only files the user is authorized to share."
+      "description": "Validates local HTML/XHTML through W3C Nu, or an explicitly configured loopback Nu checker. Auto mode uses local fallback only for remote transport/transient failures; local mode keeps markup on the machine."
     },
     {
       "name": "html.url",
@@ -38,7 +38,7 @@
     },
     {
       "name": "css.local",
-      "description": "Reads a bounded local CSS file and sends it to the W3C Jigsaw CSS Validator. Use only files the user is authorized to share."
+      "description": "Reads local CSS and either sends it to W3C Jigsaw (default), or performs offline Stylelint quality checks. Local lint results are advisory and cannot certify W3C CSS validity."
     },
     {
       "name": "seo.metadata",
@@ -114,7 +114,7 @@
     },
     {
       "name": "browser.wcag",
-      "description": "Local-only inert Chromium analysis of supplied HTML: sandboxed pinned headless browser, no external resource requests, scripts disabled and stripped, DOM accessible-name heuristics, aria-hidden focus, positive tabindex, custom role focusability, up to 24 real keyboard Tab focus samples, computed focus indicator review and native summary Enter toggle. Never navigates URLs, clicks links/buttons, submits forms, stores screenshots or certifies WCAG; may provision pinned browser on first use."
+      "description": "Local-only inert Chromium accessibility evidence: native keyboard focus, named controls and optional axe-core automated WCAG 2.2 rule scan (includeAxe=true). Author scripts and handlers stripped, all resources blocked, only trusted axe engine executes after inert rendering. Does not certify conformance or inspect full live site."
     },
     {
       "name": "media.diagnostics",
@@ -158,7 +158,7 @@
     },
     {
       "name": "screenshot.capture",
-      "description": "Renders a local HTML file or HTTP(S) URL in a sandboxed local Chromium browser and writes PNG screenshots to the requested directory. Downloads the pinned headless browser on first use if it is not already cached. Existing matching files may be replaced. Completed PNG paths are included if a later viewport fails."
+      "description": "Renders bounded, sandboxed responsive PNGs, with optional pixelmatch comparison against an existing separate baseline directory. Only numeric change metrics leave the comparator; missing, over-budget and asset-incomplete comparisons remain inconclusive."
     },
     {
       "name": "content.provenance",

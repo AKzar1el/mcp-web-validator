@@ -61,11 +61,16 @@
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "@types/pngjs": "6.0.5",
     "puppeteer": "25.17.0",
     "tsx": "^4.23.0",
     "typescript": "^7.0.2"
   },
   "optionalDependencies": {
-    "lighthouse": "13.6.0"
+    "axe-core": "4.14.1",
+    "lighthouse": "13.6.0",
+    "pixelmatch": "8.0.0",
+    "pngjs": "7.0.0",
+    "stylelint": "17.16.0"
   }
 }

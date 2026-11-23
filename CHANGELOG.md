@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.54] - 2026-11-23
+
+### Fixed
+
+- Correct local CSS decoding when an HTTP response declares an unsupported charset: honor a leading `@charset`, BOM, or UTF-8 fallback instead of failing early.
+- Exclude inert `script`, `style`, and `template` text from V09 mobile/desktop main-content word comparisons while preserving the intended visible-content checks.
+- Count JSON-LD scripts with media-type parameters in isolated V09 viewport parity checks without executing their contents.
+- Respect the first `Cache-Control: max-age` directive even when malformed; handle quoted values without accepting misleading later duplicates.
+- Classify HTTP content types precisely and include the complete SEO issue response envelope in bounded MCP output sizes.
+
+### Validation
+
+- Add reproducible five-phase functionality, correctness, boundary, and reliability tests; preserve evidence limits and avoid unsupported productivity claims.
+
 ### Hosted app
 
 - Accept public webpage URLs in `validate_html` (including legacy URL-as-HTML input) via the existing safe page fetch, avoiding misleading Nu diagnostics for URL text.

@@ -82,6 +82,39 @@ test("V07: JavaScript-only added main text, title, links and JSON-LD produce rev
   assert(!JSON.stringify(r).includes("/rendered-only"));
 });
 
+test("V07: JSON-LD MIME parameters do not fabricate rendered removal", () => {
+  const payload = '{"@type":"Article","private":"DO_NOT_REPORT"}';
+  const raw = html(meta + '<script type="application/ld+json">' + payload + '</script>', content);
+  for (const type of [
+    "application/ld+json; charset=UTF-8",
+    ' APPLICATION/LD+JSON ; profile="https://example.org/schema" ',
+  ]) {
+    const rendered = html(meta + '<script type="' + type + '">' + payload + '</script>', content);
+    const r = inspect(raw, rendered);
+    assert.equal(r.raw.jsonld_blocks, 1);
+    assert.equal(r.rendered.jsonld_blocks, 1, type);
+    assert.equal(r.rendered.inline_script_tags, 0, type);
+    assert(!codes(r).includes("jsonld_removed"), type);
+    assert(!JSON.stringify(r).includes("DO_NOT_REPORT"));
+  }
+});
+
+test("V07: parameterized application/json is not classified as an inline script", () => {
+  for (const type of [
+    "application/json;charset=utf-8",
+    " APPLICATION/JSON ; profile=test ",
+  ]) {
+    const page = html(meta + '<script type="' + type + '">{"private":"DO_NOT_REPORT"}</script>', content);
+    const r = inspect(page, page);
+    assert.equal(r.raw.jsonld_blocks, 0, type);
+    assert.equal(r.raw.inline_script_tags, 0, type);
+    assert.equal(r.rendered.inline_script_tags, 0, type);
+    assert(!JSON.stringify(r).includes("DO_NOT_REPORT"));
+  }
+  const nearMiss = html(meta + '<script type="application/ld+jsonish; charset=utf-8">{}</script>', content);
+  assert.equal(inspect(nearMiss, nearMiss).raw.jsonld_blocks, 0);
+});
+
 test("V07: query-bearing URLs and external links are counted but never exposed or merged", () => {
   const raw = html("<title>Safe</title>", "<main>"
     + '<a href="/articles?secret=private-key">Query</a>'

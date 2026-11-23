@@ -4,6 +4,7 @@ import {
   readResponseText,
 } from "./network.js";
 import { PACKAGE_VERSION } from "./version.js";
+import { withEphemeralNuChecker } from "./nu-ephemeral.js";
 
 export interface W3CMessage {
   type: string;
@@ -199,6 +200,28 @@ async function validateHtmlAtLocalNu(
   };
 }
 
+function configuredLocalNuJava(): string | undefined {
+  const java = process.env.MCP_WEB_VALIDATOR_NU_JAVA_PATH?.trim();
+  return java || undefined;
+}
+
+async function validateHtmlAtAvailableLocalNu(
+  html: string,
+  mediaType: HtmlValidationMediaType,
+  httpUrl?: string,
+  javaExecutable?: string,
+): Promise<HtmlValidationResult> {
+  if (httpUrl) return validateHtmlAtLocalNu(html, mediaType, httpUrl);
+  if (javaExecutable) {
+    return withEphemeralNuChecker(javaExecutable,
+      (url) => validateHtmlAtLocalNu(html, mediaType, url));
+  }
+  throw new Error(
+    "Local Nu requires MCP_WEB_VALIDATOR_NU_JAVA_PATH (on-demand Java 17+ runtime) " +
+    "or MCP_WEB_VALIDATOR_NU_LOCAL_URL (loopback service)",
+  );
+}
+
 /** Validates HTML/XHTML using the W3C Nu HTML Checker API and retains bounded-output metadata. */
 export async function validateHtmlContentDetailed(
   htmlContent: string,
@@ -210,9 +233,9 @@ export async function validateHtmlContentDetailed(
   try {
     assertContentSize(htmlContent, MAX_HTML_BYTES, "HTML content");
     const local = checker !== "remote" ? configuredLocalNuUrl() : undefined;
+    const localJava = checker !== "remote" ? configuredLocalNuJava() : undefined;
     if (checker === "local") {
-      if (!local) throw new Error("Local Nu validation requires MCP_WEB_VALIDATOR_NU_LOCAL_URL");
-      return await validateHtmlAtLocalNu(htmlContent, mediaType, local);
+      return await validateHtmlAtAvailableLocalNu(htmlContent, mediaType, local, localJava);
     }
     try {
     const response = await fetch(url, {
@@ -234,8 +257,8 @@ export async function validateHtmlContentDetailed(
 
     return normalizeNuHtmlPayload(await readResponseText(response, MAX_VALIDATOR_RESPONSE_BYTES));
     } catch (cause) {
-      if (checker !== "auto" || !local || !isTransientNuFailure(cause)) throw cause;
-      return await validateHtmlAtLocalNu(htmlContent, mediaType, local);
+      if (checker !== "auto" || !(local || localJava) || !isTransientNuFailure(cause)) throw cause;
+      return await validateHtmlAtAvailableLocalNu(htmlContent, mediaType, local, localJava);
     }
   } catch (error: unknown) {
     throw new Error(`HTML validation failed: ${getErrorMessage(error)}`);

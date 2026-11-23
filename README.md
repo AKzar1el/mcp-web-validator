@@ -40,7 +40,7 @@ https://web-validator-mcp.digestseo.com/mcp
 
 - Optional reliability upgrades for local Nu Checker fallback, offline
   Stylelint CSS checks, axe-core accessibility diagnostics, pixelmatch
-  screenshot comparisons, and capped independent SiteOne/Unlighthouse
+  screenshot comparisons, and capped independently verified SiteOne
   experiments are documented in
   [Reliability engines](docs/reliability-engines-20261123.md).
   They extend existing tool inputs without adding MCP tools. External

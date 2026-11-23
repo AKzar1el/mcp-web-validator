@@ -65,6 +65,21 @@ test("P1-08 uses aria-labelledby and image alt but never script or hidden text a
  assert.equal(r.generic_anchor_links,0);
  assert.equal(r.missing_anchor_labels,0);
 });
+test("P1-08 directly referenced hidden label text names an otherwise empty anchor", () => {
+ const markup=html("Guide","Guide",
+  '<a href="/products/chairs" aria-labelledby="hidden-name"></a>'
+  +'<span id="hidden-name" hidden>Ergonomic chairs</span>'
+  +'<a href="/pricing" aria-labelledby="aria-hidden-name"></a>'
+  +'<span id="aria-hidden-name" aria-hidden="true">Pricing options</span>'
+  +'<div hidden><a href="/pricing">Invisible link</a></div>');
+ const main=page(source,markup);
+ assert.deepEqual(main.links.map((link)=>[link.label,link.accessible]),[
+  ["Ergonomic chairs",true],["Pricing options",true],
+ ]);
+ const r=reviewInternalLinks([main,target,page(pricing,html("Pricing options","Plans",""))]);
+ assert.equal(r.internal_links_observed,2);
+ assert.equal(r.missing_anchor_labels,0);
+});
 test("P1-08 repeated descriptive anchor to distinct targets is only a review signal", () => {
  const main=page(source,html("Guide","Guide",
   '<a href="/products/chairs">Product features</a><a href="/pricing">Product features</a>'

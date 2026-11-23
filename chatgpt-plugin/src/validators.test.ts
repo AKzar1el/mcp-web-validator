@@ -425,7 +425,7 @@ describe("bounded audits", () => {
   });
 
   it("reports malformed hosted page language subtags consistently with local validation", () => {
-    for (const lang of ["en--US", "en-", "en-US_Latn", "en-abcdefghi", "en-ü"]) {
+    for (const lang of ["en--US", "en-", "en-US_Latn", "en-abcdefghi", "en-ü", "en-x", "en-a", "en-a-b", "en-a-foo-x"]) {
       const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`).issues;
       expect(issues.find((issue) => issue.code === "accessibility.page_language.malformed_subtag"), lang).toEqual({
         code: "accessibility.page_language.malformed_subtag",
@@ -435,7 +435,7 @@ describe("bounded audits", () => {
       });
     }
 
-    for (const lang of ["en-US", "sl-SI", "zh-Hant-TW", "de-1996", "x-example", "i-klingon"]) {
+    for (const lang of ["en-US", "sl-SI", "zh-Hant-TW", "de-1996", "x-example", "i-klingon", "en-x-a", "en-a-foo", "en-u-ca-gregory", "en-a-foo-x-b"]) {
       const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`).issues;
       expect(issues.some((issue) => issue.code === "accessibility.page_language.malformed_subtag"), lang).toBe(false);
     }

@@ -344,7 +344,7 @@ test("well-formed private-use BCP 47 page languages are advisory, not invalid", 
 });
 
 test("page languages reject malformed BCP 47 subtag structure", () => {
-  for (const lang of ["en--US", "en-", "en-US_Latn", "en-abcdefghi", "en-\u00fc"]) {
+  for (const lang of ["en--US", "en-", "en-US_Latn", "en-abcdefghi", "en-\u00fc", "en-x", "en-a", "en-a-b", "en-a-foo-x"]) {
     const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`);
     assert.equal(
       issues.find((issue) => issue.code === "accessibility.page_language.malformed_subtag")?.severity,
@@ -352,7 +352,7 @@ test("page languages reject malformed BCP 47 subtag structure", () => {
       lang,
     );
   }
-  for (const lang of ["en-US", "sl-SI", "zh-Hant-TW", "de-1996", "x-example", "i-klingon"]) {
+  for (const lang of ["en-US", "sl-SI", "zh-Hant-TW", "de-1996", "x-example", "i-klingon", "en-x-a", "en-a-foo", "en-u-ca-gregory", "en-a-foo-x-b"]) {
     const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`);
     assert.equal(issues.some((issue) => issue.code === "accessibility.page_language.malformed_subtag"), false, lang);
   }

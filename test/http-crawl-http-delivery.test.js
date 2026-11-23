@@ -72,6 +72,19 @@ test("V01: quoted max-age seconds are accepted without accepting malformed argum
   }
 });
 
+test("V01: invalid first max-age is not replaced by a later duplicate", () => {
+  for (const [directive, expected] of [
+    ["max-age=invalid, max-age=60", undefined],
+    ['max-age="invalid", max-age="60"', undefined],
+    ["max-age, max-age=30", undefined],
+    ["max-age=10, max-age=30", 10],
+    ['custom="max-age=999, no-cache", max-age=60', 60],
+  ]) {
+    const review = analyzeHttpDelivery([obs(200, { headers: { "cache-control": directive } })]);
+    assert.equal(review.hops[0].cache_max_age_seconds, expected, "Cache-Control: " + directive);
+  }
+});
+
 test("V01: field-qualified no-cache/private and ordinary max-age are recognized", () => {
   const r = analyzeHttpDelivery([obs(200, { headers: {
     "Cache-Control": 'private="Set-Cookie", no-cache="Authorization", max-age=60',

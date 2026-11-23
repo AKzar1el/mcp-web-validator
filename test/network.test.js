@@ -933,6 +933,65 @@ test("public CSS without an HTTP charset honors its leading @charset declaration
   }
 });
 
+test("public CSS ignores an unsupported HTTP charset and honors its leading @charset", async () => {
+  const originalFetch = globalThis.fetch;
+  const body = Buffer.concat([
+    Buffer.from('@charset "windows-1252"; .label::before { content: "Caf', "ascii"),
+    Buffer.from([0xe9]),
+    Buffer.from('"; }', "ascii"),
+  ]);
+  globalThis.fetch = async () => new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/css; charset=definitely-not-an-encoding" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/unsupported-http-charset.css", {
+      acceptedContentTypes: ["text/css"],
+    });
+    assert.equal(result.text, '@charset "windows-1252"; .label::before { content: "Caf\u00e9"; }');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("public CSS with an unsupported HTTP charset defaults to UTF-8 without @charset", async () => {
+  const originalFetch = globalThis.fetch;
+  const css = '.label::before { content: "Caf\u00e9"; }';
+  globalThis.fetch = async () => new Response(Buffer.from(css, "utf8"), {
+    status: 200,
+    headers: { "content-type": "text/css; charset=unknown-encoding" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/unsupported-default.css", {
+      acceptedContentTypes: ["text/css"],
+    });
+    assert.equal(result.text, css);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("public CSS BOM overrides an unsupported HTTP charset", async () => {
+  const originalFetch = globalThis.fetch;
+  const css = '.label::before { content: "Caf\u00e9"; }';
+  const body = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(css, "utf16le")]);
+  globalThis.fetch = async () => new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/css; charset=unknown-encoding" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/unsupported-bom.css", {
+      acceptedContentTypes: ["text/css"],
+    });
+    assert.equal(result.text, css);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("public CSS HTTP charset overrides conflicting @charset without a BOM", async () => {
   const originalFetch = globalThis.fetch;
   const css = '@charset "windows-1252"; .label::before { content: "Caf\u00e9"; }';

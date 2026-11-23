@@ -242,7 +242,10 @@ function parseCanonicalHeaders(values: string[]): {
       if (++checkedItems > MAX_LINK_ITEMS_PER_RESOURCE) { limited = true; break; }
       const match = /^<([^>]*)>\s*(.*)$/u.exec(item);
       // Parse Link parameters, without treating commas inside quotes as separators.
-      const params = splitHeader(match?.[2] ?? item, ";").slice(match ? 1 : 0);
+      const suffix = match?.[2] ?? item;
+      // After a Link URI, only semicolon-delimited parameters are valid.
+      if (match && suffix && !suffix.startsWith(";")) continue;
+      const params = splitHeader(suffix, ";").slice(match ? 1 : 0);
       let relation: string | undefined;
       for (const param of params) {
         const parsed = /^rel\s*=\s*(?:"((?:\\.|[^"])*)"|([^\s;]+))/iu.exec(param);

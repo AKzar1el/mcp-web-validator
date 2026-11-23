@@ -61,8 +61,12 @@ export async function compareScreenshotWithBaseline(
     const scoped = await resolveLocalFileWithinWorkspaceRoot(reference);
     const [baselineBytes, freshBytes] = await Promise.all([
       boundedPng(scoped),
-      boundedPng(capture.outputPath),
+      boundedPng(capture.outputPath).catch((cause: unknown) => {
+        if ((cause as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw cause;
+      }),
     ]);
+    if (!freshBytes) return { status: "unavailable" };
     const original = pngDimensions(baselineBytes);
     const actual = pngDimensions(freshBytes);
     if (original.width !== actual.width || original.height !== actual.height

@@ -271,6 +271,27 @@ test("stdio MCP exposes valid contracts and structured offline results", { timeo
     assert.equal(dom.structuredContent?.browser_executed, false);
     assert(!JSON.stringify(dom).includes("private-v07"));
     assert(!JSON.stringify(dom).includes("new-v07"));
+    assert(textContent(dom).includes("1 source links removed, 1 rendered links added"));
+
+    const sampledLinks = Array.from({ length: 201 }, (_, i) => i);
+    const linkPage = (ids) => "<html><body>" + ids.map(
+      (id) => '<a href="/private-sample-' + id + '">x</a>').join("") + "</body></html>";
+    const sampledDom = await client.callTool({
+      name: "browser.dom_diff",
+      arguments: {
+        mode: "compare_snapshots", page_url: "https://example.com/",
+        raw_html: linkPage(sampledLinks),
+        rendered_html: linkPage(sampledLinks.slice(1).concat(sampledLinks[0])),
+      },
+    });
+    assert.equal(sampledDom.isError, undefined);
+    assert.equal(sampledDom.structuredContent?.raw?.sample_truncated, true);
+    assert.equal(sampledDom.structuredContent?.link_targets_removed, 1);
+    assert(textContent(sampledDom).includes("1 source link targets absent from rendered sample"));
+    assert(textContent(sampledDom).includes("1 rendered link targets absent from source sample"));
+    assert(!textContent(sampledDom).includes("source links removed"));
+    assert(!sampledDom.structuredContent?.findings?.some((f) => f.code === "links_removed"));
+    assert(!JSON.stringify(sampledDom).includes("private-sample-"));
 
     const graphTool = tools.find((tool) => tool.name === "site.link_graph");
     assert.equal(graphTool?.annotations?.readOnlyHint, true);

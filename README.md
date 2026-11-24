@@ -37,6 +37,16 @@ Hosted endpoint:
 https://web-validator-mcp.digestseo.com/mcp
 ```
 
+### Gemini CLI
+
+Install the extension from the public repository:
+
+```bash
+gemini extensions install https://github.com/AKzar1el/mcp-web-validator
+```
+
+The extension launches the version-pinned local npm MCP server over stdio. It requires Node.js 22.12 or newer. It does not enable hooks or mark the MCP server trusted. The local server can read selected files, contact external W3C validators and authorized public link targets, and write explicitly requested screenshots or local history; see the surface table and Privacy documentation above. Use only authorized inputs, and do not send confidential markup to external validators.
+
 ## Requirements
 
 - Optional reliability upgrades for local Nu Checker fallback, offline

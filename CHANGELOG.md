@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.57] - 2026-11-23
+
+### Validated optional engines
+
+- Verify official native Nu Checker on Windows with HTML/XHTML, including
+  on-demand loopback-only execution that does not leave a Java daemon.
+- Verify bounded native SiteOne 2.5.1 audits against two owned sites, check
+  actual report coverage, and isolate crawler process configuration.
+- Remove the unverified Unlighthouse CLI adapter, which required Node 24 and
+  duplicated existing browser-performance functionality.
+- Reject incomplete/empty optional scan results rather than reporting success.
+
 ## [1.3.56] - 2026-11-23
 
 ### Fixed

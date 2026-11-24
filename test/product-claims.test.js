@@ -91,6 +91,22 @@ test("P1-04 validates local screenshots only when its local tool is registered",
   assert(missing.findings.some(({ code }) => code === "product.local_screenshot_unverified"));
 });
 
+test("P1-04 treats local screenshot denials as unavailable, not promises", () => {
+  for (const statement of [
+    "Local screenshots are not available.",
+    "Local screenshot capture is unsupported.",
+    "Local screen captures are not supported.",
+    "The local MCP cannot create screenshots.",
+  ]) {
+    const observed = observeProductClaims(`<html><main><p>${statement}</p></main></html>`);
+    assert.equal(observed.localScreenshotClaim, false, statement);
+    const result = compareProductClaims(observed, [{ name: "html.local" }], "local");
+    assert.equal(result.contradicted_claims, 0, statement);
+  }
+  const positive = observeProductClaims("<html><main><p>Local screenshots are available.</p></main></html>");
+  assert.equal(positive.localScreenshotClaim, true);
+});
+
 test("P1-04 identifies hosted screenshot conflicts without suggesting screenshots can be taken", () => {
   const observed = observeProductClaims(main(names));
   const result = compareProductClaims(observed,

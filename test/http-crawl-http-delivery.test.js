@@ -175,6 +175,15 @@ test("V01: loops, 304, bounds and unsafe URLs are handled conservatively", () =>
   }
 });
 
+test("V01: a single redirect to its own URL is already an observable loop", () => {
+  const r = analyzeHttpDelivery([obs(301, { headers: { location: "/" } })]);
+  assert.equal(r.hops[0].redirect_target, "same_origin");
+  assert.equal(r.redirects_observed, 0);
+  assert.equal(r.redirect_chain_complete, false);
+  assert(codes(r).includes("redirect_incomplete"));
+  assert(codes(r).includes("redirect_loop"));
+});
+
 test("V01: approved bounded headers only and no credential echo", () => {
   for (const headers of [
     { "cf-ray": "x\r\nnew: value" },

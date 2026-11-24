@@ -1,10 +1,11 @@
 {
   "name": "mcp-web-validator",
-  "version": "1.3.56",
+  "version": "1.3.57",
   "description": "W3C HTML/CSS Validator and Technical SEO Audit MCP Server for AI coding assistants.",
   "main": "dist/index.js",
   "bin": {
-    "mcp-web-validator": "dist/index.js"
+    "mcp-web-validator": "dist/index.js",
+    "mcp-web-validator-siteone": "scripts/deep-audit-optional.mjs"
   },
   "repository": {
     "type": "git",
@@ -29,6 +30,8 @@
   },
   "files": [
     "dist",
+    "scripts/deep-audit-optional.mjs",
+    "docs/reliability-engines-20261123.md",
     "README.md",
     "SECURITY.md",
     "CHANGELOG.md",

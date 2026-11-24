@@ -65,6 +65,21 @@ test("P1-08 uses aria-labelledby and image alt but never script or hidden text a
  assert.equal(r.generic_anchor_links,0);
  assert.equal(r.missing_anchor_labels,0);
 });
+test("P1-08 directly referenced hidden label text names an otherwise empty anchor", () => {
+ const markup=html("Guide","Guide",
+  '<a href="/products/chairs" aria-labelledby="hidden-name"></a>'
+  +'<span id="hidden-name" hidden>Ergonomic chairs</span>'
+  +'<a href="/pricing" aria-labelledby="aria-hidden-name"></a>'
+  +'<span id="aria-hidden-name" aria-hidden="true">Pricing options</span>'
+  +'<div hidden><a href="/pricing">Invisible link</a></div>');
+ const main=page(source,markup);
+ assert.deepEqual(main.links.map((link)=>[link.label,link.accessible]),[
+  ["Ergonomic chairs",true],["Pricing options",true],
+ ]);
+ const r=reviewInternalLinks([main,target,page(pricing,html("Pricing options","Plans",""))]);
+ assert.equal(r.internal_links_observed,2);
+ assert.equal(r.missing_anchor_labels,0);
+});
 test("P1-08 repeated descriptive anchor to distinct targets is only a review signal", () => {
  const main=page(source,html("Guide","Guide",
   '<a href="/products/chairs">Product features</a><a href="/pricing">Product features</a>'
@@ -165,6 +180,38 @@ test("P1-08 exactly same sampled pathname must be linked; trailing slash is not 
  const r=reviewInternalLinks([one,target]);
  assert.equal(r.linked_sample_targets,1);
  assert.equal(r.unmatched_internal_links,1);
+});
+test("P1-08 relative main links honor a valid HTML document base", () => {
+ const main = page(source, '<html><head><title>Guide</title>'
+  +'<base href="/products/"></head><body><main><h1>Guide</h1>'
+  +'<a href="chairs">Office chairs</a></main></body></html>');
+ const report = reviewInternalLinks([main,target]);
+ assert.equal(report.linked_sample_targets,1);
+ assert.equal(report.unmatched_internal_links,0);
+ assert.equal(report.external_links_observed,0);
+
+ const external = page(source, '<html><head><title>Guide</title>'
+  +'<base href="https://elsewhere.test/guides/"></head><body><main>'
+  +'<a href="resource">External resource</a></main></body></html>');
+ const differentOrigin = reviewInternalLinks([external,target]);
+ assert.equal(differentOrigin.external_links_observed,1);
+ assert.equal(differentOrigin.internal_links_observed,0);
+ assert.equal(differentOrigin.unmatched_internal_links,0);
+
+ const fragment = page(source, '<html><head><title>Guide</title>'
+  +'<base href="/products/chairs"></head><body><main>'
+  +'<a href="#details">Chair details</a></main></body></html>');
+ const fragmentReport = reviewInternalLinks([fragment,target]);
+ assert.equal(fragmentReport.fragment_only_links,0);
+ assert.equal(fragmentReport.linked_sample_targets,1);
+
+ const samePageBase = page(source, '<html><head><base href="/guides/ergonomics"></head>'
+  +'<body><main><a href="#section">On-page section</a></main></body></html>');
+ assert.equal(reviewInternalLinks([samePageBase]).fragment_only_links,1);
+
+ const unsafeBase = page(source, '<html><head><base href="javascript:bad()"></head>'
+  +'<body><main><a href="/products/chairs">Office chairs</a></main></body></html>');
+ assert.equal(reviewInternalLinks([unsafeBase,target]).linked_sample_targets,1);
 });
 test("P1-08 many aria-labelledby anchors use referenced visible names without excessive DOM rescans",()=>{
  const decoys=Array.from({length:1000},(_,i)=>'<span id="unrelated-'+i+'">Noise</span>').join("");

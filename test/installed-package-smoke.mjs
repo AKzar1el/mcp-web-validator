@@ -47,6 +47,24 @@ try {
     consumer, "node_modules", "mcp-web-validator", "dist", "index.js",
   );
   assert.ok((await stat(installedEntry)).isFile());
+  const installedPackage = path.join(consumer, "node_modules", "mcp-web-validator");
+  const optionalSiteone = path.join(installedPackage, "scripts", "deep-audit-optional.mjs");
+  const optionalDocs = path.join(installedPackage, "docs", "reliability-engines-20261123.md");
+  assert.ok((await stat(optionalSiteone)).isFile(), "SiteOne CLI must ship inside npm");
+  assert.ok((await stat(optionalDocs)).isFile(), "SiteOne/Nu installation docs must ship inside npm");
+  phase = "packaged_siteone_dry_run";
+  const { stdout: planText } = await execFileAsync(process.execPath, [
+    optionalSiteone,
+    "--engine=siteone",
+    "--url=https://digestseo.com/",
+    "--allow-host=digestseo.com",
+    "--max-pages=2",
+  ], { cwd: scratch, timeout: 20_000, maxBuffer: 12_000 });
+  const offlinePlan = JSON.parse(planText);
+  assert.equal(offlinePlan.status, "dry_run");
+  assert.equal(offlinePlan.maxPages, 2);
+  assert.equal(offlinePlan.directory.startsWith(path.join(scratch, ".mcp-validator")), true);
+  assert.equal(offlinePlan.args.some((arg) => arg.startsWith("--config-file=")), false);
 
   const transport = new StdioClientTransport({
     command: process.execPath,

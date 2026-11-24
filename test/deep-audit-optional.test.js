@@ -12,20 +12,15 @@ test("SiteOne integration is capped, single-threaded and free of LLM keys", () =
   assert.ok(result.args.includes("--max-reqs-per-sec=1"));
   assert.ok(result.args.includes("--memory-limit=384M"));
   assert.ok(result.args.includes("--max-visited-urls=4"));
-  assert.ok(result.args.some((arg) => arg.startsWith("--config-file=")
-    && arg.endsWith("isolated-siteone.conf")));
+  assert.equal(result.args.some((arg) => arg.startsWith("--config-file=")), false);
   assert.equal(result.args.some((item) => /api-key|token|--ignore-robots/.test(item)), false);
 });
 
-test("Unlighthouse integration uses only explicit paths and single mobile sample", () => {
-  const result = buildDeepAuditPlan({
+test("unverified Unlighthouse is removed instead of pretending to run", () => {
+  assert.throws(() => buildDeepAuditPlan({
     engine: "unlighthouse", url: "https://digestseo.com/",
     allowHost: "digestseo.com", maxPages: "2", paths: "/,/guide",
-  });
-  assert.equal(result.executable, "unlighthouse-ci");
-  assert.ok(result.args.includes("--samples"));
-  assert.equal(result.args[result.args.indexOf("--samples") + 1], "1");
-  assert.equal(result.args[result.args.indexOf("--urls") + 1], "/,/guide");
+  }), /removed/);
 });
 
 test("deep audit rejects private origin, credentials, mixed hosts and unsafe paths", () => {
@@ -43,8 +38,8 @@ test("deep audit rejects private origin, credentials, mixed hosts and unsafe pat
     url: "https://digestseo.com/", maxPages: 100 }), /1..4/);
   for (const paths of ["/,/../../secret", "//evil.com", "/%2e%2e/", "/,/guide?token=1"]) {
     assert.throws(() => buildDeepAuditPlan({
-      engine: "unlighthouse", url: "https://digestseo.com/",
+      engine: "siteone", url: "https://digestseo.com/",
       allowHost: "digestseo.com", maxPages: 4, paths,
-    }));
+    }), /does not accept explicit paths/);
   }
 });

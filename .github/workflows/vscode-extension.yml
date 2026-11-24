@@ -1,0 +1,170 @@
+name: VS Code packaged extension verification
+
+on:
+  pull_request:
+    paths:
+      - 'extensions/vscode/**'
+      - '.github/workflows/vscode-extension.yml'
+      - 'src/modules/content-schema/**'
+      - 'icon.png'
+      - 'LICENSE'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vscode-extension-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installed-host:
+    name: Installed VSIX / VS Code ${{ matrix.editor }}
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        editor: ['1.100.0', '1.138.0']
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: extensions/vscode
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22.22.2'
+          package-manager-cache: false
+      - name: Build exact locked VSIX
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git rev-parse HEAD
+          npm ci --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE) { throw 'npm ci failed' }
+          npm run package
+          if ($LASTEXITCODE) { throw 'VSIX build failed' }
+      - name: Verify packaged payload, install and run real extension host
+        env:
+          EDITOR_VERSION: ${{ matrix.editor }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $manifest = Get-Content package.json -Raw | ConvertFrom-Json
+          $expectedId = "$($manifest.publisher).$($manifest.name)"
+          $vsix = @(Get-ChildItem -LiteralPath . -File -Filter '*.vsix')
+          if ($vsix.Count -ne 1) { throw 'Expected exactly one VSIX' }
+          $vsix = $vsix[0]
+          Write-Output "VSIX_SHA256 $((Get-FileHash -LiteralPath $vsix.FullName -Algorithm SHA256).Hash.ToLowerInvariant())"
+          $run = Join-Path $env:RUNNER_TEMP "editor-host-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$env:EDITOR_VERSION"
+          if (Test-Path -LiteralPath $run) { throw 'Test directory already exists' }
+          New-Item -ItemType Directory -Path $run | Out-Null
+          $download = "https://update.code.visualstudio.com/$env:EDITOR_VERSION/win32-x64-archive/stable"
+          $meta = Invoke-RestMethod -Uri "https://update.code.visualstudio.com/api/versions/$env:EDITOR_VERSION/win32-x64-archive/stable" -TimeoutSec 45
+          if ($meta.productVersion -ne $env:EDITOR_VERSION -or $meta.sha256hash -notmatch '^[a-fA-F0-9]{64}$') { throw 'Unexpected editor release metadata' }
+          $archive = Join-Path $run 'editor.zip'
+          Invoke-WebRequest -Uri $download -OutFile $archive -TimeoutSec 180
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $meta.sha256hash) { throw 'Editor checksum mismatch' }
+          $editor = Join-Path $run 'editor'
+          Expand-Archive -LiteralPath $archive -DestinationPath $editor
+          $exe = Join-Path $editor 'Code.exe'
+          $cli = Join-Path $editor 'bin/code.cmd'
+          if (!(Test-Path -LiteralPath $exe) -or !(Test-Path -LiteralPath $cli)) { throw 'Editor executable missing' }
+          $user = Join-Path $run 'user'
+          $extensions = Join-Path $run 'extensions'
+          New-Item -ItemType Directory -Path (Join-Path $user 'User'),$extensions | Out-Null
+          @{
+            'update.mode' = 'none'
+            'extensions.autoCheckUpdates' = $false
+            'extensions.autoUpdate' = $false
+            'telemetry.telemetryLevel' = 'off'
+            'chat.disableAIFeatures' = $true
+            'workbench.startupEditor' = 'none'
+          } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $user 'User/settings.json') -Encoding utf8
+          & $cli --user-data-dir $user --extensions-dir $extensions --install-extension $vsix.FullName
+          if ($LASTEXITCODE) { throw 'VSIX installation failed' }
+          $list = @(& $cli --user-data-dir $user --extensions-dir $extensions --list-extensions --show-versions)
+          if ($LASTEXITCODE -or $list -notcontains "$expectedId@$($manifest.version)") { throw 'Installed identity mismatch' }
+          $installed = @(Get-ChildItem -LiteralPath $extensions -Directory | Where-Object {
+            $p = Join-Path $_.FullName 'package.json'
+            if (Test-Path -LiteralPath $p) {
+              $m = Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
+              "$($m.publisher).$($m.name)" -eq $expectedId -and $m.version -eq $manifest.version
+            }
+          })
+          if ($installed.Count -ne 1) { throw 'Installed directory not unique' }
+          $installed = $installed[0].FullName
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($vsix.FullName)
+          try {
+            foreach ($entry in $zip.Entries | Sort-Object FullName) {
+              if ($entry.FullName.EndsWith('/')) { continue }
+              $stream = $entry.Open()
+              try { $digest = (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash.ToLowerInvariant() }
+              finally { $stream.Dispose() }
+              Write-Output "VSIX_ENTRY $digest $($entry.FullName)"
+              if ($entry.FullName.StartsWith('extension/dist/')) {
+                $relative = $entry.FullName.Substring('extension/'.Length)
+                if ($relative -notmatch '^dist/[a-zA-Z0-9_.-]+$') { throw 'Unexpected runtime entry' }
+                $target = Join-Path $installed $relative
+                if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $digest) { throw 'Installed payload mismatch' }
+              }
+            }
+          } finally { $zip.Dispose() }
+          $env:EDITOR_TEST_RECEIPT = Join-Path $run 'receipt.json'
+          $env:EDITOR_TEST_EXTENSION_PATH = $installed
+          $env:EDITOR_TEST_CASE = (Resolve-Path 'test/host.cjs').Path
+          $env:EDITOR_TEST_ID = $expectedId
+          $env:EDITOR_TEST_VERSION = $env:EDITOR_VERSION
+          $env:EDITOR_TEST_EXE = $exe
+          $env:EDITOR_TEST_USER = $user
+          $env:EDITOR_TEST_EXTENSIONS = $extensions
+          $env:EDITOR_TEST_HARNESS = Join-Path $run 'host.cjs'
+          @'
+          const assert = require("node:assert/strict");
+          const fs = require("node:fs");
+          const vscode = require("vscode");
+          exports.run = async () => {
+            const ext = vscode.extensions.getExtension(process.env.EDITOR_TEST_ID);
+            assert.ok(ext, "installed extension discovered");
+            assert.equal(fs.realpathSync(ext.extensionPath), fs.realpathSync(process.env.EDITOR_TEST_EXTENSION_PATH));
+            assert.equal(vscode.version, process.env.EDITOR_TEST_VERSION);
+            await require(process.env.EDITOR_TEST_CASE).run();
+          };
+          '@ | Set-Content -LiteralPath $env:EDITOR_TEST_HARNESS -Encoding utf8
+          $launcher = Join-Path $run 'launch.cjs'
+          @'
+          const fs = require("node:fs");
+          const { spawn } = require("node:child_process");
+          const env = { ...process.env };
+          delete env.ELECTRON_RUN_AS_NODE;
+          delete env.VSCODE_IPC_HOOK_CLI;
+          const child = spawn(env.EDITOR_TEST_EXE, [
+            "--new-window", "--skip-welcome", "--skip-release-notes", "--disable-telemetry",
+            "--user-data-dir=" + env.EDITOR_TEST_USER,
+            "--extensions-dir=" + env.EDITOR_TEST_EXTENSIONS,
+            "--extensionDevelopmentPath=" + env.EDITOR_TEST_EXTENSION_PATH,
+            "--extensionTestsPath=" + env.EDITOR_TEST_HARNESS
+          ], { env, stdio: "inherit", windowsHide: true });
+          let timedOut = false;
+          const timer = setTimeout(() => { timedOut = true; child.kill(); }, 240000);
+          child.on("error", error => { clearTimeout(timer); console.error(error); process.exitCode = 1; });
+          child.on("close", code => {
+            clearTimeout(timer);
+            if (timedOut || code !== 0 || !fs.existsSync(env.EDITOR_TEST_RECEIPT)) {
+              console.error("Installed extension test failed", { code, timedOut });
+              process.exitCode = 1;
+              return;
+            }
+            const receipt = JSON.parse(fs.readFileSync(env.EDITOR_TEST_RECEIPT, "utf8"));
+            if (receipt.status !== "passed" || receipt.extension !== env.EDITOR_TEST_ID || receipt.version !== env.EDITOR_TEST_VERSION) {
+              console.error("Invalid host receipt");
+              process.exitCode = 1;
+              return;
+            }
+            console.log("INSTALLED_HOST_RECEIPT " + JSON.stringify(receipt));
+          });
+          '@ | Set-Content -LiteralPath $launcher -Encoding utf8
+          node $launcher
+          if ($LASTEXITCODE) { throw 'Installed host verification failed' }

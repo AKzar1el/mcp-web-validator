@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   analyzeRawRendered, emptyRawRenderedReview,
-  MAX_RENDER_HTML_BYTES, MAX_RENDER_FINDINGS,
+  MAX_RENDER_HTML_BYTES, MAX_RENDER_FINDINGS, MAX_RENDER_LINKS, MAX_RENDER_WORDS,
 } from "../dist/modules/browser-ux/raw-rendered-diff.js";
 import {
   renderInlineHtml, reviewPublicInlineDom,
@@ -127,6 +127,73 @@ test("V07: query-bearing URLs and external links are counted but never exposed o
   assert.equal(r.link_targets_removed, 0);
   assert(!JSON.stringify(r).includes("private-key"));
   assert(!JSON.stringify(r).includes("outside.example.net"));
+});
+
+test("V07: link sample caps distinguish exact coverage from unproven removal", () => {
+  const links = Array.from({ length: MAX_RENDER_LINKS + 1 }, (_, i) => i);
+  const page = (ids) => html("", "<main>" + ids.map(
+    (id) => '<a href="/private-link-' + id + '">x</a>').join("") + "</main>");
+  const exact = page(links.slice(0, MAX_RENDER_LINKS));
+  assert.equal(inspect(exact, exact).raw.sample_truncated, false);
+  const full = page(links);
+  const rotated = page(links.slice(1).concat(links[0]));
+  const report = inspect(full, rotated);
+  assert.equal(report.raw.sample_truncated, true);
+  assert.equal(report.rendered.sample_truncated, true);
+  assert.equal(report.link_targets_removed, 1);
+  assert.equal(report.link_targets_added, 1);
+  assert(codes(report).includes("snapshot_coverage_limited"));
+  assert(!codes(report).includes("links_removed"));
+  assert(!codes(report).includes("links_added"));
+  assert(!JSON.stringify(report).includes("private-link-"));
+});
+
+test("V07: link findings require complete evidence on the side claiming absence", () => {
+  const many = html("", "<main>" + Array.from({ length: MAX_RENDER_LINKS + 1 },
+    (_, i) => '<a href="/link-' + i + '">x</a>').join("") + "</main>");
+  const few = html("", '<main><a href="/distinct">x</a></main>');
+  const dropped = inspect(many, few);
+  assert(codes(dropped).includes("links_removed"));
+  assert(!codes(dropped).includes("links_added"));
+  const added = inspect(few, many);
+  assert(!codes(added).includes("links_removed"));
+  assert(codes(added).includes("links_added"));
+  const unsafe = html('<base href="https://outside.example/">', '<main><a href="relative">x</a></main>');
+  const limited = inspect(few, unsafe);
+  assert(limited.rendered.sample_truncated);
+  assert(!codes(limited).includes("links_removed"));
+});
+
+test("V07: eligible word cap marks truncated samples and avoids false content changes", () => {
+  const words = Array.from({ length: MAX_RENDER_WORDS + 20 }, (_, i) => "word" + i);
+  const page = (tokens, href = "/same") => html("", "<main>" + tokens.join(" ")
+    + '<a href="' + href + '">x</a></main>');
+  const exact = page(words.slice(0, MAX_RENDER_WORDS));
+  assert.equal(inspect(exact, exact).raw.sample_truncated, false);
+  const over = page(words.slice(0, MAX_RENDER_WORDS + 1));
+  const boundary = inspect(over, over);
+  assert.equal(boundary.raw.main_words, MAX_RENDER_WORDS);
+  assert.equal(boundary.raw.sample_truncated, true);
+  const report = inspect(page(words), page(words.slice(20).concat(words.slice(0, 20)), "/new"));
+  assert.equal(report.main_words_removed, 20);
+  assert.equal(report.main_words_added, 20);
+  assert(codes(report).includes("snapshot_coverage_limited"));
+  assert(!codes(report).includes("main_text_changed"));
+  assert(codes(report).includes("links_removed"));
+  assert(codes(report).includes("links_added"));
+  assert(!JSON.stringify(report).includes("word10019"));
+  assert(codes(inspect(page(words), page(["short", "text"]))).includes("main_text_dropped"));
+  assert(codes(inspect(page(["short", "text"]), page(words))).includes("main_text_added"));
+});
+
+test("V07: incomplete links do not suppress proven complete-text changes", () => {
+  const links = Array.from({ length: MAX_RENDER_LINKS + 1 },
+    (_, i) => '<a href="/link-' + i + '">x</a>').join("");
+  const words = Array.from({ length: 40 }, (_, i) => "old" + i).join(" ");
+  const r = inspect(html("", "<main>" + words + links + "</main>"),
+    html("", "<main>short text" + links + "</main>"));
+  assert(codes(r).includes("snapshot_coverage_limited"));
+  assert(codes(r).includes("main_text_dropped"));
 });
 
 test("V07: invalid, oversized and hostile inputs are rejected before browser launch", async () => {

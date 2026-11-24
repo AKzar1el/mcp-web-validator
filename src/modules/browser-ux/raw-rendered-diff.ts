@@ -102,7 +102,7 @@ const hasRel = (raw: string | undefined, token: string): boolean =>
 const textWords = (raw: string): string[] =>
   (raw.normalize("NFKC").toLocaleLowerCase("en").match(/[\p{L}\p{N}]+/gu) ?? [])
     .filter((word) => word.length >= 2 && word.length <= 60)
-    .slice(0, MAX_RENDER_WORDS);
+    .slice(0, MAX_RENDER_WORDS + 1);
 
 function inspect(html: string, sourceUrl: string) {
   const $ = load(html);
@@ -138,11 +138,14 @@ function inspect(html: string, sourceUrl: string) {
   const main = $("main,[role='main'],article").first();
   const root = main.length ? main.clone() : $("body").first().clone();
   root.find("script,style,noscript,template,svg,nav,header,footer,aside").remove();
-  const words = textWords(root.text());
+  const mainText = root.text();
+  const sampledWords = textWords(mainText);
+  const wordsTruncated = sampledWords.length > MAX_RENDER_WORDS || mainText.length > 100_000;
+  const words = sampledWords.slice(0, MAX_RENDER_WORDS);
   const links = new Set<string>();
   const external = new Set<string>();
   let queryLinks = 0;
-  let truncated = false;
+  let linksTruncated = false;
   const baseHref = head.find("base[href]").first().attr("href");
   let base = sourceUrl;
   let unsafeBase = false;
@@ -155,12 +158,12 @@ function inspect(html: string, sourceUrl: string) {
     } catch { unsafeBase = true; }
   }
   const anchors = $("body a[href]").toArray();
-  if (anchors.length > MAX_RENDER_LINKS) truncated = true;
+  if (anchors.length > MAX_RENDER_LINKS) linksTruncated = true;
   for (const el of anchors.slice(0, MAX_RENDER_LINKS)) {
     const raw = ($(el).attr("href") ?? "").trim();
     if (!raw || raw.length > 1024 || raw.startsWith("#")) continue;
     if (unsafeBase && !/^[a-z][a-z0-9+.-]*:/iu.test(raw) && !raw.startsWith("//")) {
-      truncated = true;
+      linksTruncated = true;
       continue;
     }
     try {
@@ -197,17 +200,17 @@ function inspect(html: string, sourceUrl: string) {
     inline_script_tags: scripts.filter((el) =>
       !$(el).attr("src") && !["application/ld+json", "application/json"].includes(
         scriptMediaType(el))).length,
-    sample_truncated: truncated || root.text().length > 100_000,
+    sample_truncated: linksTruncated || wordsTruncated,
   };
   return { snapshot, title, firstH1: $("body h1").first().text().trim().slice(0, 600),
     canonicalState, canonicalSet: normalizedCanonicals,
-    links, words: new Set(words) };
+    links, words: new Set(words), linksTruncated, wordsTruncated };
 }
 const limitations = [
   "This tool compares supplied source and rendered HTML snapshots; it does not verify Googlebot, Google Web Rendering Service, indexing, search results or historical production behavior.",
   "Browser inline-script mode executes only local inline JavaScript in fresh, network-denied Chromium; external modules, frameworks, APIs, fonts, images and stylesheets do not load.",
   "Static DOM comparisons do not prove visual visibility, interactivity, hydration success, accessibility, semantic equivalence or actual loaded resource availability.",
-  "All URL paths, titles, headings, text and script/console contents are omitted from output. Links with queries are excluded; only capped same-origin path-only links are compared.",
+  "All URL paths, titles, headings, text and script/console contents are omitted from output. Links with queries are excluded; only capped same-origin path-only links are compared. Numeric deltas describe samples when coverage is incomplete.",
 ];
 export function emptyRawRenderedReview(
   scope: RenderScope = "caller_supplied_rendered_snapshot",
@@ -284,21 +287,23 @@ export function analyzeRawRendered(input: RawRenderedInput,
     "warning", "A source H1 heading was absent after rendering.");
   else if (report.raw.h1_count === 0 && report.rendered.h1_count > 0) add("h1_added",
     "info", "The rendered DOM introduces an H1 absent in source HTML.");
-  if (report.raw.main_words >= 20 &&
+  // Absence requires complete coverage on the side where evidence is missing.
+  // A capped count on the other side remains a conservative lower bound.
+  if (!rendered.wordsTruncated && report.raw.main_words >= 20 &&
     report.rendered.main_words < Math.floor(report.raw.main_words * 0.65)) {
     add("main_text_dropped", "warning",
       "Rendered main content has substantially fewer words than the supplied source.");
-  } else if (report.rendered.main_words >= 20 &&
+  } else if (!raw.wordsTruncated && report.rendered.main_words >= 20 &&
     report.raw.main_words < Math.floor(report.rendered.main_words * 0.65)) {
     add("main_text_added", "info",
       "Main textual content is predominantly rendered rather than available in source.");
-  } else if (report.main_words_removed > 15 && report.raw.main_words >= 20) {
+  } else if (!rendered.wordsTruncated && report.main_words_removed > 15 && report.raw.main_words >= 20) {
     add("main_text_changed", "info",
       "Some distinct source text tokens were absent in the rendered sample.");
   }
-  if (report.link_targets_removed) add("links_removed", "warning",
+  if (!rendered.linksTruncated && report.link_targets_removed) add("links_removed", "warning",
     "One or more source same-origin links are absent in the rendered DOM.");
-  if (report.link_targets_added) add("links_added", "info",
+  if (!raw.linksTruncated && report.link_targets_added) add("links_added", "info",
     "One or more same-origin links appear only in the rendered DOM.");
   if (!report.raw.noindex_declared && report.rendered.noindex_declared) add("noindex_added",
     "warning", "The rendered head declares noindex absent in source; verify indexing intentions.");
@@ -316,8 +321,10 @@ export function analyzeRawRendered(input: RawRenderedInput,
     "info", "Chromium attempted one or more external resource requests, all blocked.");
   if (report.browser_executed && report.script_errors_observed) add("script_errors_observed",
     "info", "One or more JavaScript runtime errors occurred; error text was discarded.");
-  if (report.raw.sample_truncated || report.rendered.sample_truncated) add("snapshot_coverage_limited",
-    "info", "Link or text sampling reached a fixed cap; some DOM evidence was not compared.");
+  if (report.raw.sample_truncated || report.rendered.sample_truncated) {
+    add("snapshot_coverage_limited", "info",
+      "Link or text coverage is incomplete; absence findings require complete coverage on the relevant side.");
+  }
   records.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "warning" ? -1 : 1)
     || a.code.localeCompare(b.code));
   report.total_findings = records.length;

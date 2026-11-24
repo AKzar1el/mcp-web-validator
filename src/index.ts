@@ -3179,11 +3179,15 @@ export function createServer(): McpServer {
               page_url: page_url!, raw_html: raw_html!, rendered_html: rendered_html!,
             })
             : await renderInlineHtml(raw_html!, page_url!);
+        const sampled = review.raw.sample_truncated || review.rendered.sample_truncated;
         return result(review,
           "V07 source/render comparison: "
           + review.raw.main_words + " source and " + review.rendered.main_words
-          + " rendered main-text words; " + review.link_targets_removed + " source links removed, "
-          + review.link_targets_added + " rendered links added, "
+          + (sampled ? " rendered main-text words (bounded sample); " : " rendered main-text words; ")
+          + review.link_targets_removed
+          + (sampled ? " source link targets absent from rendered sample, " : " source links removed, ")
+          + review.link_targets_added
+          + (sampled ? " rendered link targets absent from source sample, " : " rendered links added, ")
           + (review.title_changed ? "title changed; " : "title unchanged; ")
           + (review.canonical_changed ? "canonical declarations changed; " : "")
           + (review.noindex_changed ? "noindex declarations changed; " : "")

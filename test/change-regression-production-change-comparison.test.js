@@ -168,6 +168,18 @@ test("V10: a changed canonical URL is flagged without echoing the target", async
   assert(!JSON.stringify(report).includes("private-secret-target"));
 });
 
+test("V10: the word-token cap suppresses exact deltas even below the character cap", async () => {
+  const words = Array.from({ length: 10_001 }, (_, i) => "w" + i).join(" ");
+  const big = page(words);
+  const report = await analyzeProductionChange(pair(big, big));
+  assert.equal(report.status, "partial");
+  assert.equal(report.baseline.sample_truncated, true);
+  assert.equal(report.current.sample_truncated, true);
+  assert.equal(report.main_words_added, null);
+  assert.equal(report.main_words_removed, null);
+  assert(codes(report).includes("extraction_limited"));
+});
+
 test("V10: HTML scripts are parsed as inert text, never executed", async () => {
   delete globalThis.__v10_script_must_not_run;
   const injected = page("normal", `<script>globalThis.__v10_script_must_not_run = true</script>`);

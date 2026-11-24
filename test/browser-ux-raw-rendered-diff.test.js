@@ -61,6 +61,49 @@ test("V07: dropped source title/heading/content/links/canonical are distinct war
   assert(!JSON.stringify(r).includes("/different"));
 });
 
+test("V07: changing the document base changes relative canonical identity", () => {
+  const page = (base) => html('<base href="' + base + '"><link rel="canonical" href="article">', content);
+  const r = inspect(page("/private-first/"), page("/private-second/"));
+  assert.equal(r.raw.canonicals, "different");
+  assert.equal(r.rendered.canonicals, "different");
+  assert.equal(r.canonical_changed, true);
+  assert(codes(r).includes("canonical_changed"));
+  assert(!JSON.stringify(r).includes("private-first"));
+  assert(!JSON.stringify(r).includes("private-second"));
+  assert.equal(inspect(page("/private-first/"), page("/private-first/")).canonical_changed, false);
+});
+
+test("V07: first safe document base determines canonical self identity", () => {
+  const raw = html('<base href="/"><base href="/ignored/">'
+    + '<link rel="canonical" href="articles/story">', content);
+  const rendered = html('<link rel="canonical" href="https://example.com/articles/story">', content);
+  const r = inspect(raw, rendered, { page_url: site + "articles/story" });
+  assert.equal(r.raw.canonicals, "self");
+  assert.equal(r.rendered.canonicals, "self");
+  assert.equal(r.canonical_changed, false);
+});
+
+test("V07: cross-origin bases resolve canonicals without exposing targets", () => {
+  const raw = html('<base href="https://outside.example/private/">'
+    + '<link rel="canonical" href="story">', content);
+  const rendered = html('<link rel="canonical" href="https://outside.example/private/story">', content);
+  const r = inspect(raw, rendered);
+  assert.equal(r.raw.canonicals, "different");
+  assert.equal(r.canonical_changed, false);
+  assert(!JSON.stringify(r).includes("outside.example"));
+});
+
+test("V07: unsafe document bases cannot fabricate resolved relative canonicals", () => {
+  const base = '<base href="https://user:PRIVATE_PASSWORD@example.com/">';
+  const raw = html(base + '<link rel="canonical" href="/">', content);
+  const r = inspect(raw, raw);
+  assert.equal(r.raw.canonicals, "ambiguous");
+  assert.equal(r.canonical_changed, false);
+  assert(!JSON.stringify(r).includes("PRIVATE_PASSWORD"));
+  const absolute = html(base + '<link rel="canonical" href="https://example.com/">', content);
+  assert.equal(inspect(absolute, absolute).raw.canonicals, "self");
+});
+
 test("V07: JavaScript-only added main text, title, links and JSON-LD produce review leads", () => {
   const raw = html("", "<main><div id='app'></div></main>");
   const rendered = html('<title>Dynamic</title><meta name="description" content="Dynamic">'

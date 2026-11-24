@@ -181,6 +181,8 @@ function inspect(html: string, sourceUrl: string) {
     } catch { /* No graph edge for unsafe or invalid URLs. */ }
   }
   const scripts = $("script").toArray();
+  const scriptMediaType = (el: (typeof scripts)[number]) =>
+    (($(el).attr("type") ?? "").split(";", 1)[0] ?? "").trim().toLowerCase();
   const snapshot: RenderSnapshot = {
     title_present: Boolean(title), title_characters: title.length,
     description_present: Boolean(description), description_characters: description.length,
@@ -189,12 +191,12 @@ function inspect(html: string, sourceUrl: string) {
     external_link_targets: external.size,
     canonicals: canonicalState, noindex_declared: metaNoindex,
     jsonld_blocks: scripts.filter((el) =>
-      ($(el).attr("type") ?? "").trim().toLowerCase() === "application/ld+json").length,
+      scriptMediaType(el) === "application/ld+json").length,
     external_script_tags: scripts.filter((el) =>
       Boolean($(el).attr("src"))).length,
     inline_script_tags: scripts.filter((el) =>
       !$(el).attr("src") && !["application/ld+json", "application/json"].includes(
-        ($(el).attr("type") ?? "").trim().toLowerCase())).length,
+        scriptMediaType(el))).length,
     sample_truncated: truncated || root.text().length > 100_000,
   };
   return { snapshot, title, firstH1: $("body h1").first().text().trim().slice(0, 600),

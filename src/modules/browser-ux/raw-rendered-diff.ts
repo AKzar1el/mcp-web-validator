@@ -115,6 +115,12 @@ function inspect(html: string, sourceUrl: string) {
     return ["robots", "googlebot"].includes(name) &&
       noindexPattern.test($(el).attr("content") ?? "");
   });
+  const baseHref = head.find("base[href]").first().attr("href");
+  let canonicalBase: string | undefined = sourceUrl;
+  if (baseHref !== undefined) {
+    try { canonicalBase = boundedUrl(new URL(baseHref, sourceUrl).href); }
+    catch { canonicalBase = undefined; }
+  }
   const canonicals = head.find("link[rel][href]").toArray().filter((el) =>
     hasRel($(el).attr("rel"), "canonical"));
   const normalizedCanonicals = new Set<string>();
@@ -122,8 +128,14 @@ function inspect(html: string, sourceUrl: string) {
   for (const el of canonicals) {
     const href = $(el).attr("href");
     if (!href) { ambiguousCanonical = true; continue; }
+    // An excluded document base makes relative identities uncertain, but
+    // does not affect a fully qualified HTTP(S) canonical declaration.
+    if (!canonicalBase && !/^https?:\/\//iu.test(href.trim())) {
+      ambiguousCanonical = true;
+      continue;
+    }
     try {
-      const url = new URL(href, sourceUrl);
+      const url = new URL(href, canonicalBase);
       url.hash = "";
       const safe = boundedUrl(url.href);
       if (safe) normalizedCanonicals.add(safe);
@@ -146,17 +158,10 @@ function inspect(html: string, sourceUrl: string) {
   const external = new Set<string>();
   let queryLinks = 0;
   let linksTruncated = false;
-  const baseHref = head.find("base[href]").first().attr("href");
-  let base = sourceUrl;
-  let unsafeBase = false;
-  if (baseHref !== undefined) {
-    try {
-      const candidate = new URL(baseHref, sourceUrl);
-      const safe = boundedUrl(candidate.href);
-      if (safe && candidate.origin === new URL(sourceUrl).origin) base = safe;
-      else unsafeBase = true;
-    } catch { unsafeBase = true; }
-  }
+  // Link comparison remains restricted to the source origin, even when a
+  // safe cross-origin base can resolve canonical identity for comparison.
+  const unsafeBase = !canonicalBase || new URL(canonicalBase).origin !== new URL(sourceUrl).origin;
+  const base = unsafeBase ? sourceUrl : canonicalBase!;
   const anchors = $("body a[href]").toArray();
   if (anchors.length > MAX_RENDER_LINKS) linksTruncated = true;
   for (const el of anchors.slice(0, MAX_RENDER_LINKS)) {

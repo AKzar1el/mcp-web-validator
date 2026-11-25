@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   cssValidationContent,
+  httpDeliveryContent,
+  browserResourceContent,
+  sitemapInventoryContent,
+  crawlerAccessContent,
+  redirectCanonicalContent,
+  availabilityReviewContent,
   failureContent,
   htmlValidationContent,
   linkCheckContent,
@@ -12,6 +18,12 @@ import {
   seoAuditContent,
 } from "../dist/presentation.js";
 import { createValidationReport } from "../dist/report.js";
+import { emptyDeliveryReview } from "../dist/modules/http-crawl/http-delivery.js";
+import { emptyResourceFailureReview } from "../dist/modules/browser-ux/resource-failures.js";
+import { emptySitemapInventoryReview } from "../dist/modules/http-crawl/sitemap-inventory.js";
+import { emptyCrawlerAccessReview } from "../dist/modules/http-crawl/crawler-access.js";
+import { emptyRedirectCanonicalReview } from "../dist/modules/http-crawl/redirect-canonical-chains.js";
+import { emptyAvailabilityReview } from "../dist/modules/http-crawl/availability-observations.js";
 
 const hostileProse =
   '**bold** <img src="https://evil.test/pixel"> [link](https://evil.test) ![pixel](https://evil.test/pixel) `code` \\path';
@@ -96,6 +108,63 @@ test("all action-based narrations use the shared escaping boundary", () => {
   for (const output of [html, seo, links]) {
     assertProseIsEscaped(output);
   }
+});
+
+test("incident reports prioritize next actions and escape all untrusted finding text", () => {
+  const delivery = {
+    ...emptyDeliveryReview(), hops_observed: 1, errors_observed: 1,
+    findings: [{hop: 1, severity: "warning",code: "cloudflare_challenge",message: hostileProse}],
+  };
+  const resources = {
+    ...emptyResourceFailureReview(), requests_recorded: 2, http_4xx: 1,
+    critical_resource_failures: 1,
+    findings: [{severity: "warning",code: "script_http_error",count: 1,message: hostileProse}],
+  };
+  const sitemaps = {
+    ...emptySitemapInventoryReview(),documents_observed: 1,known_indexability_conflicts: 1,
+    findings: [{document: 1,entry: 2,severity: "warning",code: "noindex_conflict",message: hostileProse}],
+  };
+  const crawler = {
+    ...emptyCrawlerAccessReview(), rows_checked: 1,crawler_disallowed_rows: 1,
+    findings: [{page: 1,profile: "googlebot-smartphone",severity: "warning",
+      code: "crawl_disallowed",message: hostileProse}],
+  };
+  const redirects = {
+    ...emptyRedirectCanonicalReview(),hops_observed: 2,nonindexable_destination: true,
+    findings: [{hop: 2,severity: "warning",code: "redirect_destination_noindex",message: hostileProse}],
+  };
+  const availability = {
+    ...emptyAvailabilityReview(), observations_count: 3, observed_http_5xx: 1,
+    findings: [{severity: "warning",code: "server_failures",message: hostileProse}],
+  };
+  for(const rendered of [
+    httpDeliveryContent(delivery),
+    browserResourceContent(resources),
+    sitemapInventoryContent(sitemaps),
+    crawlerAccessContent(crawler),
+    redirectCanonicalContent(redirects),
+    availabilityReviewContent(availability),
+  ]){
+    assert.match(rendered,/\*\*Fix first\*\*/);
+    assert.match(rendered,/\*\*Next step:\*\*/);
+    assertProseIsEscaped(rendered);
+    assert(rendered.length<3_000);
+  }
+});
+
+test("clean delivery and policy-only resource samples do not invent site defects", () => {
+  const delivery = httpDeliveryContent({
+    ...emptyDeliveryReview(),hops_observed: 1,redirect_chain_complete: true,
+  });
+  assert.match(delivery,/review suggested/);
+  assert.doesNotMatch(delivery,/\*\*Fix first\*\*/);
+  const resources = browserResourceContent({
+    ...emptyResourceFailureReview(),requests_recorded: 1,tool_blocked_requests: 1,
+    findings: [{severity: "info",code: "tool_blocked_resources",count: 1,
+      message: "The validator intentionally blocked a third-party request."}],
+  });
+  assert.doesNotMatch(resources,/\*\*Fix first\*\*/);
+  assert.match(resources,/not website failures|not confirmed site defects/i);
 });
 
 test("HTML narration promotes Nu info+warning diagnostics as warnings", () => {
@@ -186,6 +255,36 @@ test("CSS narration presents Jigsaw warnings as review items instead of errors",
   assert.match(output, /\*\*Review\*\*/);
   assert.doesNotMatch(output, /\*\*Fix first\*\*/);
   assert.doesNotMatch(output, /\*\*Error\*\*/);
+});
+
+test("offline Stylelint narration never attributes results to the W3C validator", () => {
+  const problems = cssValidationContent([
+    { type: "error", line: 1,
+      message: "Local Stylelint: color-no-invalid-hex requires review" },
+  ], 1, { error: 1, warning: 0, compatibilityLimitation: 0 }, "stylelint_local");
+  assert.match(problems, /Local Stylelint found 1 CSS error/);
+  assert.doesNotMatch(problems, /W3C validator returned|Jigsaw/);
+
+  const clean = cssValidationContent([], 0, {
+    error: 0, warning: 0, compatibilityLimitation: 0,
+  }, "stylelint_local");
+  assert.match(clean, /no lint findings/);
+  assert.match(clean, /W3C CSS conformance was not tested/);
+  assert.doesNotMatch(clean, /W3C validator returned/);
+});
+
+test("local Nu Checker narration correctly attributes local-only diagnostics", () => {
+  const failures = htmlValidationContent([
+    { type: "error", message: "Missing title", lastLine: 1 },
+  ], undefined, 1, { error: 1, warning: 0, info: 0 }, "nu_local");
+  assert.match(failures, /The local Nu HTML Checker returned 1 error/);
+  assert.doesNotMatch(failures, /The W3C validator/);
+
+  const clean = htmlValidationContent([], undefined, 0, {
+    error: 0, warning: 0, info: 0,
+  }, "nu_local");
+  assert.match(clean, /The local Nu HTML Checker returned no HTML diagnostics/);
+  assert.doesNotMatch(clean, /The W3C validator/);
 });
 
 test("report narration separates known CSS limitations from trusted CSS errors", () => {

@@ -24,6 +24,23 @@ import {
   type FetchedPublicHtml,
 } from "./network";
 import { validateHtmlDetailed, type ValidationMessage } from "./validators";
+import { buildSiteIndexabilityGraph, extractPageIndexabilitySignals, type PageIndexabilitySignals, type SiteIndexabilityGraph } from "./indexability-graph";
+import {
+  analyzeSameLanguageDuplicates,
+  observeMainContent,
+  type MainContentObservation,
+  type SameLanguageDuplicateAnalysis,
+} from "./modules/content-schema/same-language-duplicates";
+import {
+  analyzePageContentQuality,
+  type PageContentQualityAnalysis,
+} from "./modules/content-schema/empty-boilerplate-content";
+import {
+  analyzeMultilingualClusters,
+  observeMultilingualPage,
+  type MultilingualPageObservation,
+  type MultilingualClusterAnalysis,
+} from "./modules/site-architecture/multilingual-clusters";
 
 export type SitePageStatus = "passed" | "needs_attention" | "partial" | "failed" | "skipped";
 export type HtmlValidationStatus = "completed" | "timeout" | "unavailable" | "not_run";
@@ -55,6 +72,7 @@ export interface SiteAuditPageSummary {
   health_score?: number;
   failure_code?: string;
   top_findings: SiteAuditFinding[];
+  indexability?: PageIndexabilitySignals;
 }
 
 export interface SiteAuditIssueGroup {
@@ -94,7 +112,18 @@ export interface PublicSiteAuditResult {
   pages: SiteAuditPageSummary[];
   issue_groups: SiteAuditIssueGroup[];
   issue_groups_truncated: boolean;
+  indexability_graph: SiteIndexabilityGraph;
+  content_duplicates: SameLanguageDuplicateAnalysis;
+  content_quality: PageContentQualityAnalysis;
+  multilingual_clusters: MultilingualClusterAnalysis;
 }
+
+type AuditedPage = SiteAuditPageSummary & {
+  findings: SiteAuditFinding[];
+  findingsTruncated: boolean;
+  mainContent?: MainContentObservation;
+  multilingual?: MultilingualPageObservation;
+};
 
 interface RobotsRule {
   allow: boolean;
@@ -830,7 +859,7 @@ function clampScore(value: number): number {
 
 async function auditFetchedPage(
   fetched: FetchedPublicHtml,
-): Promise<SiteAuditPageSummary & { findings: SiteAuditFinding[]; findingsTruncated: boolean }> {
+): Promise<AuditedPage> {
   const seo = auditSeoMetadata(fetched.html, { xRobotsTag: fetched.xRobotsTag });
   const schema = validateSchemaMarkup(fetched.html);
   let htmlMessages: ValidationMessage[] = [];
@@ -898,12 +927,15 @@ async function auditFetchedPage(
       ? { health_score: clampScore(100 - errors * 12 - warnings * 4) }
       : { failure_code: htmlValidationStatus === "timeout" ? "html_validation_timeout" : "html_validation_unavailable" }),
     top_findings: actionableFindings(findings),
+    indexability: extractPageIndexabilitySignals(fetched.html, fetched.finalUrl, fetched.xRobotsTag),
+    mainContent: observeMainContent(fetched.html, safeOutputUrl(fetched.finalUrl)),
+    multilingual: observeMultilingualPage(fetched.html, safeOutputUrl(fetched.finalUrl)),
     findings,
     findingsTruncated,
   };
 }
 
-async function auditPage(url: URL, origin: string, robotsRules: RobotsRule[], prefetched?: FetchedPublicHtml) {
+async function auditPage(url: URL, origin: string, robotsRules: RobotsRule[], prefetched?: FetchedPublicHtml): Promise<AuditedPage> {
   try {
     const fetched = prefetched ?? await fetchPublicHtml(url.href, {
       allowedOrigin: origin,
@@ -1084,13 +1116,56 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
   const auditedPages = await mapWithCrawlConcurrency(selected, (candidate) =>
     auditPage(candidate, origin, discovery.rules, crawlKey(candidate) === prefetchedKey ? seed : undefined),
   );
-  const pages = auditedPages.map(({ findings: _findings, findingsTruncated: _findingsTruncated, ...page }) => page);
+  const pages = auditedPages.map(({
+    findings: _findings,
+    findingsTruncated: _findingsTruncated,
+    mainContent: _mainContent,
+    multilingual: _multilingual,
+    ...page
+  }) => page);
   const grouped = groupFindings(auditedPages);
   const pagesAudited = pages.filter((page) => page.status === "passed" || page.status === "needs_attention").length;
   const pagesPartial = pages.filter((page) => page.status === "partial").length;
   const pagesFailed = pages.filter((page) => page.status === "failed").length;
   const scores = pages.flatMap((page) => page.health_score === undefined ? [] : [page.health_score]);
   const hasMorePages = pageOffset + selected.length < eligible.length;
+  const graph = buildSiteIndexabilityGraph(pages, {
+    sitemapPages: discovery.pageUrls.map((url) => url.href),
+    discoveryComplete: discovery.discovery === "sitemap"
+      && !discovery.discoveryError
+      && !discovery.truncated
+      && pageOffset === 0
+      && selected.length === eligible.length
+      && pagesSkippedRobots === 0
+      && pages.every((page) => page.page_fetched && page.html_validation_status === "completed"),
+  });
+  const duplicates = analyzeSameLanguageDuplicates(
+    auditedPages.flatMap((page) => page.mainContent ? [page.mainContent] : []),
+    {
+      sampledPages: selected.length,
+      coverageLimited: discovery.discovery !== "sitemap" || !!discovery.discoveryError
+        || discovery.truncated || hasMorePages || pageOffset > 0 || pagesSkippedRobots > 0
+        || pages.some((page) => !page.page_fetched),
+    },
+  );
+  const contentQuality = analyzePageContentQuality(
+    auditedPages.flatMap((page) => page.mainContent ? [page.mainContent] : []),
+    {
+      sampledPages: selected.length,
+      coverageLimited: discovery.discovery !== "sitemap" || !!discovery.discoveryError
+        || discovery.truncated || hasMorePages || pageOffset > 0 || pagesSkippedRobots > 0
+        || pages.some((page) => !page.page_fetched),
+    },
+  );
+  const multilingual = analyzeMultilingualClusters(
+    auditedPages.flatMap((page) => page.multilingual ? [page.multilingual] : []),
+    {
+      sampledPages: selected.length,
+      coverageLimited: discovery.discovery !== "sitemap" || !!discovery.discoveryError
+        || discovery.truncated || hasMorePages || pageOffset > 0 || pagesSkippedRobots > 0
+        || pages.some((page) => !page.page_fetched),
+    },
+  );
 
   return {
     site_url: seedUrl.href,
@@ -1115,5 +1190,9 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
     pages,
     issue_groups: grouped.issueGroups,
     issue_groups_truncated: grouped.truncated,
+    indexability_graph: graph,
+    content_duplicates: duplicates,
+    content_quality: contentQuality,
+    multilingual_clusters: multilingual,
   };
 }

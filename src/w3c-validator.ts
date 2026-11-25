@@ -4,6 +4,7 @@ import {
   readResponseText,
 } from "./network.js";
 import { PACKAGE_VERSION } from "./version.js";
+import { withEphemeralNuChecker } from "./nu-ephemeral.js";
 
 export interface W3CMessage {
   type: string;
@@ -24,7 +25,9 @@ export interface HtmlValidationResult {
   total: number;
   truncated: boolean;
   counts: Record<W3CMessageSeverity, number>;
+  checker?: "w3c_remote" | "nu_local";
 }
+export type HtmlCheckerMode = "auto" | "remote" | "local";
 
 export function getW3CMessageSeverity(
   message: Pick<W3CMessage, "type" | "subType">,
@@ -129,15 +132,112 @@ function normalizeW3CMessage(message: unknown): W3CMessage {
   return normalized;
 }
 
+function normalizeNuHtmlPayload(text: string): HtmlValidationResult {
+  const data: unknown = JSON.parse(text);
+  if (!data || typeof data !== "object" || !("messages" in data)
+    || !Array.isArray(data.messages)) {
+    throw new Error("W3C HTML validator returned an invalid response shape");
+  }
+  const normalized = data.messages.map(normalizeW3CMessage);
+  if (normalized.some((item) => item.type === "non-document-error")) {
+    throw new Error("W3C HTML validator could not complete validation (non-document-error)");
+  }
+  const counts: HtmlValidationResult["counts"] = { error: 0, warning: 0, info: 0 };
+  for (const item of normalized) counts[getW3CMessageSeverity(item)] += 1;
+  return {
+    messages: normalized.slice(0, MAX_VALIDATION_MESSAGES),
+    total: normalized.length,
+    truncated: normalized.length > MAX_VALIDATION_MESSAGES,
+    counts,
+  };
+}
+
+/** Only a user-configured loopback Nu HTTP service may receive local fallback markup. */
+function configuredLocalNuUrl(): string | undefined {
+  const setting = process.env.MCP_WEB_VALIDATOR_NU_LOCAL_URL?.trim();
+  if (!setting) return undefined;
+  let url: URL;
+  try {
+    url = new URL(setting);
+  } catch {
+    throw new Error("MCP_WEB_VALIDATOR_NU_LOCAL_URL is not a valid URL");
+  }
+  if (url.protocol !== "http:" || !["127.0.0.1", "[::1]"].includes(url.hostname)
+    || url.username || url.password || url.hash
+    || !["/", "/nu/"].includes(url.pathname)
+    || [...url.searchParams.keys()].some((key) => key !== "out")) {
+    throw new Error("MCP_WEB_VALIDATOR_NU_LOCAL_URL must be an HTTP loopback-only Nu endpoint");
+  }
+  url.search = "?out=json";
+  return url.href;
+}
+
+function isTransientNuFailure(error: unknown): boolean {
+  if (error instanceof TypeError) return true;
+  if (!(error instanceof Error)) return false;
+  return /(?:timeout|timed out|abort|fetch failed|HTTP status (?:206|408|429|5\d\d))/i.test(error.message);
+}
+
+async function validateHtmlAtLocalNu(
+  html: string,
+  mediaType: HtmlValidationMediaType,
+  url: string,
+): Promise<HtmlValidationResult> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": mediaType + "; charset=utf-8", "User-Agent": USER_AGENT },
+    body: html,
+    redirect: "error",
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok || response.status === 206) {
+    await cancelResponseBody(response);
+    throw new Error("Local Nu HTML checker returned HTTP status " + response.status);
+  }
+  return {
+    ...normalizeNuHtmlPayload(await readResponseText(response, MAX_VALIDATOR_RESPONSE_BYTES)),
+    checker: "nu_local",
+  };
+}
+
+function configuredLocalNuJava(): string | undefined {
+  const java = process.env.MCP_WEB_VALIDATOR_NU_JAVA_PATH?.trim();
+  return java || undefined;
+}
+
+async function validateHtmlAtAvailableLocalNu(
+  html: string,
+  mediaType: HtmlValidationMediaType,
+  httpUrl?: string,
+  javaExecutable?: string,
+): Promise<HtmlValidationResult> {
+  if (httpUrl) return validateHtmlAtLocalNu(html, mediaType, httpUrl);
+  if (javaExecutable) {
+    return withEphemeralNuChecker(javaExecutable,
+      (url) => validateHtmlAtLocalNu(html, mediaType, url));
+  }
+  throw new Error(
+    "Local Nu requires MCP_WEB_VALIDATOR_NU_JAVA_PATH (on-demand Java 17+ runtime) " +
+    "or MCP_WEB_VALIDATOR_NU_LOCAL_URL (loopback service)",
+  );
+}
+
 /** Validates HTML/XHTML using the W3C Nu HTML Checker API and retains bounded-output metadata. */
 export async function validateHtmlContentDetailed(
   htmlContent: string,
   mediaType: HtmlValidationMediaType = "text/html",
+  checker: HtmlCheckerMode = "auto",
 ): Promise<HtmlValidationResult> {
   const url = "https://validator.w3.org/nu/?out=json";
 
   try {
     assertContentSize(htmlContent, MAX_HTML_BYTES, "HTML content");
+    const local = checker !== "remote" ? configuredLocalNuUrl() : undefined;
+    const localJava = checker !== "remote" ? configuredLocalNuJava() : undefined;
+    if (checker === "local") {
+      return await validateHtmlAtAvailableLocalNu(htmlContent, mediaType, local, localJava);
+    }
+    try {
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -155,28 +255,11 @@ export async function validateHtmlContentDetailed(
       throw new Error(`W3C HTML validator returned HTTP status ${response.status}`);
     }
 
-    const text = await readResponseText(response, MAX_VALIDATOR_RESPONSE_BYTES);
-    const data = JSON.parse(text) as { messages?: unknown };
-    if (data.messages === undefined) {
-      throw new Error("W3C HTML validator returned an invalid response shape");
+    return normalizeNuHtmlPayload(await readResponseText(response, MAX_VALIDATOR_RESPONSE_BYTES));
+    } catch (cause) {
+      if (checker !== "auto" || !(local || localJava) || !isTransientNuFailure(cause)) throw cause;
+      return await validateHtmlAtAvailableLocalNu(htmlContent, mediaType, local, localJava);
     }
-    if (!Array.isArray(data.messages)) {
-      throw new Error("W3C HTML validator returned an invalid response shape");
-    }
-    const normalized = data.messages.map(normalizeW3CMessage);
-    if (normalized.some((message) => message.type.trim().toLowerCase() === "non-document-error")) {
-      throw new Error("W3C HTML validator could not complete validation (non-document-error)");
-    }
-    const counts: HtmlValidationResult["counts"] = { error: 0, warning: 0, info: 0 };
-    for (const message of normalized) {
-      counts[getW3CMessageSeverity(message)] += 1;
-    }
-    return {
-      messages: normalized.slice(0, MAX_VALIDATION_MESSAGES),
-      total: normalized.length,
-      truncated: normalized.length > MAX_VALIDATION_MESSAGES,
-      counts,
-    };
   } catch (error: unknown) {
     throw new Error(`HTML validation failed: ${getErrorMessage(error)}`);
   }
@@ -186,8 +269,9 @@ export async function validateHtmlContentDetailed(
 export async function validateHtmlContent(
   htmlContent: string,
   mediaType: HtmlValidationMediaType = "text/html",
+  checker: HtmlCheckerMode = "auto",
 ): Promise<W3CMessage[]> {
-  return (await validateHtmlContentDetailed(htmlContent, mediaType)).messages;
+  return (await validateHtmlContentDetailed(htmlContent, mediaType, checker)).messages;
 }
 
 /** Validates CSS using the W3C Jigsaw CSS Validator API and retains bounded-output metadata. */

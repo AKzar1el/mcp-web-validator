@@ -1,0 +1,14 @@
+{
+  "name": "mcp-web-validator",
+  "version": "1.3.57",
+  "description": "Validate HTML and CSS, audit technical SEO, review structured data, check links and capture responsive screenshots using the local Web Validator MCP server.",
+  "mcpServers": {
+    "mcp-web-validator": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-web-validator@1.3.57"
+      ]
+    }
+  }
+}

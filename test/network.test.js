@@ -933,6 +933,65 @@ test("public CSS without an HTTP charset honors its leading @charset declaration
   }
 });
 
+test("public CSS ignores an unsupported HTTP charset and honors its leading @charset", async () => {
+  const originalFetch = globalThis.fetch;
+  const body = Buffer.concat([
+    Buffer.from('@charset "windows-1252"; .label::before { content: "Caf', "ascii"),
+    Buffer.from([0xe9]),
+    Buffer.from('"; }', "ascii"),
+  ]);
+  globalThis.fetch = async () => new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/css; charset=definitely-not-an-encoding" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/unsupported-http-charset.css", {
+      acceptedContentTypes: ["text/css"],
+    });
+    assert.equal(result.text, '@charset "windows-1252"; .label::before { content: "Caf\u00e9"; }');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("public CSS with an unsupported HTTP charset defaults to UTF-8 without @charset", async () => {
+  const originalFetch = globalThis.fetch;
+  const css = '.label::before { content: "Caf\u00e9"; }';
+  globalThis.fetch = async () => new Response(Buffer.from(css, "utf8"), {
+    status: 200,
+    headers: { "content-type": "text/css; charset=unknown-encoding" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/unsupported-default.css", {
+      acceptedContentTypes: ["text/css"],
+    });
+    assert.equal(result.text, css);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("public CSS BOM overrides an unsupported HTTP charset", async () => {
+  const originalFetch = globalThis.fetch;
+  const css = '.label::before { content: "Caf\u00e9"; }';
+  const body = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(css, "utf16le")]);
+  globalThis.fetch = async () => new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/css; charset=unknown-encoding" },
+  });
+
+  try {
+    const result = await fetchPublicText("https://1.1.1.1/unsupported-bom.css", {
+      acceptedContentTypes: ["text/css"],
+    });
+    assert.equal(result.text, css);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("public CSS HTTP charset overrides conflicting @charset without a BOM", async () => {
   const originalFetch = globalThis.fetch;
   const css = '@charset "windows-1252"; .label::before { content: "Caf\u00e9"; }';
@@ -1025,6 +1084,63 @@ test("link checker resolves relative links, deduplicates, and caps requests", as
       { url: "https://1.1.1.1/base/about", method: "HEAD" },
       { url: "https://1.1.1.1/contact", method: "HEAD" },
     ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker hides query values in results without changing checked URLs or collapsing requests", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (input) => {
+    requested.push(String(input));
+    return new Response(null, { status: 204 });
+  };
+  const first = "https://1.1.1.1/checkout?token=FAKE_TOKEN_A&email=alice%40example.test";
+  const second = "https://1.1.1.1/checkout?token=FAKE_TOKEN_B";
+  try {
+    const links = await checkBrokenLinks(
+      `<a href="${first}">First</a><a href="${second}">Second</a>`,
+      undefined,
+      2,
+    );
+    assert.deepEqual(requested, [first, second]);
+    assert.deepEqual(links, [
+      { url: "https://1.1.1.1/checkout", status: 204, ok: true, message: undefined },
+      { url: "https://1.1.1.1/checkout", status: 204, ok: true, message: undefined },
+    ]);
+    assert.doesNotMatch(JSON.stringify(links), /FAKE_TOKEN|alice/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker hides embedded credentials even when a URL is blocked", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("Blocked URL must not be fetched"); };
+  try {
+    const links = await checkBrokenLinks(
+      '<a href="https://FAKE_USER:FAKE_PASSWORD@1.1.1.1/private?token=FAKE_TOKEN">Blocked</a>',
+      undefined,
+      1,
+    );
+    assert.equal(links[0].status, "blocked");
+    assert.equal(links[0].url, "https://1.1.1.1/private");
+    assert.doesNotMatch(JSON.stringify(links), /FAKE_USER|FAKE_PASSWORD|FAKE_TOKEN/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("link checker redacts full URLs repeated by transport failures", async () => {
+  const originalFetch = globalThis.fetch;
+  const url = "https://1.1.1.1/private?access_token=FAKE_TOKEN";
+  globalThis.fetch = async () => { throw new TypeError(`Could not fetch ${url}`); };
+  try {
+    const links = await checkBrokenLinks(`<a href="${url}">Failed</a>`, undefined, 1);
+    assert.equal(links[0].status, "failed");
+    assert.equal(links[0].url, "https://1.1.1.1/private");
+    assert.doesNotMatch(JSON.stringify(links), /FAKE_TOKEN/);
   } finally {
     globalThis.fetch = originalFetch;
   }

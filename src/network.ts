@@ -108,6 +108,10 @@ export interface PublicFetchOptions {
   headers?: Record<string, string>;
   timeoutMs?: number;
   maxRedirects?: number;
+  /** Observe each response before redirect handling; no body is consumed. */
+  onResponse?: (url: URL, response: Response) => void;
+  /** Optional per-redirect scope guard; returning false leaves the 3xx response intact. */
+  allowRedirect?: (nextUrl: URL, currentUrl: URL) => boolean;
 }
 
 export interface PublicTextOptions extends PublicFetchOptions {
@@ -627,6 +631,14 @@ export async function fetchPublicHttp(
       throw error;
     }
 
+    try {
+      options.onResponse?.(currentTarget.url, response);
+    } catch (error) {
+      await cancelResponseBody(response);
+      await dispatcher.close();
+      throw error;
+    }
+
     if (!redirectStatuses.has(response.status)) {
       beginClosingDispatcher(dispatcher);
       return { response, url: currentTarget.url };
@@ -643,14 +655,22 @@ export async function fetchPublicHttp(
       return { response, url: currentTarget.url };
     }
 
-    await cancelResponseBody(response);
-    await dispatcher.close();
     let redirectUrl: URL;
     try {
       redirectUrl = new URL(location, currentTarget.url);
     } catch {
+      await cancelResponseBody(response);
+      await dispatcher.close();
       throw new PublicUrlError("Redirect target is not a valid URL");
     }
+    if (options.allowRedirect && !options.allowRedirect(redirectUrl, currentTarget.url)) {
+      // Return the already validated redirect response instead of probing outside
+      // the caller's narrow scope. The original response body remains readable.
+      beginClosingDispatcher(dispatcher);
+      return { response, url: currentTarget.url };
+    }
+    await cancelResponseBody(response);
+    await dispatcher.close();
     const nextTarget = await withAbortSignal(() => resolvePublicHttpUrl(redirectUrl), requestSignal);
     if (nextTarget.url.origin !== currentTarget.url.origin && requestHeaders) {
       // Manual redirect handling does not apply Fetch's cross-origin
@@ -700,22 +720,23 @@ export async function fetchPublicText(
   }
 
   const declaredEncoding = getDeclaredCharacterEncoding(contentTypeHeader);
+  const hasSupportedDeclaredEncoding = declaredEncoding !== undefined
+    && isSupportedCharacterEncoding(declaredEncoding);
   const shouldSniffHtmlEncoding = contentType === "text/html"
-    && (declaredEncoding === undefined || !isSupportedCharacterEncoding(declaredEncoding));
+    && !hasSupportedDeclaredEncoding;
   const isXmlContentType = contentType !== null
     && (contentType === "application/xml" || contentType === "text/xml" || contentType.endsWith("+xml"));
   const shouldSniffXmlEncoding = declaredEncoding === undefined
     && isXmlContentType;
   const shouldPreferXmlBom = declaredEncoding !== undefined && isXmlContentType;
   const shouldPreferHtmlBom = contentType === "text/html"
-    && declaredEncoding !== undefined
-    && isSupportedCharacterEncoding(declaredEncoding);
-  const shouldSniffCssEncoding = contentType === "text/css" && declaredEncoding === undefined;
-  const shouldPreferCssBom = contentType === "text/css" && declaredEncoding !== undefined;
+    && hasSupportedDeclaredEncoding;
+  const shouldSniffCssEncoding = contentType === "text/css" && !hasSupportedDeclaredEncoding;
+  const shouldPreferCssBom = contentType === "text/css" && hasSupportedDeclaredEncoding;
   const text = await readResponseText(
     response,
     maxBytes,
-    shouldSniffHtmlEncoding || shouldSniffXmlEncoding ? undefined : declaredEncoding,
+    shouldSniffHtmlEncoding || shouldSniffXmlEncoding || shouldSniffCssEncoding ? undefined : declaredEncoding,
     shouldSniffHtmlEncoding,
     shouldSniffXmlEncoding,
     shouldPreferXmlBom,

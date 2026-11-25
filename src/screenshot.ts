@@ -14,6 +14,11 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPublicHttpUrl, getErrorMessage, resolveLocalFileWithinWorkspaceRoot } from "./network.js";
 import { startScreenshotTransportProxy } from "./screenshot-proxy.js";
+import {
+  compareScreenshotWithBaseline,
+  resolveVisualReferenceDirectory,
+  type VisualDiffResult,
+} from "./visual-diff.js";
 
 export interface ViewportConfig {
   name: string;
@@ -27,6 +32,7 @@ export interface ScreenshotResult {
   height: number;
   outputPath: string;
   incompleteAssetCount?: number;
+  visualDiff?: VisualDiffResult;
 }
 
 /** Carries paths already written when a later viewport cannot be captured. */
@@ -54,7 +60,7 @@ const SAFE_VIEWPORT_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 const NAVIGATION_TIMEOUT_MS = 30_000;
 
 export const SCREENSHOT_HEADLESS_MODE = "shell" as const;
-export const SCREENSHOT_BROWSER_BUILD_ID = "156.0.8078.47";
+export const SCREENSHOT_BROWSER_BUILD_ID = "157.0.8103.50";
 
 type BrowserInstaller = (options: InstallOptions & { unpack?: true }) => Promise<{ executablePath: string }>;
 
@@ -127,7 +133,9 @@ export function explainScreenshotBrowserLaunchFailure(
 
 let screenshotBrowserExecutablePromise: Promise<string> | undefined;
 
-const defaultScreenshotBrowserRuntime: ScreenshotBrowserRuntime = {
+// Also reused by bounded local-only browser diagnostics. Callers are required
+// to configure an explicit deny-all proxy and intercept all document requests.
+export const defaultScreenshotBrowserRuntime: ScreenshotBrowserRuntime = {
   async launch(proxyServer: string): Promise<PuppeteerBrowser> {
     screenshotBrowserExecutablePromise ??= resolveScreenshotBrowserExecutable();
     let executablePath: string;
@@ -374,6 +382,7 @@ export async function captureScreenshots(
   outputDirectory: string,
   customViewports?: ViewportConfig[],
   browserRuntime: ScreenshotBrowserRuntime = defaultScreenshotBrowserRuntime,
+  baselineDirectory?: string,
 ): Promise<ScreenshotResult[]> {
   if (typeof targetPath !== "string" || targetPath.trim() === "") {
     throw new Error("targetPath must be a non-empty string");
@@ -401,6 +410,9 @@ export async function captureScreenshots(
 
   const scopedOutput = process.env.MCP_WEB_VALIDATOR_WORKSPACE_ROOT !== undefined;
   const resolvedOutputDirectory = await prepareScreenshotOutputDirectory(outputDirectory);
+  const baseline = baselineDirectory === undefined
+    ? undefined
+    : await resolveVisualReferenceDirectory(baselineDirectory, resolvedOutputDirectory);
 
   const results: ScreenshotResult[] = [];
   let blockedRequestMessage: string | undefined;
@@ -544,5 +556,14 @@ export async function captureScreenshots(
     if (!captureFailed && cleanupFailed) throw cleanupError;
   }
 
-  return results;
+  if (baseline === undefined) return results;
+  // Keep the PNG decode budget to one viewport at a time on low-RAM hosts.
+  const compared: ScreenshotResult[] = [];
+  for (const capture of results) {
+    compared.push({
+      ...capture,
+      visualDiff: await compareScreenshotWithBaseline(capture, baseline),
+    });
+  }
+  return compared;
 }

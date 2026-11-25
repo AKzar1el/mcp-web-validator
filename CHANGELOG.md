@@ -4,6 +4,138 @@ All notable changes to this project are documented here. The project follows [Se
 
 ## [Unreleased]
 
+## [1.3.57] - 2026-11-23
+
+### Validated optional engines
+
+- Verify official native Nu Checker on Windows with HTML/XHTML, including
+  on-demand loopback-only execution that does not leave a Java daemon.
+- Verify bounded native SiteOne 2.5.1 audits against two owned sites, check
+  actual report coverage, and isolate crawler process configuration.
+- Remove the unverified Unlighthouse CLI adapter, which required Node 24 and
+  duplicated existing browser-performance functionality.
+- Reject incomplete/empty optional scan results rather than reporting success.
+
+## [1.3.56] - 2026-11-23
+
+### Fixed
+
+- Correctly attribute offline Stylelint CSS diagnostics and local Nu HTML
+  Checker results instead of misleadingly describing them as responses from
+  the external W3C validator. Preserve legacy W3C text for remote checks.
+- Supply an isolated empty SiteOne configuration file to avoid accidentally
+  inheriting a user's global crawler credentials or unrelated crawler options.
+- Document Unlighthouse v1 beta's separate Node.js 24.13.1+ requirement.
+
+## [1.3.55] - 2026-11-23
+
+### Reliability and optional engines
+
+- Add a private loopback Nu Checker fallback for transient HTML validation failures,
+  including an explicit local-only mode that never uploads markup.
+- Introduce an offline Stylelint quality option on the existing local CSS tool.
+- Add an optional axe-core WCAG 2.2 automated rule sample to existing inert
+  keyboard checks; unavailable checks never indicate conformance.
+- Compare existing screenshot capture output with an optional PNG baseline using
+  pixelmatch; missing or incomplete evidence stays inconclusive.
+- Retry a fixed second public Nu endpoint on bounded hosted transient errors,
+  preserving the original total timeout, safety checks and partial statuses.
+- Provide capped, separately opted-in SiteOne/Unlighthouse CLI comparisons;
+  do not auto-install or start heavy crawlers, and do not increase MCP tool counts.
+
+## [1.3.54] - 2026-11-23
+
+### Fixed
+
+- Correct local CSS decoding when an HTTP response declares an unsupported charset: honor a leading `@charset`, BOM, or UTF-8 fallback instead of failing early.
+- Exclude inert `script`, `style`, and `template` text from V09 mobile/desktop main-content word comparisons while preserving the intended visible-content checks.
+- Count JSON-LD scripts with media-type parameters in isolated V09 viewport parity checks without executing their contents.
+- Respect the first `Cache-Control: max-age` directive even when malformed; handle quoted values without accepting misleading later duplicates.
+- Classify HTTP content types precisely and include the complete SEO issue response envelope in bounded MCP output sizes.
+
+### Validation
+
+- Add reproducible five-phase functionality, correctness, boundary, and reliability tests; preserve evidence limits and avoid unsupported productivity claims.
+
+### Hosted app
+
+- Accept public webpage URLs in `validate_html` (including legacy URL-as-HTML input) via the existing safe page fetch, avoiding misleading Nu diagnostics for URL text.
+- Fix Nu HTML validation in the Cloudflare Worker by using supported manual redirect handling and rejecting non-success responses without forwarding submitted markup.
+
+## [1.3.53] - 2026-11-21
+
+### Release engineering
+
+- Provision the pinned Chrome Headless Shell and its narrowly scoped AppArmor
+  user-namespace allowance in npm publishing CI before running the complete
+  MCP integration test suite. The v1.3.52 tag failed its release gate before
+  publication because this setup was missing; v1.3.53 supersedes that tag
+  without rewriting its history or bypassing the validation gate.
+
+## [1.3.52] - 2026-11-21
+
+### Added
+
+- Expand local stdio MCP to 39 tools with evidence-bounded technical SEO and
+  incident diagnostics: HTTP delivery, availability, redirects, crawler access,
+  sitemaps, browser resource failures, viewport checks, production changes,
+  Lighthouse offline laboratory, CrUX field data, and crawler log correlation.
+- Add optional, local GitHub-main update-on-activation launcher for trusted
+  development environments. Each new revision is isolated, built, and checked
+  with a real offline MCP canary before promotion. Offline, lock, or failed-build
+  cases preserve the last known-good revision; public npm clients are unchanged.
+
+### Fixed
+
+- Validate calendar dates strictly in production-change and historical audits;
+  impossible timestamps no longer count as comparable evidence.
+- Give six high-use incident tools prioritized, bounded remediation suggestions
+  without weakening privacy or their structured MCP contracts.
+- Harden redirect, URL-variant, sitemap, and Cache-Control parsing against
+  misleading edge cases found in follow-up testing.
+
+### Security
+
+- Refresh the local MCP's locked transitive Hono dependency to 4.13.19 to address npm-audited middleware and input-validation advisories without changing the runtime dependency declarations.
+
+## [1.3.51] - 2026-11-18
+
+### Fixed
+
+- Limit machine-readable HTML, CSS, link-check, and combined-report previews by serialized byte size so large valid diagnostics reach MCP gateways without oversized structured-content errors.
+- Preserve exact W3C totals, link counts, report scores, and failure status when verbose details are shortened; expose `totalLinks` and `truncated` for link checks.
+
+### Maintenance
+
+- Reuse one byte-aware diagnostic boundary for local MCP tools rather than duplicating per-tool truncation logic.
+- Add deterministic stress tests covering large combined reports and long blocked-link records.
+
+## [1.3.50] - 2026-11-18
+
+### Fixed
+
+- Bound the local MCP structured diagnostic issue arrays by UTF-8 byte size for `seo.metadata` and `schema.markup`. This prevents Codexify gateways from rejecting large issue floods while retaining exact totals, severity counts, and truncation signals.
+- Accept an optional UTF-8 byte-order mark at the beginning of a JSON-LD script block without accepting malformed JSON.
+
+### Validation
+
+- Extended real-stdio regression tests for hundreds of malformed JSON-LD blocks, oversized image attributes, and BOM-prefixed JSON-LD.
+
+## [1.3.49] - 2026-11-18
+
+### Added
+
+- Added opt-in `audit.history` to the local MCP server: one compact JSON file, at most 10 versioned site-audit snapshots, with automatic oldest-first eviction and no background process.
+
+### Security
+
+- Hosted MCP now uses the official stateless `@modelcontextprotocol/server` HTTP handler directly, eliminating the production `agents` dependency chain flagged for a transitive picomatch ReDoS advisory.
+
+### Hosted app
+
+- Added sampled cross-page indexability signals and graph to bounded `audit_public_site` output.
+- Added offline `compare_site_audits` for evidence-aware before/after comparisons with explicit coverage limitations.
+
 ## [1.3.48] - 2026-10-28
 
 ### Security

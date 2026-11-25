@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "mcp-web-validator",
   "display_name": "Web Validator by DigestSEO",
-  "version": "1.3.48",
+  "version": "1.3.57",
   "description": "Validate HTML/CSS, audit SEO and JSON-LD, check links, and capture responsive screenshots.",
   "author": {
     "name": "AKzar1el",
@@ -30,7 +30,7 @@
   "tools": [
     {
       "name": "html.local",
-      "description": "Reads a bounded local HTML or .xhtml file and sends its markup to the W3C Nu HTML Checker. .xhtml files use application/xhtml+xml parsing semantics. Use only files the user is authorized to share."
+      "description": "Validates local HTML/XHTML through W3C Nu, or an explicitly configured loopback Nu checker. Auto mode uses local fallback only for remote transport/transient failures; local mode keeps markup on the machine."
     },
     {
       "name": "html.url",
@@ -38,11 +38,23 @@
     },
     {
       "name": "css.local",
-      "description": "Reads a bounded local CSS file and sends it to the W3C Jigsaw CSS Validator. Use only files the user is authorized to share."
+      "description": "Reads local CSS and either sends it to W3C Jigsaw (default), or performs offline Stylelint quality checks. Local lint results are advisory and cannot certify W3C CSS validity."
     },
     {
       "name": "seo.metadata",
       "description": "Audits supplied HTML offline for on-page SEO metadata, headings, viewport, image alternatives, and Open Graph issues. Use for a quick on-page check; use html.local/html.url for W3C HTML validation, schema.markup for JSON-LD syntax, or report.validation for a combined local-file report."
+    },
+    {
+      "name": "content.duplicates",
+      "description": "Compares static main text across one to eight HTML pages supplied by the caller. Reports high-confidence exact matches and conservative near matches only within the same language (and script). No network requests or storage. Output is limited to this sample, not site-wide uniqueness."
+    },
+    {
+      "name": "content.quality",
+      "description": "Offline, evidence-limited review of empty or thin static main text and substantive repeated sentences within same-language page families. Reports possible missing standalone value, not Google rankings or a semantic quality verdict. Accepts up to eight supplied HTML pages; no network, storage, browser or LLM."
+    },
+    {
+      "name": "site.hreflang",
+      "description": "Compares head-only hreflang and canonical declarations across up to sixteen supplied static HTML pages, including x-default, reciprocal references and same-locale target consistency. No URLs are fetched, and unsampled targets are not declared broken. Works across authorized domains; no browser, files or storage."
     },
     {
       "name": "links.broken",
@@ -53,12 +65,124 @@
       "description": "Parses JSON-LD blocks in supplied HTML locally and reports empty blocks or JSON syntax errors. It does not validate vocabulary semantics."
     },
     {
+      "name": "schema.supported",
+      "description": "Offline bounded structural review of explicit JSON-LD for Article/NewsArticle/BlogPosting, Product, BreadcrumbList, FAQPage, Organization and WebSite. Checks limited property shapes and review-profile recommendations; unknown contexts/types stay unverified. Does not resolve remote contexts or certify Schema.org validity, Google rich-result eligibility, content truth or rankings. Use schema.markup for existing syntax-only diagnostics."
+    },
+    {
       "name": "report.validation",
       "description": "Combines W3C HTML/CSS validation, local SEO/accessibility checks, JSON-LD syntax checks, and a bounded public-link check into a Markdown and structured report."
     },
     {
+      "name": "audit.monitor",
+      "description": "Manual, offline, read-only P2-02 regression/optional-alert PREVIEW for two to ten existing saved audit.history IDs in oldest-first order. Configurable 1–8 sampled regressed pages, net error/warning increases, 1–4 step regression streak and review-only coverage loss/sitemap drift. Candidate alerts require complete comparable observations with unambiguous chronology; nothing is sent, scheduled, persisted, fetched or connected to GSC/GA4."
+    },
+    {
+      "name": "crawler.logs",
+      "description": "V12/V13 local-only: correlate 1–16 important URLs across 500 supplied access observations, grouping failures and claimed crawlers. Optional verify_googlebot_ip_ranges=true downloads one fixed Google official common-crawler CIDR list and compares caller-supplied source IPs locally. Default is offline. No IPs, UAs, paths, logs, query or timestamps returned; no target-site fetch, log-provider connection, storage, DNS verification, Search Console or Google ranking causation."
+    },
+    {
+      "name": "audit.production_change",
+      "description": "V10 offline exact-page comparison of two explicitly supplied timestamped HTML observations: SHA-256 HTML/main-text fingerprints, title/description/H1/canonical/robots, JSON-LD block counts and bounded internal-link and main-word changes. Non-200 delivery and incomplete evidence suppress content-change claims. No live fetches, storage, deployment, source-text output, Google indexing or ranking causation."
+    },
+    {
+      "name": "audit.trends",
+      "description": "Read-only, offline longitudinal comparison of 2–10 previously saved local audit.history version IDs (oldest first). Uses only the existing compact audit archive, compares adjacent and first/last snapshots plus an exact fully-checked all-version cohort, separates coverage loss from real changes and gates issue-group disappearance on identical complete selected samples. No new site requests, archive mutations, scheduled checks or Google-indexing claims. Returns only redacted numeric evidence, never page URLs, issue messages or stored snapshots."
+    },
+    {
+      "name": "audit.history",
+      "description": "Opt-in local-only site-audit snapshot history. Save a previous hosted audit_public_site structured result as JSON, list saved IDs, or retrieve an exact version. A single compact local JSON file retains at most 10 versions; saving the 11th removes the oldest. No database, background task, or network request."
+    },
+    {
+      "name": "performance.crux_field",
+      "description": "V11-FIELD local: offline analyze an already-obtained Google CrUX daily or history JSON record, or make ONE explicitly requested free Google Chrome UX Report API query using an existing local CRUX_API_KEY environment variable. Reports origin/page, device-class p75 LCP/INP/CLS/FCP/TTFB and bounded historical points. Missing eligible data stays null. No GSC, GA4, visitor tracking, storage, scheduled requests, URL fetch, API-key echo or Google ranking/traffic causation."
+    },
+    {
+      "name": "browser.lighthouse_lab",
+      "description": "V11-LAB local-only: run the real Lighthouse engine once in pinned sandboxed Chromium against caller-supplied HTML served at a synthetic, isolated local proxy origin. Reports redacted Lighthouse performance score, FCP, LCP, TBT, Speed Index and CLS. All supplied executable page scripts and embedded frames are stripped, and all outbound resource requests are denied; no production URL, remote CSS/JS, CrUX field INP, ranking or indexing verdict. Chrome/Lighthouse may incur CPU and memory load; fixed 75-second deadline and 180 KB HTML cap."
+    },
+    {
+      "name": "browser.viewport_parity",
+      "description": "V09 local-only: compare the SAME authorized HTML in two fresh, network-denied Chromium viewports (375x812 touch/mobile and 1440x900 desktop), or fetch one robots-allowed public HTML 200 response for that isolated comparison. Detects mobile main content hidden vs absent in DOM, visible navigation/link differences, title/description/H1/robots/canonical/JSON-LD counts, horizontal overflow, bounded keyboard tab targets, small control dimensions and one safe native details tap/Enter. All page scripts and external CSS/JS/API assets are disabled, no arbitrary links/buttons clicked or forms submitted. Fixed counts/codes only, no raw text, URLs, IDs or screenshots in output. Not Google WRS, full-site SEO parity, full accessibility certification, or real hydrated browser behavior."
+    },
+    {
+      "name": "browser.resource_failures",
+      "description": "V08 local-only: analyze up to 64 observed browser HTTP/network outcomes or navigate one robots-allowed public URL in fresh sandboxed Chromium with DNS-pinned proxy. Distinguishes real HTTP 4xx/5xx resource responses from transport failures, pending requests, and explicit tool-policy blocks. Groups script/CSS/document/API/image/font issues without returning URLs, headers, error text, response bodies or credentials. Browser allows same-origin assets by default, never private IPs; optional public third-party resource access is capped. Does not impersonate Google WRS or establish actual indexing, user experience, performance guarantees or causation."
+    },
+    {
+      "name": "browser.dom_diff",
+      "description": "V07 local-only: compare two caller-supplied raw/rendered HTML snapshots offline, or render caller-supplied HTML in fresh network-denied Chromium with inline scripts only, or fetch one robots-allowed public HTML page and sample its inline-script DOM. Detects changed/missing title, description, H1, text, same-origin anchor links, canonical, noindex and JSON-LD declarations using bounded redacted evidence. Does not load external JS/CSS/assets, impersonate Google WRS, access GSC/GA4, claim indexing or save content. Inline modes execute untrusted JS only inside fresh browser sandbox; external requests are denied."
+    },
+    {
+      "name": "browser.wcag",
+      "description": "Local-only inert Chromium accessibility evidence: native keyboard focus, named controls and optional axe-core automated WCAG 2.2 rule scan (includeAxe=true). Author scripts and handlers stripped, all resources blocked, only trusted axe engine executes after inert rendering. Does not certify conformance or inspect full live site."
+    },
+    {
+      "name": "media.diagnostics",
+      "description": "Local-only, offline review of caller-supplied HTML image alt/name evidence, responsive picture fallbacks, intrinsic dimensions, lazy loading/decoding/fetchpriority hints, video sources and caption tracks. Bounded and redacted; never fetches or renders media, executes scripts, measures layout, validates caption contents or certifies accessibility/performance."
+    },
+    {
+      "name": "site.sitemaps",
+      "description": "V05: compare up to eight previously observed XML/text sitemap documents with independent discovered URLs and page response/indexability evidence, or sample one authorized public sitemap plus up to two same-origin children. Finds malformed/duplicate/cross-origin URLs, missing child documents, invalid/future/inconsistent lastmod, independent discovery gaps and sampled redirect/noindex/canonical/robots conflicts. The bounded live sample never fetches listed pages, stores source documents, returns raw URLs, claims full search-engine inventory or guarantees Google indexing."
+    },
+    {
+      "name": "http.redirect_chain",
+      "description": "V04: review up to eight ordered HTTP response hops, Location redirects, static HTML/HTTP Link canonical declarations, and Googlebot-applicable noindex/robots observations, or probe a bounded public query-free HTTP(S) URL. Detects redirect loops, incomplete/mismatched chains, HTTP errors, canonical conflicts/cycles/chains and non-indexable sampled destinations. A destination is called wrong only relative to an explicitly supplied expected URL. Reports no raw URLs, HTML, headers, credentials, authenticated crawler observations or Google-selected canonical/indexing verdict."
+    },
+    {
+      "name": "crawler.access",
+      "description": "V03: compare up to eight supplied pages against robots.txt group precedence and static meta/X-Robots-Tag directives for Googlebot smartphone/desktop/news/image, Bingbot and GPTBot; or probe one public page and robots.txt using only the service's own User-Agent. Distinguishes crawl disallow from explicit noindex and unavailable/ambiguous evidence. Live probe obeys site robots for this service; it does NOT impersonate/verify real crawlers, request indexing, crawl historical logs, or claim a page is indexed. Raw URLs, source and response headers are not returned."
+    },
+    {
+      "name": "http.availability",
+      "description": "V02: compare two to 48 ordered, caller-supplied timestamped HTTP/transport outcomes, or make two to three bounded sequential public GET probes. Flags intermittent non-2xx, status transitions, 429/5xx, explicit challenge and network failures, and sampling gaps. The percentages are only ratios of sampled responses, never guaranteed uptime or actual outage duration. No scheduler, history storage, Googlebot verification or response bodies; use availability.history separately to opt into local storage."
+    },
+    {
+      "name": "availability.history",
+      "description": "V02 local-only opt-in compact availability archive. 'capture' makes one public HTTP GET and saves only its HTTP/transport outcome and timestamp. 'list' and 'compare' read existing outcomes for exactly one authorized URL. A single 24 KB JSON archive retains a maximum of ten total observations and automatically evicts the oldest; no scheduler, Cloudflare/Google access, cloud storage, secret headers or response bodies. Capture writes local state and may evict old data."
+    },
+    {
+      "name": "http.delivery",
+      "description": "V01: one bounded public HTTP GET probe (up to three same-origin redirects), or one to four ordered caller-supplied response observations. Diagnose 403/429/5xx, redirect completeness, HTTP cache flags, Retry-After and Cloudflare challenge evidence. No body download, JS execution, Googlebot identity verification, monitoring, raw header values or query-bearing URL output. Supply exactly one of url or observations."
+    },
+    {
+      "name": "http.variants",
+      "description": "Offline, bounded comparison of one explicit query-free reference URL and 1–12 caller-observed same-path candidate responses across HTTP/HTTPS, apex/www, trailing slash, ASCII path case and query parameters. Reviews one-step Location, up to three canonical declarations and optional caller-computed 200-response SHA-256 fingerprints. No URL fetch, redirect following, Google canonical selection, query-value leakage or content equivalence assumptions."
+    },
+    {
+      "name": "http.security",
+      "description": "Offline, bounded security-header/static-HTML observation review across 1–8 same-host HTTP/HTTPS pages. Distinguishes declared HTTP→HTTPS redirects, HSTS status, enforced vs report-only CSP, safe/weak referrer and framing policies, nosniff and static mixed-content/form/CSS declarations. No traffic, TLS certificate verification, browser execution, security certification or sensitive raw URL/header/HTML output."
+    },
+    {
+      "name": "http.directives",
+      "description": "Offline, bounded analysis of one to eight caller-supplied same-origin HTTP response header observations, including PDF/media MIME types, X-Robots-Tag (scoped Googlebot directives and contradictions), Link rel=canonical declarations, Content-Disposition and response status. No URL fetch, binary download, robots.txt inspection, Google indexing assertion, or storage. Sensitive raw URLs, headers, filenames and query tokens are not returned."
+    },
+    {
       "name": "screenshot.capture",
-      "description": "Renders a local HTML file or HTTP(S) URL in a sandboxed local Chromium browser and writes PNG screenshots to the requested directory. Downloads the pinned headless browser on first use if it is not already cached. Existing matching files may be replaced. Completed PNG paths are included if a later viewport fails."
+      "description": "Renders bounded, sandboxed responsive PNGs, with optional pixelmatch comparison against an existing separate baseline directory. Only numeric change metrics leave the comparator; missing, over-budget and asset-incomplete comparisons remain inconclusive."
+    },
+    {
+      "name": "content.provenance",
+      "description": "Offline static comparison across one to eight supplied HTML pages. Checks explicit citation IDs/URLs, dataset version and as-of claims, publication/modification dates, methodology references, and only caller-supplied freshness limits. No source is fetched, no external fact is asserted, and missing evidence remains unverified."
+    },
+    {
+      "name": "content.metadata",
+      "description": "Offline bounded consistency check for 1-8 caller-supplied same-origin HTML pages: duplicate/conflicting title, description and canonical declarations, Open Graph/Twitter differences, explicit robots directives and repeated titles/descriptions across distinct sampled canonical preferences. Outputs review evidence, not a Google-selected canonical, indexing or ranking verdict. No network or storage."
+    },
+    {
+      "name": "site.link_graph",
+      "description": "V06: evaluate one to eight caller-supplied same-origin static HTML/page observations and up to 256 previously observed sitemap labels, or perform a guarded public sample of one robots.txt and up to three HTML pages. Counts standard anchor links including navigation, computes shortest sample-only entry paths, and flags nofollow-only, missing inbound, unobserved URL, blocked/HTTP-error, noindex and noncanonical targets. Orphan candidates are not verified site-wide orphans. No raw URLs/HTML, JavaScript, full crawl, Googlebot impersonation, PageRank, GSC or production changes."
+    },
+    {
+      "name": "site.links",
+      "description": "Offline bounded review of one to eight caller-supplied same-origin HTML pages: contextual internal vs external links, missing accessible names, generic labels, nofollow, repeated anchors, and lexical title/H1 overlap only for supplied destinations. Unknown URLs are unverified, never called broken. No fetching, crawling, search data, JavaScript or ranking inference."
+    },
+    {
+      "name": "content.competitors",
+      "description": "Offline comparison of one primary and up to six caller-supplied competitor pages for visible, bounded informational/commercial/transactional/navigational markup signals. Optional explicitly selected search intent and query-heading lexical overlap only. Does NOT discover competitors, fetch pages, access GSC, classify the query semantically, or predict rankings."
+    },
+    {
+      "name": "product.claims",
+      "description": "Compare explicit local MCP product-page promises with this actual runtime's registered tool metadata. Supply HTML or one authorized public HTML URL. No arbitrary marketing semantics, no remote MCP credentials, no storage, no scripts and no claim of a successful tool invocation. Hosted tool claims must be verified by the hosted runtime."
     }
   ],
   "icon": "icon.png",

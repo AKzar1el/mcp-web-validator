@@ -941,6 +941,14 @@ export function auditSeoMetadataDetailed(htmlContent: string, xRobotsTag?: strin
       });
     } else {
       const primaryLanguageSubtag = getPrimaryLanguageSubtag(pageLanguage);
+      const subtags = pageLanguage.split("-");
+      const privateUseAt = subtags.findIndex((subtag, index) => index > 0 && subtag.toLowerCase() === "x");
+      const beforePrivateUse = privateUseAt < 0 ? subtags : subtags.slice(0, privateUseAt);
+      // Extension singletons need a value; private-use values may be one character.
+      const orphanExtension = privateUseAt === subtags.length - 1 || beforePrivateUse.some((subtag, index) =>
+        index > 0 && subtag.length === 1 &&
+        (index === beforePrivateUse.length - 1 || beforePrivateUse[index + 1].length === 1)
+      );
       if (isWellFormedPrivateUseLanguageTag(pageLanguage)) {
         add({
           code: "accessibility.page_language.private_use",
@@ -955,7 +963,7 @@ export function auditSeoMetadataDetailed(htmlContent: string, xRobotsTag?: strin
           category: "Accessibility",
           message: `The document <html> lang attribute uses unknown primary language subtag "${primaryLanguageSubtag}". Use a primary language subtag registered by IANA.`,
         });
-      } else if (!pageLanguage.split("-").every((subtag) => /^[a-z0-9]{1,8}$/i.test(subtag))) {
+      } else if (!subtags.every((subtag) => /^[a-z0-9]{1,8}$/i.test(subtag)) || orphanExtension) {
         add({
           code: "accessibility.page_language.malformed_subtag",
           severity: "error",
@@ -1024,7 +1032,8 @@ export function validateSchemaMarkupDetailed(htmlContent: string): AuditDetails 
     }
 
     try {
-      const parsed = JSON.parse(scriptText) as unknown;
+      // A leading UTF-8 BOM is optional for tolerant JSON parsers (RFC 8259).
+      const parsed = JSON.parse(scriptText.replace(/^\uFEFF/, "")) as unknown;
       if (!hasJsonLdDocumentShape(parsed)) {
         add({
           code: "schema.jsonld.invalid_document",
@@ -1050,6 +1059,15 @@ export function validateSchemaMarkupDetailed(htmlContent: string): AuditDetails 
 
 export function validateSchemaMarkup(htmlContent: string): SEOIssue[] {
   return validateSchemaMarkupDetailed(htmlContent).issues;
+}
+
+function redactedLinkResultUrl(url: string): string {
+  const display = new URL(url);
+  display.username = "";
+  display.password = "";
+  display.search = "";
+  display.hash = "";
+  return display.href;
 }
 
 /**
@@ -1142,6 +1160,8 @@ export async function checkBrokenLinks(
   let nextIndex = 0;
 
   async function checkLink(url: string): Promise<LinkStatus> {
+    // Check the original URL, but never return its query or embedded credentials.
+    const displayUrl = redactedLinkResultUrl(url);
     try {
       let headResult: Awaited<ReturnType<typeof fetchPublicHttp>> | undefined;
       try {
@@ -1189,7 +1209,7 @@ export async function checkBrokenLinks(
         const finalUrl = getResult.url.href;
         await cancelResponseBody(getResult.response);
         return {
-          url,
+          url: displayUrl,
           status,
           ok,
           message:
@@ -1250,13 +1270,13 @@ export async function checkBrokenLinks(
               : isHttpRedirectStatus(status)
                 ? "Redirect not followed"
                 : finalUrl !== url
-                  ? `Redirected to ${finalUrl}`
+                  ? `Redirected to ${redactedLinkResultUrl(finalUrl)}`
                   : undefined,
         };
       }
 
       return {
-        url,
+        url: displayUrl,
         status: headStatus,
         ok: headStatus >= 200 && headStatus < 400 && !isUnverifiedLinkStatus(headStatus),
         message:
@@ -1317,15 +1337,15 @@ export async function checkBrokenLinks(
             : isHttpRedirectStatus(headStatus)
               ? "Redirect not followed"
               : headFinalUrl !== url
-                ? `Redirected to ${headFinalUrl}`
+                ? `Redirected to ${redactedLinkResultUrl(headFinalUrl)}`
                 : undefined,
       };
     } catch (error: unknown) {
       return {
-        url,
+        url: displayUrl,
         status: error instanceof PublicUrlError ? "blocked" : "failed",
         ok: false,
-        message: getErrorMessage(error),
+        message: getErrorMessage(error).replaceAll(url, displayUrl),
       };
     }
   }

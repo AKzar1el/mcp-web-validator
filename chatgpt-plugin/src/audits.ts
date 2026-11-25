@@ -853,6 +853,14 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
       });
     } else {
       const primaryLanguageSubtag = getPrimaryLanguageSubtag(pageLanguage);
+      const subtags = pageLanguage.split("-");
+      const privateUseAt = subtags.findIndex((subtag, index) => index > 0 && subtag.toLowerCase() === "x");
+      const beforePrivateUse = privateUseAt < 0 ? subtags : subtags.slice(0, privateUseAt);
+      // Extension singletons need a value; private-use values may be one character.
+      const orphanExtension = privateUseAt === subtags.length - 1 || beforePrivateUse.some((subtag, index) =>
+        index > 0 && subtag.length === 1 &&
+        (index === beforePrivateUse.length - 1 || beforePrivateUse[index + 1].length === 1)
+      );
       if (isWellFormedPrivateUseLanguageTag(pageLanguage)) {
         collector.add({
           code: "accessibility.page_language.private_use",
@@ -867,7 +875,7 @@ export function auditSeoMetadata(html: string, options: AuditSeoMetadataOptions 
           category: "Accessibility",
           message: `The document <html> lang attribute uses unknown primary language subtag "${primaryLanguageSubtag}". Use a primary language subtag registered by IANA.`,
         });
-      } else if (!pageLanguage.split("-").every((subtag) => /^[a-z0-9]{1,8}$/i.test(subtag))) {
+      } else if (!subtags.every((subtag) => /^[a-z0-9]{1,8}$/i.test(subtag)) || orphanExtension) {
         collector.add({
           code: "accessibility.page_language.malformed_subtag",
           severity: "error",
@@ -999,7 +1007,18 @@ export function toPublicHttpUrl(value: string, baseUrl?: string): URL | undefine
   }
 }
 
+function redactedLinkResultUrl(url: URL): string {
+  const display = new URL(url);
+  display.username = "";
+  display.password = "";
+  display.search = "";
+  display.hash = "";
+  return display.href;
+}
+
 async function fetchStatus(url: URL): Promise<LinkStatus> {
+  // Preserve the full URL for the request; omit sensitive URL fields in results.
+  const displayUrl = redactedLinkResultUrl(url);
   const execute = async (method: "HEAD" | "GET") => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -1039,7 +1058,7 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
       response = await execute("GET");
     }
     return {
-      url: url.toString(),
+      url: displayUrl,
       status: response.status,
       ok: response.status >= 200 && response.status < 400 && !isUnverifiedLinkStatus(response.status),
       message: response.status === 300
@@ -1056,7 +1075,7 @@ async function fetchStatus(url: URL): Promise<LinkStatus> {
     };
   } catch {
     return {
-      url: url.toString(),
+      url: displayUrl,
       status: "failed",
       ok: false,
       message: "Connection failed or timed out.",

@@ -97,6 +97,21 @@ test("JSON-LD audit recognizes media-type parameters without matching unrelated 
   assert.match(detailed.issues[0].message, /Invalid JSON-LD schema syntax/);
 });
 
+test("JSON-LD accepts a leading BOM without accepting broken JSON", () => {
+  const bom = String.fromCharCode(0xfeff);
+  const valid = validateSchemaMarkupDetailed(
+    `<script type="application/ld+json">${bom}{"@context":"https://schema.org","@type":"WebSite"}</script>`,
+  );
+  assert.deepEqual(valid.counts, { error: 0, warning: 0, info: 0 });
+  assert.equal(valid.totalIssues, 0);
+
+  const invalid = validateSchemaMarkupDetailed(
+    `<script type="application/ld+json">${bom}{broken}</script>`,
+  );
+  assert.equal(invalid.totalIssues, 1);
+  assert.equal(invalid.issues[0].code, "schema.jsonld.invalid_json");
+});
+
 test("JSON-LD audit rejects non-document top-level JSON shapes", () => {
   const invalid = validateSchemaMarkupDetailed([
     '<script type="application/ld+json">42</script>',
@@ -329,7 +344,7 @@ test("well-formed private-use BCP 47 page languages are advisory, not invalid", 
 });
 
 test("page languages reject malformed BCP 47 subtag structure", () => {
-  for (const lang of ["en--US", "en-", "en-US_Latn", "en-abcdefghi", "en-\u00fc"]) {
+  for (const lang of ["en--US", "en-", "en-US_Latn", "en-abcdefghi", "en-\u00fc", "en-x", "en-a", "en-a-b", "en-a-foo-x"]) {
     const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`);
     assert.equal(
       issues.find((issue) => issue.code === "accessibility.page_language.malformed_subtag")?.severity,
@@ -337,7 +352,7 @@ test("page languages reject malformed BCP 47 subtag structure", () => {
       lang,
     );
   }
-  for (const lang of ["en-US", "sl-SI", "zh-Hant-TW", "de-1996", "x-example", "i-klingon"]) {
+  for (const lang of ["en-US", "sl-SI", "zh-Hant-TW", "de-1996", "x-example", "i-klingon", "en-x-a", "en-a-foo", "en-u-ca-gregory", "en-a-foo-x-b"]) {
     const issues = auditSeoMetadata(`<html lang="${lang}"><head><title>Example</title></head></html>`);
     assert.equal(issues.some((issue) => issue.code === "accessibility.page_language.malformed_subtag"), false, lang);
   }

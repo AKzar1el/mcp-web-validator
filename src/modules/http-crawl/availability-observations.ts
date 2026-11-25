@@ -246,7 +246,7 @@ export function analyzeAvailabilityHistory(
     "HTTP status codes changed between adjacent response observations.");
   if (observations.length < 3) add("sparse_samples", "info",
     "Only two samples were supplied; more observations improve interpretation.");
-  if (r.max_observation_gap_minutes >= 60) add("large_sampling_gap", "info",
+  if (maxGap >= 60 * 60 * 1_000) add("large_sampling_gap", "info",
     "Samples include at least one gap of an hour or more; no continuity is established during gaps.");
 
   return r;

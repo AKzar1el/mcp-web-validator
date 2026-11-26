@@ -564,6 +564,15 @@ describe("bounded audits", () => {
       expect(auditSeoMetadata(html).issues.find((issue) => issue.code === code)).toBeUndefined();
     }
   });
+  it("handles deeply nested aria-labelledby content without overflowing the call stack", () => {
+    const nested = (content: string) => "<span>".repeat(6000) + content + "</span>".repeat(6000);
+    const control = '<iframe src="/account" aria-labelledby="ref"></iframe>';
+    const code = "accessibility.iframe_name.missing_or_empty";
+    for (const [content, missing] of [["Account settings", false], ['<span hidden>Hidden</span>', true]] as const) {
+      const html = '<span id="ref">' + nested(content) + "</span>" + control;
+      expect(auditSeoMetadata(html).issues.some((issue) => issue.code === code)).toBe(missing);
+    }
+  });
   it("accepts an explicit empty alt on ordinary decorative images", () => {
     expect(auditSeoMetadata('<img src="divider.png" alt="">').issues
       .find((issue) => issue.code === "accessibility.image_alt.empty"))

@@ -469,6 +469,15 @@ test("aria-labelledby accepts a directly referenced aria-label as the accessible
     );
   }
 });
+test("aria-labelledby handles deeply nested label content without overflowing the call stack", () => {
+  const nested = (content) => "<span>".repeat(6000) + content + "</span>".repeat(6000);
+  const control = '<iframe src="/account" aria-labelledby="ref"></iframe>';
+  const code = "accessibility.iframe_name.missing_or_empty";
+  for (const [content, missing] of [["Account settings", false], ['<span hidden>Hidden</span>', true]]) {
+    const html = '<span id="ref">' + nested(content) + "</span>" + control;
+    assert.equal(auditSeoMetadata(html).some((issue) => issue.code === code), missing);
+  }
+});
 test("aria-labelledby uses non-decorative descendant image alt text in referenced labels", () => {
   const label = '<span id="ref"><img src="label.png" alt="Account settings"></span>';
   for (const [control, code] of [

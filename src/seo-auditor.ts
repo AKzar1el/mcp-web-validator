@@ -240,29 +240,35 @@ function referencedTextContent(element: unknown): string {
   const root = element as TextNode;
   // A directly referenced hidden root contributes its full subtree; hidden descendants of a visible root do not.
   const hiddenReference = isHiddenFromAccessibilityTree(root);
-  const traverse = (node: TextNode): string => {
+  const pending = [root];
+  const parts: string[] = [];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
     // Script, stylesheet and template contents never supply rendered label text.
-    if (node.name && ["script", "style", "template"].includes(node.name.toLowerCase())) return "";
+    if (node.name && ["script", "style", "template"].includes(node.name.toLowerCase())) continue;
     if (!hiddenReference && node !== root) {
       const attrs = node.attribs;
       // Visibility can be restored deeper in the subtree; display, inert and aria-hidden cannot.
       if (attrs && (Object.hasOwn(attrs, "hidden") || Object.hasOwn(attrs, "inert")
         || attrs["aria-hidden"]?.trim().toLowerCase() === "true"
         || inlineStyleValue(attrs.style ?? "", "display") === "none"
-        || inlineStyleValue(attrs.style ?? "", "content-visibility") === "hidden")) return "";
+        || inlineStyleValue(attrs.style ?? "", "content-visibility") === "hidden")) continue;
     }
     if (node.type === "text") {
-      return !hiddenReference && isHiddenFromAccessibilityTree(node) ? "" : (node.data ?? "");
+      if (hiddenReference || !isHiddenFromAccessibilityTree(node)) parts.push(node.data ?? "");
+      continue;
     }
     // Accessible name-from-content includes an embedded image's text alternative,
     // not just literal text nodes in the referenced label.
     if (node.name?.toLowerCase() === "img" && !isUnambiguouslyPresentationalElement(node)) {
-      if (!hiddenReference && isHiddenFromAccessibilityTree(node)) return "";
-      return node.attribs?.alt?.trim() ?? "";
+      if (hiddenReference || !isHiddenFromAccessibilityTree(node)) parts.push(node.attribs?.alt?.trim() ?? "");
+      continue;
     }
-    return (node.children ?? []).map(traverse).join("");
-  };
-  return traverse(root).trim();
+    // Reverse the push order to preserve document order without recursive calls.
+    const children = node.children ?? [];
+    for (let index = children.length - 1; index >= 0; index--) pending.push(children[index]);
+  }
+  return parts.join("").trim();
 }
 
 // Explicit role fallback uses the first recognized non-abstract role across WAI-ARIA, Graphics ARIA, and DPUB-ARIA.

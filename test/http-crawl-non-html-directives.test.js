@@ -52,6 +52,19 @@ test("P1-11: an unrelated user agent or googlebot-news does not become googlebot
   assert.equal(matches(r, "googlebot_noindex").length, 0);
 });
 
+test("P1-11: distinct named crawler scopes do not create false conflicts", () => {
+  const r = analyzeHttpDirectives([item({
+    x_robots_tag: ["bingbot: index, follow", "yandex: noindex, nofollow"],
+  })]);
+  assert.equal(r.conflicting_robots_resources, 0);
+  assert.equal(matches(r, "conflicting_robots").length, 0);
+  assert.equal(r.googlebot_noindex_resources, 0);
+  const same = analyzeHttpDirectives([item({
+    x_robots_tag: ["bingbot: index", "BingBot: noindex"],
+  })]);
+  assert.equal(same.conflicting_robots_resources, 1);
+});
+
 test("P1-11: noimageindex is an image-specific declaration, not a general noindex verdict", () => {
   const image = analyzeHttpDirectives([item({
     content_type: "image/png", x_robots_tag: ["googlebot: noimageindex"],

@@ -147,7 +147,6 @@ function mimeCategory(header: string | undefined): HttpMimeCategory {
   return "unknown";
 }
 
-type Scope = "generic" | "googlebot" | "googlebot-news" | "other";
 type RobotSet = {
   index: boolean; noindex: boolean; noimageindex: boolean;
   follow: boolean; nofollow: boolean;
@@ -168,25 +167,27 @@ function parseRobotHeaders(values: string[]): {
   googlebotNoimageindex: boolean;
   conflict: boolean;
 } {
-  const groups: Record<Scope, RobotSet> = {
-    generic: emptyRules(), googlebot: emptyRules(),
-    "googlebot-news": emptyRules(), other: emptyRules(),
-  };
+  const generic = emptyRules(), bot = emptyRules();
+  // Keep distinct crawler names separate; the empty key is the unscoped header.
+  const groups = new Map<string, RobotSet>([["", generic], ["googlebot", bot]]);
   let observed = false;
   for (const header of values) {
     if (!header.trim()) continue;
     observed = true;
-    let scope: Scope = "generic";
+    let scope = "";
     for (const rawSegment of header.split(",")) {
       let token = rawSegment.trim().toLowerCase();
       const prefix = /^([a-z][a-z0-9_-]{0,39}):\s*(.*)$/u.exec(token);
       if (prefix && !directiveKeys.has(prefix[1])) {
-        scope = prefix[1] === "googlebot" ? "googlebot"
-          : prefix[1] === "googlebot-news" ? "googlebot-news" : "other";
+        scope = prefix[1];
         token = prefix[2].trim();
       }
       const rule = token.split(/\s/u, 1)[0];
-      const group = groups[scope];
+      let group = groups.get(scope);
+      if (!group) {
+        group = emptyRules();
+        groups.set(scope, group);
+      }
       if (rule === "noindex" || rule === "none") group.noindex = true;
       if (rule === "noimageindex") group.noimageindex = true;
       if (rule === "index" || rule === "all") group.index = true;
@@ -194,8 +195,7 @@ function parseRobotHeaders(values: string[]): {
       if (rule === "follow" || rule === "all") group.follow = true;
     }
   }
-  const generic = groups.generic, bot = groups.googlebot;
-  const internalConflict = Object.values(groups).some((rules) =>
+  const internalConflict = Array.from(groups.values()).some((rules) =>
     (rules.index && rules.noindex) || (rules.follow && rules.nofollow));
   const crossScopeConflict = (generic.index && bot.noindex) || (generic.noindex && bot.index)
     || (generic.follow && bot.nofollow) || (generic.nofollow && bot.follow);

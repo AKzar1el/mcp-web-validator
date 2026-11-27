@@ -555,3 +555,31 @@ test("JSON-LD narration excludes inert template scripts from parsed block counts
   assert.match(mixed, /1 JSON-LD block parsed without syntax errors/);
   assert.doesNotMatch(mixed, /2 JSON-LD blocks/);
 });
+
+test("narration neutralizes Unicode bidi controls in untrusted diagnostics and URLs", () => {
+  const hostile = "visible \u202ereversed\u202c \u2066isolated\u2069";
+  const outputs = [
+    htmlValidationContent([{ type: "error", message: hostile }]),
+    linkCheckContent([{ url: `https://example.test/${hostile}`, status: "failed", ok: false, message: hostile }]),
+    failureContent("HTML validation", hostile, "Retry with safe input."),
+  ];
+  for (const output of outputs) {
+    assert.doesNotMatch(output, /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u);
+    assert.match(output, /visible/);
+    assert.match(output, /reversed/);
+  }
+});
+
+test("narration neutralizes Unicode bidi controls in untrusted diagnostics and URLs (full historical range)", () => {
+  const hostile = "visible \u202ereversed\u202c \u2066isolated\u2069 \u206a\u206b\u206c\u206d\u206e\u206f";
+  const outputs = [
+    htmlValidationContent([{ type: "error", message: hostile }]),
+    linkCheckContent([{ url: `https://example.test/${hostile}`, status: "failed", ok: false, message: hostile }]),
+    failureContent("HTML validation", hostile, "Retry with safe input."),
+  ];
+  for (const output of outputs) {
+    assert.doesNotMatch(output, /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u206f]/u);
+    assert.match(output, /visible/);
+    assert.match(output, /reversed/);
+  }
+});

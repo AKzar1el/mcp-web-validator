@@ -97,6 +97,8 @@ export interface PublicSiteAuditResult {
   discovery: SiteDiscovery;
   discovery_error?: "robots_unavailable" | "sitemap_unavailable" | "sitemap_invalid" | "sitemap_query_unsupported";
   pages_discovered: number;
+  pages_eligible: number;
+  pages_remaining: number;
   pages_selected: number;
   pages_audited: number;
   pages_partial: number;
@@ -752,6 +754,7 @@ async function discoverFromSitemaps(
       if (parsed.queryUnsupported) discoveryError ??= "sitemap_query_unsupported";
 
       for (const pageUrl of parsed.pageUrls) {
+        if (seenPages.has(crawlKey(pageUrl))) continue;
         if (pageUrls.length >= SITE_AUDIT_MAX_SITEMAP_URLS) {
           truncated = true;
           break;
@@ -759,11 +762,17 @@ async function discoverFromSitemaps(
         addUniqueUrl(pageUrls, seenPages, pageUrl);
       }
 
-      if (item.depth >= 1 && parsed.childSitemaps.length > 0) {
-        truncated = true;
+      if (item.depth >= 1) {
+        const queuedKeys = new Set(queue.map((entry) => crawlKey(entry.url)));
+        if (parsed.childSitemaps.some((child) => {
+          const key = crawlKey(child);
+          return !seenSitemaps.has(key) && !queuedKeys.has(key);
+        })) truncated = true;
         continue;
       }
       for (const childSitemap of parsed.childSitemaps) {
+        const childKey = crawlKey(childSitemap);
+        if (seenSitemaps.has(childKey) || queue.some((entry) => crawlKey(entry.url) === childKey)) continue;
         if (queue.length + seenSitemaps.size >= SITE_AUDIT_MAX_SITEMAPS) {
           truncated = true;
           break;
@@ -1171,6 +1180,8 @@ export async function auditPublicSite(options: PublicSiteAuditOptions): Promise<
     discovery: discovery.discovery,
     ...(discovery.discoveryError ? { discovery_error: discovery.discoveryError } : {}),
     pages_discovered: candidates.length,
+    pages_eligible: eligible.length,
+    pages_remaining: eligible.length - pageOffset - selected.length,
     pages_selected: selected.length,
     pages_audited: pagesAudited,
     pages_partial: pagesPartial,

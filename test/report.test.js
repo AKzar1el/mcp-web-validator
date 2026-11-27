@@ -730,3 +730,39 @@ test("report withholds CSS and overall scores for known upstream validator limit
   assert.match(result.report, /1 known validator limitation/);
   assert.match(result.report, /original Jigsaw diagnostic is preserved/i);
 });
+
+test("report neutralizes Unicode bidi controls in untrusted Markdown cells", () => {
+  const hostile = "visible \u202ereversed\u202c \u2066isolated\u2069";
+  const result = createValidationReport({
+    htmlFilePath: `page-${hostile}.html`,
+    cssAudited: true,
+    htmlMessages: [{ type: "error", message: hostile, extract: hostile }],
+    cssMessages: [{ type: "warning", line: 1, context: hostile, message: hostile }],
+    seoIssues: [{ severity: "warning", category: "SEO", message: hostile, element: hostile }],
+    schemaIssues: [],
+    links: [{ url: `https://example.com/${hostile}`, status: 404, ok: false, message: hostile }],
+  });
+
+  assert.doesNotMatch(result.report, /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u);
+  assert.match(result.report, /visible/);
+  assert.match(result.report, /reversed/);
+  assert.match(result.report, /isolated/);
+});
+
+test("report neutralizes Unicode bidi controls in untrusted Markdown cells (full historical range)", () => {
+  const hostile = "visible \u202ereversed\u202c \u2066isolated\u2069 \u206a\u206b\u206c\u206d\u206e\u206f";
+  const result = createValidationReport({
+    htmlFilePath: `page-${hostile}.html`,
+    cssAudited: true,
+    htmlMessages: [{ type: "error", message: hostile, extract: hostile }],
+    cssMessages: [{ type: "warning", line: 1, context: hostile, message: hostile }],
+    seoIssues: [{ severity: "warning", category: "SEO", message: hostile, element: hostile }],
+    schemaIssues: [],
+    links: [{ url: `https://example.com/${hostile}`, status: 404, ok: false, message: hostile }],
+  });
+
+  assert.doesNotMatch(result.report, /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u206f]/u);
+  assert.match(result.report, /visible/);
+  assert.match(result.report, /reversed/);
+  assert.match(result.report, /isolated/);
+});

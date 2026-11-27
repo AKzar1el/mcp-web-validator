@@ -158,6 +158,30 @@ test("V07: parameterized application/json is not classified as an inline script"
   assert.equal(inspect(nearMiss, nearMiss).raw.jsonld_blocks, 0);
 });
 
+test("V07: template scripts remain inert, including nested JSON-LD and external sources", () => {
+  const template = '<template><script type="application/ld+json">{"@type":"Product","secret":"HIDDEN"}</script>'
+    + '<template><script src="https://private.example.invalid/hidden.js"></script></template></template>';
+  const markup = html(meta + template, content);
+  const report = inspect(markup, markup, { browser_executed: true });
+  assert.equal(report.raw.jsonld_blocks, 0);
+  assert.equal(report.raw.external_script_tags, 0);
+  assert.equal(report.raw.inline_script_tags, 0);
+  assert.equal(report.rendered.jsonld_blocks, 0);
+  assert(!codes(report).includes("external_scripts_blocked"));
+  assert.equal(report.total_findings, 0);
+  assert(!JSON.stringify(report).includes("HIDDEN"));
+  assert(!JSON.stringify(report).includes("private.example.invalid"));
+});
+
+test("V07: inert template JSON-LD cannot mask a real rendered JSON-LD addition", () => {
+  const raw = html(meta + '<template><script type="application/ld+json">{"@type":"Product"}</script></template>', content);
+  const rendered = html(meta + '<script type="application/ld+json; charset=utf-8">{"@type":"Article"}</script>', content);
+  const report = inspect(raw, rendered);
+  assert.equal(report.raw.jsonld_blocks, 0);
+  assert.equal(report.rendered.jsonld_blocks, 1);
+  assert(codes(report).includes("jsonld_added"));
+});
+
 test("V07: query-bearing URLs and external links are counted but never exposed or merged", () => {
   const raw = html("<title>Safe</title>", "<main>"
     + '<a href="/articles?secret=private-key">Query</a>'

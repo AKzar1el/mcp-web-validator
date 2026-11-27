@@ -60,7 +60,7 @@ const SAFE_VIEWPORT_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
 const NAVIGATION_TIMEOUT_MS = 30_000;
 
 export const SCREENSHOT_HEADLESS_MODE = "shell" as const;
-export const SCREENSHOT_BROWSER_BUILD_ID = "157.0.8103.50";
+export const SCREENSHOT_BROWSER_BUILD_ID = "157.0.8103.78";
 
 type BrowserInstaller = (options: InstallOptions & { unpack?: true }) => Promise<{ executablePath: string }>;
 

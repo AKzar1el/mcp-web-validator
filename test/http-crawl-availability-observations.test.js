@@ -122,6 +122,18 @@ test("V02: strict timestamps, statuses, failure-exclusive flags and chronologica
   for (const samples of invalid) assert.throws(() => analyzeAvailabilityHistory(samples));
 });
 
+test("V02: reject normalized midnight clocks and preserve valid offset chronology", () => {
+  const before = { observed_at: "2026-11-27T23:59:59Z", status_code: 200 };
+  for (const observed_at of ["2026-11-27T24:00:00Z", "2026-11-28T24:00:00+01:00"]) {
+    assert.throws(() => analyzeAvailabilityHistory([before, { observed_at, status_code: 503 }]), /timestamp|date|clock/i);
+  }
+  const review = analyzeAvailabilityHistory([before, {
+    observed_at: "2026-11-28T01:00:00.125+01:00", status_code: 503,
+  }]);
+  assert.equal(review.last_observed_at, "2026-11-28T00:00:00.125Z");
+  assert.equal(review.latest_observed_state, "server_error");
+});
+
 test("V02: explicit failures never become HTTP responses or successful samples", () => {
   const r = analyzeAvailabilityHistory([
     f(0, "dns_error"), f(1, "network_error"), f(2, "policy_blocked"),

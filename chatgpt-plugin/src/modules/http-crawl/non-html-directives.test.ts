@@ -35,6 +35,19 @@ describe("P1-11 shared pure HTTP directive analysis under the hosted Worker bund
     expect(data.conflicting_robots_resources).toBe(0);
   });
 
+  it("distinguishes contradictions within one named crawler from different crawlers", () => {
+    const separate = analyzeHttpDirectives([observed({
+      x_robots_tag: ["bingbot: index, follow", "duckduckbot: noindex, nofollow"],
+    })]);
+    expect(separate.conflicting_robots_resources).toBe(0);
+    expect(separate.findings.some((f) => f.code === "conflicting_robots")).toBe(false);
+    expect(separate.googlebot_noindex_resources).toBe(0);
+    const same = analyzeHttpDirectives([observed({
+      x_robots_tag: ["bingbot: index, follow", "BINGBOT: noindex, nofollow"],
+    })]);
+    expect(same.conflicting_robots_resources).toBe(1);
+  });
+
   it("distinguishes image-specific noimageindex from generic noindex", () => {
     const image = analyzeHttpDirectives([observed({
       content_type: "image/jpeg", x_robots_tag: ["googlebot: noimageindex"],

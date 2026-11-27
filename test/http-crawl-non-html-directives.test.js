@@ -52,6 +52,26 @@ test("P1-11: an unrelated user agent or googlebot-news does not become googlebot
   assert.equal(matches(r, "googlebot_noindex").length, 0);
 });
 
+test("P1-11: distinct named crawler scopes do not fabricate a robots conflict", () => {
+  const separate = analyzeHttpDirectives([item({
+    x_robots_tag: ["bingbot: index, follow", "duckduckbot: noindex, nofollow"],
+  })]);
+  assert.equal(separate.conflicting_robots_resources, 0);
+  assert.equal(matches(separate, "conflicting_robots").length, 0);
+  assert.equal(separate.explicit_noindex_resources, 0);
+  assert.equal(separate.googlebot_noindex_resources, 0);
+  const same = analyzeHttpDirectives([item({
+    x_robots_tag: ["bingbot: index, follow", "BINGBOT: noindex, nofollow"],
+  })]);
+  assert.equal(same.conflicting_robots_resources, 1);
+  assert.equal(matches(same, "conflicting_robots").length, 1);
+  const namedGeneric = analyzeHttpDirectives([item({
+    x_robots_tag: ["index", "generic: noindex"],
+  })]);
+  assert.equal(namedGeneric.explicit_noindex_resources, 0);
+  assert.equal(namedGeneric.googlebot_noindex_resources, 0);
+});
+
 test("P1-11: noimageindex is an image-specific declaration, not a general noindex verdict", () => {
   const image = analyzeHttpDirectives([item({
     content_type: "image/png", x_robots_tag: ["googlebot: noimageindex"],

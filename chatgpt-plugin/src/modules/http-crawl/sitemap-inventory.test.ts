@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  analyzeSitemapInventory, emptySitemapInventoryReview,
+  analyzeSitemapInventory, emptySitemapInventoryReview, sitemapIndexChildUrls,
 } from "./sitemap-inventory";
 import { probeSitemapInventory } from "./sitemap-inventory-probe";
 import { PublicHttpProbeBudgetError } from "../../network";
@@ -55,6 +55,25 @@ describe("V05 shared bounded sitemap analyzer", () => {
       documents: [{ sitemap_url: site + "sitemap.xml?secret=token", content: urlset(page("a")) }],
     })).toThrow();
     expect(emptySitemapInventoryReview().coverage_limited).toBe(true);
+  });
+});
+
+describe("V05 XML literal character validation", () => {
+  it("rejects malformed literals without extracting index children or claiming complete coverage", () => {
+    for (const point of [0, 0xB, 0xD800, 0xFFFE, 0xFFFF]) {
+      const c = String.fromCodePoint(point);
+      const documents = [{ sitemap_url: site + "sitemap.xml",
+        content: index(`<sitemap><loc>${site}child.xml</loc></sitemap><!--${c}-->`) }];
+      const r = analyzeSitemapInventory({ site_url: site, documents_complete: true, documents });
+      expect(r.documents[0].kind).toBe("invalid");
+      expect(r.inventory_complete).toBe(false);
+      expect(r.findings.some(f => f.code === "xml_malformed")).toBe(true);
+      expect(sitemapIndexChildUrls({ site_url: site, documents })).toEqual([]);
+    }
+    const r = analyzeSitemapInventory({ site_url: site, documents_complete: true,
+      documents: [{ sitemap_url: site + "sitemap.xml", content: urlset(page("a") + "<!--\t\n\r\u{1F600}-->") }] });
+    expect(r.inventory_complete).toBe(true);
+    expect(r.distinct_page_urls).toBe(1);
   });
 });
 

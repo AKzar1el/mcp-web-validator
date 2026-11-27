@@ -187,6 +187,8 @@ export function sitemapFromRobotsTxt(siteUrl: string, robotsText: string): strin
  * nesting errors, extra roots and unbound-prefixed element names.
  */
 function isWellFormedXml(source: string): boolean {
+  // XML 1.0 Char production applies to literals everywhere, including comments and CDATA.
+  if (/[^\u0009\u000A\u000D\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/u.test(source)) return false;
   if (/<!\s*(?:DOCTYPE|ENTITY)/iu.test(source)) return false;
   const stack: string[] = [];
   const bindings: Array<Set<string>> = [];

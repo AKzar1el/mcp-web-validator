@@ -216,6 +216,38 @@ test("V05: invalid numeric XML character references invalidate offline sitemaps"
   }
 });
 
+test("V05: forbidden literal XML characters invalidate the entire sitemap", () => {
+  const invalid = [0, 1, 0xB, 0xC, 0x1F, 0xD800, 0xDFFF, 0xFFFE, 0xFFFF];
+  const contexts = [
+    c => urlset(`<url note="${c}"><loc>${site_url}page</loc></url>`),
+    c => urlset(loc(site_url + "page") + `<!--${c}-->`),
+    c => urlset(loc(site_url + "page") + `<extra><![CDATA[${c}]]></extra>`),
+    c => urlset(loc(site_url + "page") + `<extra>${c}</extra>`),
+    c => `<?test ${c}?>` + urlset(loc(site_url + "page")),
+  ];
+  for (const point of invalid) {
+    const c = String.fromCodePoint(point);
+    for (const [i, make] of contexts.entries()) {
+      const label = `${point.toString(16)} context ${i}`;
+      const result = analyze({ documents_complete: true, documents: [doc("/sitemap.xml", make(c))] });
+      assert.equal(result.documents[0].kind, "invalid", label);
+      assert.equal(result.inventory_complete, false, label);
+      assert.equal(result.distinct_page_urls, 0, label);
+      assert(codes(result).includes("xml_malformed"), label);
+    }
+    const documents = [doc("/sitemap.xml", index(child(site_url + "child.xml") + `<!--${c}-->`))];
+    assert.deepEqual(sitemapIndexChildUrls({ site_url, documents }), [], point.toString(16));
+  }
+  for (const point of [9, 10, 13, 0x20, 0x7F, 0x85, 0xD7FF, 0xE000, 0xFFFD, 0x10000, 0x1F600, 0x10FFFF]) {
+    for (const make of contexts) {
+      const result = analyze({ documents_complete: true, documents: [doc("/sitemap.xml", make(String.fromCodePoint(point)))] });
+      assert.equal(result.documents[0].kind, "urlset", point.toString(16));
+      assert.equal(result.inventory_complete, true, point.toString(16));
+      assert.equal(result.distinct_page_urls, 1, point.toString(16));
+    }
+  }
+});
+
 test("V05: plain text sitemap and path case/query URLs require absolute syntax", () => {
   const r = analyze({
     documents: [doc("/sitemap.txt",

@@ -188,7 +188,14 @@ function inspect(html: string, sourceUrl: string) {
       if (safe) links.add(safe);
     } catch { /* No graph edge for unsafe or invalid URLs. */ }
   }
-  const scripts = $("script").toArray();
+  // Template contents are inert until instantiated, even when Cheerio exposes
+  // their scripts through the document-wide selector.
+  const scripts = $("script").toArray().filter((el) => {
+    for (let ancestor = el.parent; ancestor; ancestor = ancestor.parent) {
+      if (ancestor.type === "tag" && ancestor.name === "template") return false;
+    }
+    return true;
+  });
   const scriptMediaType = (el: (typeof scripts)[number]) =>
     (($(el).attr("type") ?? "").split(";", 1)[0] ?? "").trim().toLowerCase();
   const snapshot: RenderSnapshot = {

@@ -4,6 +4,7 @@
  * probe. Rendering is NOT equivalent to Google WRS or its index decision.
  */
 import { load } from "cheerio";
+import type { AnyNode } from "domhandler";
 import { safeLinkPageUrl } from "../site-architecture/internal-link-quality.js";
 
 export const MAX_RENDER_HTML_BYTES = 524_288;
@@ -104,10 +105,33 @@ const textWords = (raw: string): string[] =>
     .filter((word) => word.length >= 2 && word.length <= 60)
     .slice(0, MAX_RENDER_WORDS + 1);
 
+const excludedMainDescendants = new Set([
+  "script", "style", "noscript", "template", "svg", "nav", "header", "footer", "aside",
+]);
+
+// Preserve textContent ordering and adjacency without cloning or recursively
+// traversing arbitrarily deep caller-supplied HTML. Exclusions apply only to
+// descendants, just as the previous clone().find(...).remove() did.
+function snapshotText(root: AnyNode | undefined, excluded?: ReadonlySet<string>): string {
+  if (!root) return "";
+  const pending: AnyNode[] = [root];
+  const chunks: string[] = [];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    if (node !== root && "name" in node && excluded?.has(node.name)) continue;
+    if (node.type === "text") {
+      chunks.push(node.data);
+    } else if ("children" in node) {
+      for (let i = node.children.length - 1; i >= 0; i--) pending.push(node.children[i]!);
+    }
+  }
+  return chunks.join("");
+}
+
 function inspect(html: string, sourceUrl: string) {
   const $ = load(html);
   const head = $("head");
-  const title = head.find("title").first().text().replace(/\s+/gu, " ").trim().slice(0, 600);
+  const title = snapshotText(head.find("title").first().get(0)).replace(/\s+/gu, " ").trim().slice(0, 600);
   const description = head.find('meta[name="description" i]').first()
     .attr("content")?.replace(/\s+/gu, " ").trim().slice(0, 1200) ?? "";
   const metaNoindex = head.find("meta[name][content]").toArray().some((el) => {
@@ -157,9 +181,8 @@ function inspect(html: string, sourceUrl: string) {
     return true;
   };
   const main = mainCandidates.find(outsideTemplate);
-  const root = main ? $(main).clone() : $("body").first().clone();
-  root.find("script,style,noscript,template,svg,nav,header,footer,aside").remove();
-  const mainText = root.text();
+  const root = main ?? $("body").first().get(0);
+  const mainText = snapshotText(root, excludedMainDescendants);
   const sampledWords = textWords(mainText);
   const wordsTruncated = sampledWords.length > MAX_RENDER_WORDS || mainText.length > 100_000;
   const words = sampledWords.slice(0, MAX_RENDER_WORDS);
@@ -218,7 +241,7 @@ function inspect(html: string, sourceUrl: string) {
         scriptMediaType(el))).length,
     sample_truncated: linksTruncated || wordsTruncated,
   };
-  return { snapshot, title, firstH1: $("body h1").first().text().trim().slice(0, 600),
+  return { snapshot, title, firstH1: snapshotText($("body h1").first().get(0)).trim().slice(0, 600),
     canonicalState, canonicalSet: normalizedCanonicals,
     links, words: new Set(words), linksTruncated, wordsTruncated };
 }

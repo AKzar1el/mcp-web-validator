@@ -210,6 +210,43 @@ test("V07: body fallback ignores inert primary content roots", () => {
   assert(!codes(report).some((code) => code.startsWith("main_text_")));
 });
 
+test("V07: deep primary and fallback content is compared without recursion failure", () => {
+  const inner = '<p>alpha <b>beta</b> gamma </p><nav>excluded navigation</nav>'
+    + '<template><p>excluded template</p></template><p>delta epsilon</p>';
+  const deep = "<div>".repeat(8000) + inner + "</div>".repeat(8000);
+  for (const wrap of [(body) => "<main>" + body + "</main>", (body) => body]) {
+    const flat = html(meta, wrap(inner));
+    const nested = html(meta, wrap(deep));
+    assert(Buffer.byteLength(nested) < MAX_RENDER_HTML_BYTES);
+    const expected = inspect(flat, flat);
+    assert.equal(expected.raw.main_words, 5);
+    assert.deepEqual(inspect(flat, nested), expected);
+    assert.deepEqual(inspect(nested, flat), expected);
+  }
+});
+
+test("V07: deep heading text preserves exact heading comparison", () => {
+  const flat = html(meta, '<main><h1>Heading content</h1></main>');
+  const nested = html(meta, '<main><h1>' + "<span>".repeat(8000)
+    + 'Heading content' + '</span>'.repeat(8000) + '</h1></main>');
+  assert(Buffer.byteLength(nested) < MAX_RENDER_HTML_BYTES);
+  assert.deepEqual(inspect(flat, nested), inspect(flat, flat));
+});
+
+test("V07: primary text preserves adjacency and excludes only descendant subtrees", () => {
+  const flat = html(meta, '<main>alphabet omega</main>');
+  const nested = html(meta, '<main>alpha<nav>ignored</nav><span>bet</span>'
+    + '<!-- ignored --> <script>ignored</script><style>ignored</style>'
+    + '<noscript>ignored</noscript><svg><text>ignored</text></svg>'
+    + '<header>ignored</header><footer>ignored</footer><aside>ignored</aside>omega</main>');
+  const report = inspect(flat, nested);
+  assert.equal(report.raw.main_words, 2);
+  assert.equal(report.rendered.main_words, 2);
+  assert.equal(report.shared_main_words, 2);
+  const selectedNav = html(meta, '<nav role="main">alpha<span>bet</span> omega</nav>');
+  assert.deepEqual(inspect(flat, selectedNav), inspect(flat, flat));
+});
+
 test("V07: query-bearing URLs and external links are counted but never exposed or merged", () => {
   const raw = html("<title>Safe</title>", "<main>"
     + '<a href="/articles?secret=private-key">Query</a>'

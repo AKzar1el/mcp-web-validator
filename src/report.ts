@@ -85,7 +85,7 @@ function scoreIndicator(score: number | null): string {
 
 function markdownCell(value: unknown): string {
   return String(value ?? "")
-    .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]+/g, " ")
+    .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u206f]+/g, " ")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -96,7 +96,7 @@ function markdownCell(value: unknown): string {
 
 function markdownCodeSpan(value: string): string {
   const content = value
-    .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]+/g, " ")
+    .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u206f]+/g, " ")
     .trim();
   const longestBackticks = Math.max(0, ...Array.from(content.matchAll(/`+/g), (match) => match[0].length));
   const delimiter = "`".repeat(longestBackticks + 1);

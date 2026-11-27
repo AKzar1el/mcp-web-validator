@@ -121,3 +121,24 @@ if (checkOnly) {
   await writeFile(registryPath, `${JSON.stringify(registryExpected, null, 2)}\n`, "utf8");
   console.log(`Updated registry/server.json to version ${packageJson.version}.`);
 }
+
+const geminiPath = path.join(repositoryRoot, "gemini-extension.json");
+const geminiCurrent = JSON.parse(await readFile(geminiPath, "utf8"));
+const geminiExpected = {
+  ...geminiCurrent,
+  name: packageJson.name,
+  version: packageJson.version,
+  mcpServers: {
+    [packageJson.name]: {
+      command: "npx",
+      args: ["-y", `${packageJson.name}@${packageJson.version}`],
+    },
+  },
+};
+if (checkOnly) {
+  assert.deepStrictEqual(geminiCurrent, geminiExpected,
+    "gemini-extension.json is stale. Run npm run sync:manifests and commit the result.");
+} else {
+  await writeFile(geminiPath, `${JSON.stringify(geminiExpected, null, 2)}\n`, "utf8");
+  console.log(`Updated gemini-extension.json to version ${packageJson.version}.`);
+}

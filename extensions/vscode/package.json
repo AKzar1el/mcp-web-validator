@@ -1,0 +1,81 @@
+{
+  "name": "digestseo-web-validator",
+  "displayName": "DigestSEO Web Validator",
+  "description": "Local HTML, metadata and JSON-LD diagnostics with the shared Web Validator analysis engine.",
+  "version": "0.1.0",
+  "publisher": "tomiseregi",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AKzar1el/mcp-web-validator.git",
+    "directory": "extensions/vscode"
+  },
+  "homepage": "https://digestseo.com/validator-mcp/",
+  "bugs": {
+    "url": "https://github.com/AKzar1el/mcp-web-validator/issues"
+  },
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "html",
+    "seo",
+    "canonical",
+    "robots",
+    "json-ld",
+    "metadata"
+  ],
+  "main": "./dist/extension.cjs",
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onLanguage:html"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "digestseoWebValidator.review",
+        "title": "DigestSEO: Review Active HTML"
+      },
+      {
+        "command": "digestseoWebValidator.clear",
+        "title": "DigestSEO: Clear Diagnostics"
+      }
+    ],
+    "configuration": {
+      "title": "DigestSEO Web Validator",
+      "properties": {
+        "digestseoWebValidator.onSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Review the active HTML document when it is saved. No network requests or workspace scans."
+        },
+        "digestseoWebValidator.pageUrl": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Optional exact public HTTP(S) URL of the document being reviewed. Set only for the intended page; relative URL comparison is skipped if omitted."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "npm run build && node --test test/review.test.cjs",
+    "test:host": "node test/launch-host.cjs",
+    "vscode:prepublish": "npm test",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "cheerio": "1.2.0",
+    "parse5": "7.3.0",
+    "esbuild": "0.28.1",
+    "@vscode/vsce": "4.1.1"
+  },
+  "icon": "icon.png"
+}

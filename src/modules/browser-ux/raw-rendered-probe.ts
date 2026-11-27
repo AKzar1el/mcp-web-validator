@@ -5,6 +5,7 @@
  * local files, screenshots or persistent browser profile.
  */
 import { load } from "cheerio";
+import type { AnyNode } from "domhandler";
 import {
   defaultScreenshotBrowserRuntime, type ScreenshotBrowserRuntime,
 } from "../../screenshot.js";
@@ -22,6 +23,8 @@ import {
 
 const DENY_ALL_PROXY = "http://127.0.0.1:9";
 const SERVICE_UA = "DigestSEO-Web-Validator/1.3";
+// parse5's serializer is recursive; the byte cap alone does not bound its stack.
+const MAX_RENDER_DOM_DEPTH = 512;
 const bytes = (s: string) => new TextEncoder().encode(s).byteLength;
 const guard = (value: string) => {
   const safe = safeHttpResourceUrl(value);
@@ -30,6 +33,19 @@ const guard = (value: string) => {
 };
 async function cancel(response: Response) {
   try { await response.body?.cancel(); } catch { /* Already exhausted. */ }
+}
+
+function assertSerializableDepth(root: AnyNode): void {
+  const pending = [{ node: root, depth: 0 }];
+  while (pending.length > 0) {
+    const { node, depth } = pending.pop()!;
+    if (depth > MAX_RENDER_DOM_DEPTH) {
+      throw new Error("Normalized source HTML exceeds the render DOM depth cap.");
+    }
+    if ("children" in node) {
+      for (const child of node.children) pending.push({ node: child, depth: depth + 1 });
+    }
+  }
 }
 
 /**
@@ -51,6 +67,7 @@ export async function renderInlineHtml(
   // Inline JavaScript is the only executable source allowed into Chromium.
   $("script[src],iframe,frame,frameset,object,embed,portal").remove();
   $('meta[http-equiv="refresh" i]').remove();
+  assertSerializableDepth($.root()[0]!);
   const sanitized = $.html();
   if (bytes(sanitized) > MAX_RENDER_HTML_BYTES) {
     throw new Error("Normalized source HTML exceeds the render byte cap.");

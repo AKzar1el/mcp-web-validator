@@ -2570,6 +2570,8 @@ describe("public site audit", () => {
 
     expect(result.structuredContent).toMatchObject({
       pages_selected: 1,
+      pages_eligible: 1,
+      pages_remaining: 0,
       pages_audited: 1,
       pages_skipped_robots: 1,
       overview: { status: "partial" },
@@ -2580,6 +2582,7 @@ describe("public site audit", () => {
       value: 1,
     }));
     expect(JSON.stringify(result)).not.toContain("https://example.com/private</loc>");
+    expect(result.structuredContent.overview.detail).toContain("1 discovered crawlable page");
   });
 
   it("returns compact same-origin sitemap summaries without exposing fetched HTML", async () => {
@@ -2595,7 +2598,7 @@ describe("public site audit", () => {
         return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
       }
       if (url === "https://example.com/sitemap.xml") {
-        return new Response("<urlset><url><loc>https://example.com/</loc></url></urlset>", {
+        return new Response("<urlset><url><loc>https://example.com/</loc></url><url><loc>https://example.com/next</loc></url></urlset>", {
           headers: { "content-type": "application/xml" },
         });
       }
@@ -2614,6 +2617,9 @@ describe("public site audit", () => {
       site_url: "https://example.com/",
       discovery: "sitemap",
       pages_selected: 1,
+      pages_eligible: 2,
+      pages_remaining: 1,
+      next_page_offset: 1,
       pages_audited: 1,
       pages_partial: 0,
       pages_failed: 0,
@@ -2622,6 +2628,11 @@ describe("public site audit", () => {
     });
     expect(JSON.stringify(result)).not.toContain(privateMarker);
     expect(result.content[0]?.text).toContain("Public site audit");
+    expect(result.structuredContent.overview.detail).toContain("1 discovered crawlable page remains");
+    expect(result.structuredContent.overview.counts).toContainEqual(expect.objectContaining({
+      key: "pages_remaining",
+      value: 1,
+    }));
   });
 
   it("explains exhausted or out-of-range site audit continuation offsets", async () => {
@@ -2685,9 +2696,12 @@ describe("public site audit", () => {
     expect(result.structuredContent).toMatchObject({
       pages_partial: 1,
       pages_audited: 0,
+      pages_eligible: 2,
+      pages_remaining: 1,
       next_page_offset: 1,
       overview: { status: "partial" },
     });
+    expect(result.structuredContent.overview.detail).toContain("1 discovered crawlable page remains");
     const nextAction = result.structuredContent.overview.next_action;
     expect(nextAction).toContain("page_offset 1");
     expect(nextAction).toContain("Review partial and failed page coverage");

@@ -91,6 +91,16 @@ test("V02: sparse and widely separated samples never establish continuity", () =
   assert.equal(r.last_observed_at, "2026-11-20T14:00:00.000Z");
 });
 
+test("V02: large sampling gap uses the exact one-hour threshold", () => {
+  for (const [gapMs, expected] of [[3_599_900, false], [3_600_000, true], [3_600_100, true]]) {
+    const r = analyzeAvailabilityHistory([h(0, 200), {
+      observed_at: new Date(Date.parse(t(0)) + gapMs).toISOString(), status_code: 200,
+    }]);
+    assert.equal(r.max_observation_gap_minutes, 60);
+    assert.equal(codes(r).includes("large_sampling_gap"), expected, `gap ${gapMs}ms`);
+  }
+});
+
 test("V02: strict timestamps, statuses, failure-exclusive flags and chronological order", () => {
   const invalid = [
     [h(0, 200)],

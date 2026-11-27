@@ -48,7 +48,7 @@ interface ValidationReportResult extends ValidationReport {
 function collapseWhitespace(value: string, maxLength = 240): string {
   // Validator text is untrusted; terminal and bidi controls survive whitespace folding.
   const collapsed = value
-    .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]+/g, " ")
+    .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u206f]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (collapsed.length <= maxLength) {

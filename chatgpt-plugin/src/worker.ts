@@ -1249,6 +1249,8 @@ const siteAuditOutputSchema = {
   discovery: z.enum(["sitemap", "root_only", "partial"]),
   discovery_error: z.enum(["robots_unavailable", "sitemap_unavailable", "sitemap_invalid", "sitemap_query_unsupported"]).optional(),
   pages_discovered: z.number().int().nonnegative(),
+  pages_eligible: z.number().int().nonnegative(),
+  pages_remaining: z.number().int().nonnegative(),
   pages_selected: z.number().int().nonnegative(),
   pages_audited: z.number().int().nonnegative(),
   pages_partial: z.number().int().nonnegative(),
@@ -1272,6 +1274,9 @@ const siteAuditOutputSchema = {
 
 const siteAuditSnapshotSchema = z.object({
   ...siteAuditOutputSchema,
+  // Saved snapshots created before crawlable-page counters remain comparable.
+  pages_eligible: siteAuditOutputSchema.pages_eligible.optional(),
+  pages_remaining: siteAuditOutputSchema.pages_remaining.optional(),
   site_url: z.string().url().max(2_048),
   discovery_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   pages: z.array(sitePageSchema).max(SITE_AUDIT_MAX_PAGES),
@@ -2138,7 +2143,10 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     : result.discovery_error
       ? `Discovery was incomplete (${result.discovery_error}); selected-page coverage is not site-wide coverage. `
       : "";
-  const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_selected, "page")} were selected. ${discoveryDetail}${scoreDetail} Main-content duplication comparison covered ${result.content_duplicates.eligible_pages}/${result.content_duplicates.sampled_pages} selected pages. Main-text quality review observed ${result.content_quality.eligible_pages}/${result.content_quality.sampled_pages} pages; short text and repetition are review signals, not rankings or usefulness verdicts. Hreflang/canonical analysis observed ${result.multilingual_clusters.eligible_pages}/${result.multilingual_clusters.sampled_pages} selected pages; unvisited alternate targets are unverified. These checks concern sampled static HTML only. Link checks are intentionally not run by this bounded site tool; no Google indexing decision is inferred.`;
+  const remainingDetail = result.pages_remaining === 0
+    ? "No discovered crawlable pages remain for later batches."
+    : `${plural(result.pages_remaining, "discovered crawlable page")} ${result.pages_remaining === 1 ? "remains" : "remain"} for later batches.`;
+  const detail = `Sitemap-first discovery found ${plural(result.pages_discovered, "same-origin candidate page")}; ${plural(result.pages_eligible, "discovered crawlable page")} ${result.pages_eligible === 1 ? "is" : "are"} eligible, and ${plural(result.pages_selected, "page")} ${result.pages_selected === 1 ? "was" : "were"} selected in this batch. ${remainingDetail} ${discoveryDetail}${scoreDetail} Main-content duplication comparison covered ${result.content_duplicates.eligible_pages}/${result.content_duplicates.sampled_pages} selected pages. Main-text quality review observed ${result.content_quality.eligible_pages}/${result.content_quality.sampled_pages} pages; short text and repetition are review signals, not rankings or usefulness verdicts. Hreflang/canonical analysis observed ${result.multilingual_clusters.eligible_pages}/${result.multilingual_clusters.sampled_pages} selected pages; unvisited alternate targets are unverified. These checks concern sampled static HTML only. Link checks are intentionally not run by this bounded site tool; no Google indexing decision is inferred.`;
   const incompletePageGuidance = result.pages_partial > 0 || result.pages_failed > 0
     ? " Review partial and failed page coverage, then retry affected batches after resolving failures."
     : "";
@@ -2170,6 +2178,7 @@ function siteAuditOverview(result: Awaited<ReturnType<typeof auditPublicSite>>):
     truncated: result.truncated || result.issue_groups_truncated || result.indexability_graph.findings_truncated || result.content_duplicates.pairs_truncated || result.multilingual_clusters.findings_truncated || result.content_quality.findings_truncated,
     counts: [
       metric("pages_audited", "Pages audited", result.pages_audited, "success"),
+      metric("pages_remaining", "Discovered pages remaining", result.pages_remaining, "info"),
       metric("pages_partial", "Pages partial", result.pages_partial, "warning"),
       metric("pages_failed", "Pages failed", result.pages_failed, "error"),
       metric("pages_skipped_robots", "Pages excluded by robots", result.pages_skipped_robots, "warning"),
@@ -2199,6 +2208,8 @@ function failedPublicSiteAudit(error: string) {
       site_url: "",
       discovery: "root_only" as const,
       pages_discovered: 0,
+      pages_eligible: 0,
+      pages_remaining: 0,
       pages_selected: 0,
       pages_audited: 0,
       pages_partial: 0,

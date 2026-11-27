@@ -156,12 +156,20 @@ function referencedTextContent(element: unknown): string {
   for (let ancestor: TextNode | null | undefined = root; ancestor; ancestor = ancestor.parent) {
     if (isHidden(ancestor)) { hiddenReference = true; break; }
   }
-  const traverse = (node: TextNode): string => {
-    if (!hiddenReference && node !== root && isHidden(node)) return "";
-    if (node.type === "text") return node.data ?? "";
-    return (node.children ?? []).map(traverse).join("");
-  };
-  return traverse(root).trim();
+  const pending = [root];
+  const parts: string[] = [];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    if (!hiddenReference && node !== root && isHidden(node)) continue;
+    if (node.type === "text") {
+      parts.push(node.data ?? "");
+      continue;
+    }
+    // Reverse the push order to preserve document order without recursive calls.
+    const children = node.children ?? [];
+    for (let index = children.length - 1; index >= 0; index--) pending.push(children[index]);
+  }
+  return parts.join("").trim();
 }
 
 // Explicit role fallback uses the first recognized non-abstract role across WAI-ARIA, Graphics ARIA, and DPUB-ARIA.

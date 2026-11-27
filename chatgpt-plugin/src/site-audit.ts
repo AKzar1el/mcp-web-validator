@@ -1013,10 +1013,16 @@ function groupFindings(
           pages: new Set<string>(),
         };
         groups.set(key, group);
-      } else if (finding.code === "accessibility.image_alt.missing" && group.message !== finding.message) {
-        // The same rule covers img, role=img, and SVG, which require different labels.
-        // Use accurate shared guidance while retaining each page's specific finding.
-        group.message = "Every affected image or element with an image role needs an accessible name. Use meaningful alt text on images or a supported label such as aria-label, aria-labelledby, title, or an SVG title as appropriate.";
+      } else if (group.message !== finding.message) {
+        // The same rule code can describe different page-specific values.
+        // Keep details on each page, but avoid misattributing them to the whole site.
+        if (finding.code === "accessibility.image_alt.missing") {
+          group.message = "Every affected image or element with an image role needs an accessible name. Use meaningful alt text on images or a supported label such as aria-label, aria-labelledby, title, or an SVG title as appropriate.";
+        } else if (finding.code === "seo.open_graph.invalid_url") {
+          group.message = "Every affected Open Graph og:image or og:url value needs an absolute HTTP(S) URL without embedded credentials for reliable social previews.";
+        } else if (finding.code === "accessibility.page_language.invalid_primary_subtag") {
+          group.message = "The document <html> lang attribute uses an unknown primary language subtag. Use a primary language subtag registered by IANA.";
+        }
       }
       group.pages.add(page.fetched_url ?? page.url);
     }

@@ -1035,6 +1035,55 @@ describe("auditPublicSite", () => {
     }));
   });
 
+  it.each([
+    ["different Open Graph properties", "image", "url", "seo.open_graph.invalid_url",
+      "Every affected Open Graph og:image or og:url value needs an absolute HTTP(S) URL without embedded credentials for reliable social previews."],
+    ["Open Graph properties reversed", "url", "image", "seo.open_graph.invalid_url",
+      "Every affected Open Graph og:image or og:url value needs an absolute HTTP(S) URL without embedded credentials for reliable social previews."],
+    ["same Open Graph property", "image", "image", "seo.open_graph.invalid_url",
+      "Open Graph og:image needs an absolute HTTP(S) URL without embedded credentials for reliable social previews."],
+    ["different unknown language subtags", "em-US", "eng", "accessibility.page_language.invalid_primary_subtag",
+      "The document <html> lang attribute uses an unknown primary language subtag. Use a primary language subtag registered by IANA."],
+    ["unknown language subtags reversed", "eng", "em-US", "accessibility.page_language.invalid_primary_subtag",
+      "The document <html> lang attribute uses an unknown primary language subtag. Use a primary language subtag registered by IANA."],
+    ["same unknown language subtag", "em-US", "em-US", "accessibility.page_language.invalid_primary_subtag",
+      'The document <html> lang attribute uses unknown primary language subtag "em". Use a primary language subtag registered by IANA.'],
+  ])("uses accurate shared site guidance for %s", async (_description, first, second, code, expectedMessage) => {
+    const html = (page: string, variant: string) => {
+      const lang = code.startsWith("accessibility.") ? variant : "en";
+      const ogImage = variant === "image" ? "/relative-image.png" : "https://example.com/image.png";
+      const ogUrl = variant === "url" ? "/relative-page" : "https://example.com/page";
+      return `<!doctype html><html lang='${lang}'><head><title>A descriptive page title for testing</title><meta name=description content='A useful description with enough characters to meet the normal metadata target for this focused test page.'><meta name=viewport content='width=device-width'><link rel=canonical href='${page}'><meta property='og:title' content='Title'><meta property='og:type' content='website'><meta property='og:image' content='${ogImage}'><meta property='og:url' content='${ogUrl}'></head><body><h1>Example</h1></body></html>`;
+    };
+    vi.stubGlobal("fetch", vi.fn(async (target: RequestInfo | URL) => {
+      const url = String(target);
+      if (url === "https://example.com/") return htmlResponse(html(url, first));
+      if (url === "https://example.com/second") return htmlResponse(html(url, second));
+      if (url === "https://example.com/robots.txt") {
+        return new Response("User-agent: *\nSitemap: /sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+      }
+      if (url === "https://example.com/sitemap.xml") {
+        return new Response("<urlset><url><loc>https://example.com/</loc></url><url><loc>https://example.com/second</loc></url></urlset>", {
+          headers: { "content-type": "application/xml" },
+        });
+      }
+      if (url.startsWith("https://html5.validator.nu/")) return Response.json({ messages: [] });
+      throw new Error(`Unexpected fetch target: ${url}`);
+    }));
+    const result = await auditPublicSite({ siteUrl: "https://example.com/", maxPages: 2, pageOffset: 0 });
+    const group = result.issue_groups.find((item) => item.code === code);
+    expect(group).toMatchObject({
+      affected_pages: 2,
+      example_urls: ["https://example.com/", "https://example.com/second"],
+      message: expectedMessage,
+    });
+    const specificMessage = (variant: string) => code.startsWith("accessibility.")
+      ? `The document <html> lang attribute uses unknown primary language subtag "${variant.split("-")[0]}". Use a primary language subtag registered by IANA.`
+      : `Open Graph og:${variant} needs an absolute HTTP(S) URL without embedded credentials for reliable social previews.`;
+    expect(result.pages[0]?.top_findings.find((item) => item.code === code)?.message).toBe(specificMessage(first));
+    expect(result.pages[1]?.top_findings.find((item) => item.code === code)?.message).toBe(specificMessage(second));
+  });
+
   it("groups the same stable schema rule across pages despite instance-specific block numbers", async () => {
     const firstPage = "<!doctype html><html><head><title>First page with a descriptive title for testing</title><meta name=description content='A useful description with enough characters to meet the normal metadata target for this focused test page.'><meta name=viewport content='width=device-width'><link rel=canonical href='https://example.com/'><script type='application/ld+json'>{not json}</script></head><body><h1>First</h1></body></html>";
     const secondPage = "<!doctype html><html><head><title>Second page with a descriptive title for testing</title><meta name=description content='A useful description with enough characters to meet the normal metadata target for this focused test page.'><meta name=viewport content='width=device-width'><link rel=canonical href='https://example.com/second'><script type='application/ld+json'>{\"@context\":\"https://schema.org\"}</script><script type='application/ld+json'>{not json}</script></head><body><h1>Second</h1></body></html>";

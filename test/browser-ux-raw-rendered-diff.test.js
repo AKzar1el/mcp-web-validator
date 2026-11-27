@@ -347,6 +347,22 @@ test("V07: invalid, oversized and hostile inputs are rejected before browser lau
   assert.equal(emptyRawRenderedReview().coverage_limited, true);
 });
 
+test("V07: inline rendering rejects excessive DOM nesting before serialization or launch", async () => {
+  let launched = 0;
+  const runtime = { async launch() { launched++; throw new Error("mock launch"); } };
+  for (const depth of [4000, 8000]) {
+    const nested = "<div>".repeat(depth) + "private fixture" + "</div>".repeat(depth);
+    assert(Buffer.byteLength(nested) < MAX_RENDER_HTML_BYTES);
+    await assert.rejects(renderInlineHtml(nested, site, runtime), {
+      message: "Normalized source HTML exceeds the render DOM depth cap.",
+    });
+  }
+  assert.equal(launched, 0);
+  const ordinary = "<div>".repeat(400) + "text" + "</div>".repeat(400);
+  await assert.rejects(renderInlineHtml(ordinary, site, runtime), /mock launch/);
+  assert.equal(launched, 1);
+});
+
 test("V07: explicit fixed messages and finding cap prevent leaking source or browser errors", () => {
   const report = inspect(source, html("", "<main>Gone</main>"), {
     page_url: site,

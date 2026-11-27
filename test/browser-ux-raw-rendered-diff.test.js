@@ -182,6 +182,34 @@ test("V07: inert template JSON-LD cannot mask a real rendered JSON-LD addition",
   assert(codes(report).includes("jsonld_added"));
 });
 
+test("V07: inert template content roots cannot replace active primary content", () => {
+  const baseline = inspect(source, source);
+  for (const candidate of [
+    "<template><main>inert short text</main></template>",
+    '<template><div role="main">inert short text</div></template>',
+    "<template><article>inert short text</article></template>",
+    "<template><template><main>inert short text</main></template></template>",
+    '<template role="main">inert short text</template>',
+  ]) {
+    const withTemplate = html(meta, candidate + content);
+    for (const [raw, rendered] of [[withTemplate, source], [source, withTemplate]]) {
+      const report = inspect(raw, rendered);
+      assert.equal(report.raw.main_words, baseline.raw.main_words, candidate);
+      assert.equal(report.rendered.main_words, baseline.rendered.main_words, candidate);
+      assert(!codes(report).some((code) => code.startsWith("main_text_")), candidate);
+    }
+  }
+});
+
+test("V07: body fallback ignores inert primary content roots", () => {
+  const body = '<div><p>Meaningful active body text remains stable when inert template content is removed.</p></div>';
+  const page = html(meta, body);
+  const report = inspect(html(meta, '<template><main>inert short text</main></template>' + body), page);
+  assert.equal(report.raw.main_words, report.rendered.main_words);
+  assert(report.raw.main_words > 3);
+  assert(!codes(report).some((code) => code.startsWith("main_text_")));
+});
+
 test("V07: query-bearing URLs and external links are counted but never exposed or merged", () => {
   const raw = html("<title>Safe</title>", "<main>"
     + '<a href="/articles?secret=private-key">Query</a>'

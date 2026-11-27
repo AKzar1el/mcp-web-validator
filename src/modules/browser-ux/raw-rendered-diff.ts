@@ -147,8 +147,17 @@ function inspect(html: string, sourceUrl: string) {
       normalizedCanonicals.has(sourceUrl) ? "self" : "different";
   // Evaluate only text visible in the source HTML structure, not CSS computed
   // visibility or Google-selected content. Dynamic styles are out of scope.
-  const main = $("main,[role='main'],article").first();
-  const root = main.length ? main.clone() : $("body").first().clone();
+  const mainCandidates = $("main,[role='main'],article").toArray();
+  // Cheerio exposes inert template descendants through document-wide selectors.
+  const outsideTemplate = (el: (typeof mainCandidates)[number]) => {
+    if (el.name === "template") return false;
+    for (let ancestor = el.parent; ancestor; ancestor = ancestor.parent) {
+      if (ancestor.type === "tag" && ancestor.name === "template") return false;
+    }
+    return true;
+  };
+  const main = mainCandidates.find(outsideTemplate);
+  const root = main ? $(main).clone() : $("body").first().clone();
   root.find("script,style,noscript,template,svg,nav,header,footer,aside").remove();
   const mainText = root.text();
   const sampledWords = textWords(mainText);
@@ -190,12 +199,7 @@ function inspect(html: string, sourceUrl: string) {
   }
   // Template contents are inert until instantiated, even when Cheerio exposes
   // their scripts through the document-wide selector.
-  const scripts = $("script").toArray().filter((el) => {
-    for (let ancestor = el.parent; ancestor; ancestor = ancestor.parent) {
-      if (ancestor.type === "tag" && ancestor.name === "template") return false;
-    }
-    return true;
-  });
+  const scripts = $("script").toArray().filter(outsideTemplate);
   const scriptMediaType = (el: (typeof scripts)[number]) =>
     (($(el).attr("type") ?? "").split(";", 1)[0] ?? "").trim().toLowerCase();
   const snapshot: RenderSnapshot = {

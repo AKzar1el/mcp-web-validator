@@ -3,6 +3,8 @@
  * This is an analyzer of observed outcomes, NOT an uptime monitor, a scheduler,
  * a Googlebot verification tool, or evidence of continuous availability.
  */
+import { strictObservationTime } from "../change-regression/strict-observation-time.js";
+
 export const MAX_AVAILABILITY_OBSERVATIONS = 48;
 export const MAX_AVAILABILITY_FINDINGS = 12;
 export const AVAILABILITY_FAILURE_CODES = [
@@ -98,25 +100,14 @@ export function emptyAvailabilityReview(
   };
 }
 
-const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/u;
 const failures = new Set<string>(AVAILABILITY_FAILURE_CODES);
 
 export function validateAvailabilityObservation(value: AvailabilityObservation): number {
-  if (!value || typeof value !== "object" ||
-    typeof value.observed_at !== "string" || value.observed_at.length > 40 ||
-    !timestampPattern.test(value.observed_at)) {
-    throw new Error("Each availability sample requires an ISO timestamp with an explicit UTC offset.");
+  const timestamp = value && typeof value === "object"
+    ? strictObservationTime(value.observed_at) : undefined;
+  if (timestamp === undefined) {
+    throw new Error("Each availability sample requires a real ISO timestamp with an explicit UTC offset and valid calendar date and clock.");
   }
-  const year = Number(value.observed_at.slice(0, 4));
-  const month = Number(value.observed_at.slice(5, 7));
-  const day = Number(value.observed_at.slice(8, 10));
-  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1]) {
-    throw new Error("Availability observation must have a real calendar day.");
-  }
-  const timestamp = Date.parse(value.observed_at);
-  if (!Number.isFinite(timestamp)) throw new Error("The availability timestamp must be a real date.");
   const hasStatus = value.status_code !== undefined;
   const hasFailure = value.failure !== undefined;
   if (hasStatus === hasFailure) {

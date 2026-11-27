@@ -69,6 +69,7 @@ test("V02: duplicate capture is idempotent, but retroactive, inconsistent and in
   for (const invalid of [
     sample(2), sample(3, 200), { observed_at: sample(5).observed_at },
     { ...sample(5), status_code: 200, failure: "timeout" },
+    { observed_at: "2026-11-27T24:00:00Z", status_code: 503 },
   ]) {
     await assert.rejects(async () => saveAvailabilityObservation(url, invalid, root));
   }

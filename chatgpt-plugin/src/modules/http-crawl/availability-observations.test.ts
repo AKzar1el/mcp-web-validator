@@ -45,6 +45,16 @@ describe("V02 shared availability analyzer in Worker", () => {
     }
   });
 
+  it("rejects out-of-range clock hours rather than rolling to the next day", () => {
+    const before = { observed_at: "2026-11-27T23:59:59Z", status_code: 200 };
+    for (const observed_at of ["2026-11-27T24:00:00Z", "2026-11-28T24:00:00+01:00"]) {
+      expect(() => analyzeAvailabilityHistory([before, { observed_at, status_code: 503 }])).toThrow(/timestamp|date|clock/i);
+    }
+    expect(analyzeAvailabilityHistory([before, {
+      observed_at: "2026-11-28T01:00:00.125+01:00", status_code: 503,
+    }]).last_observed_at).toBe("2026-11-28T00:00:00.125Z");
+  });
+
   it("treats HTTP 200 Cloudflare challenge as non-success, not proof of page delivery", () => {
     const review = analyzeAvailabilityHistory([
       { observed_at: at(0), status_code: 200, cf_challenge: true },
